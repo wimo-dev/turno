@@ -4,6 +4,7 @@
  * reads identity folders: completing never starts Chrome or reads the secret store.
  */
 import { SHELLS, type Sub, completionScripts } from "turno-core/cli";
+import { BROWSER_IDS } from "../browsers.js";
 import { listIdentities } from "../identities.js";
 import { CURSOR_MODES, RESOURCE_MODES } from "../settings.js";
 import { ACTION_NAMES } from "./do.js";
@@ -44,6 +45,7 @@ const FLAG_VALUES: Record<string, readonly string[] | "identity" | "file"> = {
   "--agent": [...SETUP_AGENTS, "none"],
   "--cursor": CURSOR_MODES,
   "--resources": RESOURCE_MODES,
+  "--browser": BROWSER_IDS,
 };
 
 const GLOBAL_FLAGS = ["--help", "--version", "--no-input", "--color"];

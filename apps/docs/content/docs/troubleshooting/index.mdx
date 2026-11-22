@@ -92,7 +92,9 @@ It exits with code 1 when a check fails; warnings exit 0. Each row below is one 
 | [An identity is not signed in (NEEDS_AUTH)](/docs/troubleshooting/browser-needs-auth) | `NEEDS_AUTH: not signed in at <url>: <health> (checked <checked at>)` | failure |
 | [An identity's health check could not run](/docs/troubleshooting/browser-health-check-failed) | `the health check of <url> could not run: <health> (checked <checked at>)` | warning |
 | [An identity met challenges in the last 7 days](/docs/troubleshooting/browser-challenges) | `<recent> challenge<s> in the last 7 days on <sites> site<s> (<kinds>)` | warning |
-| [Google Chrome is not installed (turno-browser)](/docs/troubleshooting/browser-chrome-not-found) | `Google Chrome not found` | failure |
+| [No Chromium-based browser is installed (turno-browser)](/docs/troubleshooting/browser-chrome-not-found) | `Google Chrome not found, and no other Chromium-based browser (Edge, Brave, Chromium, Chrome for Testing)` | failure |
+| [An identity's browser is not installed](/docs/troubleshooting/browser-identity-browser-missing) | `browser: <browser label> (<from>) is not installed, so this identity's browser does not start` | failure |
+| [A newer browser last opened the identity's profile](/docs/troubleshooting/browser-profile-newer) | `the profile was last opened by version <last>, newer than <label> <version>: an older browser can refuse a profile whose data a newer one upgraded` | warning |
 | [Lightpanda is not installed, and an identity uses read mode](/docs/troubleshooting/browser-lightpanda-not-found) | `Lightpanda not found, and read mode needs it for <users>` | failure |
 | [Camoufox is not installed, and an identity uses it](/docs/troubleshooting/browser-camoufox-not-found) | `Camoufox not found, and the camoufox engine needs it for <who>` | failure |
 | [playwright-core is missing for Camoufox](/docs/troubleshooting/browser-playwright-core-missing) | `playwright-core not found, and Camoufox runs on stock Playwright (patchright-core drives Chromium only): needed for <who>` | failure |
@@ -109,7 +111,7 @@ It exits with code 1 when a check fails; warnings exit 0. Each row below is one 
 | [No Chrome to attach to](/docs/troubleshooting/browser-attach-not-listening) | `attach: no Chrome with remote debugging on< for <dir>>, so the next tool call fails` | warning |
 | [Several sessions share one tab](/docs/troubleshooting/browser-sharing-not-exclusive) | `[server.<name>] in mcp.toml lets several sessions in (exclusive = false), but this identity serves one at a time ("sharing": "session"), so those sessions share one current tab` | warning |
 | [A Lightpanda was left running](/docs/troubleshooting/browser-stray-lightpanda) | `Lightpanda pid <stray> was left running by a server that is gone` | warning |
-| [The test launch of Chrome failed](/docs/troubleshooting/browser-smoke-launch-failed) | `smoke launch failed: <first line>` | failure |
+| [The test launch of the browser failed](/docs/troubleshooting/browser-smoke-launch-failed) | `smoke launch failed: <first line>` | failure |
 
 </FindingFilter>
 

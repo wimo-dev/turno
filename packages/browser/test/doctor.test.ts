@@ -36,7 +36,16 @@ const chrome = () => ({
 const smoke = async () => 840;
 
 async function doctor(over: Parameters<typeof runDoctor>[0] = {}) {
-  return runDoctor({ env: sb.env, platform: "darwin", chrome, smoke, memory: async () => "normal", now: NOW, ...over });
+  return runDoctor({
+    env: sb.env,
+    platform: "darwin",
+    chrome,
+    otherBrowsers: () => [],
+    smoke,
+    memory: async () => "normal",
+    now: NOW,
+    ...over,
+  });
 }
 
 const find = (checks: DoctorCheck[], area: string, text: RegExp) =>
@@ -78,10 +87,20 @@ describe("browser doctor: Chrome and the system", () => {
     });
     expect(find(checks, "chrome", /not found/)).toMatchObject({
       level: "fail",
-      text: "Google Chrome not found",
-      manual: expect.stringMatching(/install Google Chrome/),
+      text: "Google Chrome not found, and no other Chromium-based browser (Edge, Brave, Chromium, Chrome for Testing)",
+      fix: "turno-browser install-browser",
     });
+    // With no browser at all there is nothing to start.
     expect(find(checks, "chrome", /smoke launch/)).toMatchObject({
+      level: "info",
+      text: "smoke launch skipped: no browser to start",
+    });
+    const failed = await doctor({
+      smoke: async () => {
+        throw new Error("browserType.launchPersistentContext: Chromium distribution 'chrome' is not found\nmore");
+      },
+    });
+    expect(find(failed.checks, "chrome", /smoke launch/)).toMatchObject({
       level: "fail",
       text: "smoke launch failed: browserType.launchPersistentContext: Chromium distribution 'chrome' is not found",
     });
@@ -124,6 +143,63 @@ describe("browser doctor: Chrome and the system", () => {
   });
 });
 
+describe("browser doctor: other Chromium-based browsers", () => {
+  const brave = {
+    id: "brave" as const,
+    label: "Brave",
+    path: "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
+    version: "157.1.99.57",
+  };
+
+  it("without Chrome, lists the others, starts the first one and says which identity cannot run", async () => {
+    let launched: unknown;
+    addIdentity("school", sb.env);
+    addIdentity("work", sb.env, { browser: "brave" });
+    const { checks } = await doctor({
+      chrome: () => undefined,
+      otherBrowsers: () => [brave],
+      smoke: async (_env, launch) => {
+        launched = launch;
+        return 500;
+      },
+    });
+    expect(checks.filter((c) => c.area === "chrome")).toEqual([
+      { area: "chrome", level: "ok", text: `Brave 157.1.99.57 at ${brave.path}` },
+      {
+        area: "chrome",
+        level: "info",
+        text: "Google Chrome is not installed; Brave can run identities instead (identity.json browser)",
+        fix: "turno-browser set <id> --browser brave",
+      },
+      { area: "chrome", level: "ok", text: "smoke launch: Brave started and closed in 0.5s on a temporary profile" },
+    ]);
+    expect(launched).toEqual({ executablePath: brave.path });
+    expect(find(checks, "identity school", /^browser:/)).toEqual({
+      area: "identity school",
+      level: "fail",
+      text: "browser: Google Chrome (the default) is not installed, so this identity's browser does not start",
+      fix: "turno-browser set school --browser brave",
+      manual: "install Google Chrome, or pick another browser: turno-browser set school --browser <name>",
+    });
+    expect(find(checks, "identity work", /^browser:/)).toEqual({
+      area: "identity work",
+      level: "ok",
+      text: "browser: Brave 157.1.99.57 (identity.json browser)",
+    });
+  });
+
+  it("warns when a newer browser last opened the profile", async () => {
+    addIdentity("school", sb.env, { browser: "brave" });
+    mkdirSync(identityDir("school", sb.env), { recursive: true });
+    writeFileSync(join(identityDir("school", sb.env), "Last Version"), "158.0.8127.37");
+    const { checks } = await doctor({ otherBrowsers: () => [brave] });
+    expect(find(checks, "identity school", /newer than/)).toMatchObject({
+      level: "warn",
+      text: "the profile was last opened by version 158.0.8127.37, newer than Brave 157.1.99.57: an older browser can refuse a profile whose data a newer one upgraded",
+    });
+  });
+});
+
 describe("browser doctor: identities", () => {
   it("says how to make one when there is none", async () => {
     const { checks } = await doctor();
@@ -152,6 +228,7 @@ describe("browser doctor: identities", () => {
         level: "ok",
         text: "identity.json: time zone Europe/Madrid, languages es-ES, es, region ES",
       },
+      { area: "identity school", level: "ok", text: "browser: Google Chrome 157.0.8103.79 (the default)" },
       { area: "identity school", level: "ok", text: "not in use: no process holds it" },
       {
         area: "identity school",

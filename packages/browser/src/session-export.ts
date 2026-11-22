@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { BrowserContext } from "patchright-core";
+import { identityBrowserLaunch } from "./browsers.js";
 import { clearHealth } from "./health.js";
 import {
   IdentityError,
@@ -15,6 +16,7 @@ import { identityStateDir } from "./ids.js";
 import { readLockPid } from "./lifecycle.js";
 import { acquireRuntimeLock } from "./runtime-lock.js";
 import { SEALED_FORMAT, SealError, seal, unseal } from "./sealed.js";
+import { names } from "./names.js";
 import { chromeEnv, keychainArgs, launchSettings, readIdentitySettings, systemTimezone } from "./settings.js";
 
 /**
@@ -72,7 +74,7 @@ async function withProfile<T>(
     const applied = launchSettings(settings, [], systemTimezone());
     const { chromium } = await import("patchright-core");
     const ctx = await chromium.launchPersistentContext(dir, {
-      channel: "chrome",
+      ...identityBrowserLaunch(settings, env, names().browser),
       headless: true,
       viewport: null,
       ...(applied.args.length ? { args: applied.args } : {}),

@@ -61,6 +61,17 @@ export {
 } from "./doctor.js";
 export { type BuiltArgv, type PlaywrightMcpConfig, buildArgv, extractIdentity } from "./argv.js";
 export {
+  BROWSER_IDS,
+  type BrowserChoice,
+  type BrowserId,
+  type DetectedBrowser,
+  browserLabel,
+  browserSwitchProblem,
+  detectBrowsers,
+  profileLastVersion,
+} from "./browsers.js";
+export { type InstallBrowserOptions, type InstallBrowserResult, installBrowser } from "./install-browser.js";
+export {
   type BenchOptions,
   type BenchReport,
   DETECTORS,

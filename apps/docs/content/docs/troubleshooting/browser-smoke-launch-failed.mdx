@@ -1,5 +1,5 @@
 ---
-title: "The test launch of Chrome failed"
+title: "The test launch of the browser failed"
 description: "What turno browser doctor means by \"smoke launch failed: <first line>\", and the fix."
 ---
 
@@ -11,18 +11,18 @@ This page is for when `turno browser doctor` reports the finding below: what it 
 
 ```text
   x  smoke launch failed: <first line>
-     manual: open Chrome by hand once; on Linux install its system libraries
+     manual: open <name> by hand once; on Linux install its system libraries
 ```
 
 It is a failure; a failure makes `turno browser doctor` exit with code 1. Words in angle brackets stand for values from your machine.
 
 ## Why it happens
 
-doctor starts Chrome once on a temporary profile to see that it opens. It did not.
+doctor starts Chrome (or, without Chrome, the first other Chromium-based browser it found) once on a temporary profile to see that it opens. It did not.
 
 ## Fix
 
-Open Chrome by hand once; on Linux install its system libraries.
+Open &lt;name&gt; by hand once; on Linux install its system libraries.
 
 No single command fixes this one, so doctor names the manual step.
 

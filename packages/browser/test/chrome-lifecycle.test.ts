@@ -1,11 +1,13 @@
 import { readFileSync } from "node:fs";
 import { type Server, createServer } from "node:http";
+import { createRequire } from "node:module";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { afterEach, beforeEach, describe, expect, it, onTestFinished } from "vitest";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { findBrowser } from "../src/browsers.js";
 import { runDoctor } from "../src/doctor.js";
 import { readHealth } from "../src/health.js";
 import { createHost, serve } from "../src/host.js";
@@ -365,5 +367,41 @@ describe.skipIf(reason !== undefined)(reason ? `real Chrome (skipped: ${reason})
     const report = await runDoctor({ env: sb.env });
     expect(report.checks.find((c) => c.area === "chrome" && c.text.startsWith("Google Chrome"))?.level).toBe("ok");
     expect(report.checks.find((c) => c.text.startsWith("smoke launch"))).toMatchObject({ level: "ok" });
+  }, 60_000);
+});
+
+/**
+ * The per-user browser (`turno-browser install-browser`), the one browser besides Google Chrome
+ * these tests start: an identity set to Chrome for Testing runs on it through the built server.
+ * The whole run has a throwaway HOME, so the build is looked for in PLAYWRIGHT_BROWSERS_PATH
+ * (`PLAYWRIGHT_BROWSERS_PATH=~/Library/Caches/ms-playwright pnpm test`); nothing is downloaded.
+ * Skipped when that cache does not have it.
+ */
+const cft = process.env.TURNO_SKIP_CHROME === "1" ? undefined : findBrowser("chrome-for-testing");
+const cftCache = cft
+  ? (createRequire(import.meta.url)("patchright-core/lib/coreBundle") as CoreBundle).registry.registryDirectory
+  : undefined;
+
+interface CoreBundle {
+  registry: { registryDirectory: string };
+}
+
+describe.skipIf(!cft)(cft ? "Chrome for Testing" : "Chrome for Testing (skipped: not installed)", () => {
+  it("runs an identity whose identity.json browser is chrome-for-testing", async () => {
+    writeIdentitySettings("cft", { browser: "chrome-for-testing" }, sb.env);
+    const r = await start("cft", { PLAYWRIGHT_BROWSERS_PATH: cftCache! });
+    const local = await site();
+    onTestFinished(() => local.close());
+    // A secure context, where navigator.userAgentData names the browser's brands.
+    const nav = await r.client.callTool({ name: "browser_navigate", arguments: { url: `${local.url}/account` } });
+    expect(nav.isError ?? false, textOf(nav)).toBe(false);
+    const res = await r.client.callTool({
+      name: "browser_evaluate",
+      arguments: { function: "() => navigator.userAgentData.brands.map((b) => b.brand).join(',')" },
+    });
+    expect(textOf(res)).toContain("Chromium");
+    expect(textOf(res)).not.toContain("Google Chrome");
+    await r.client.close();
+    expect(readFileSync(join(profileDir("cft"), "Last Version"), "utf8")).toBe(cft!.version);
   }, 60_000);
 });

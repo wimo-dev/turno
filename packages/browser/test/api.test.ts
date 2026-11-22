@@ -64,6 +64,12 @@ const MEMBERS = [
   // 1.13: the last sign-in by hand.
   "profileHasCookies",
   "readLoginRecord",
+  // 1.14: the browser of an identity.
+  "browserLabel",
+  "browserSwitchProblem",
+  "detectBrowsers",
+  "installBrowser",
+  "profileLastVersion",
 ];
 
 describe("the public API object", () => {
@@ -78,8 +84,9 @@ describe("the public API object", () => {
   // 1.11: the background server of an identity.
   // 1.12: cli, the identity commands that turno-cli runs with its own host.
   // 1.13: readLoginRecord, and the sites loginIdentity returns.
-  it("is version 1.13, frozen, with integer parts", () => {
-    expect(API_VERSION).toEqual({ major: 1, minor: 13 });
+  // 1.14: the browser key, browser detection and install-browser.
+  it("is version 1.14, frozen, with integer parts", () => {
+    expect(API_VERSION).toEqual({ major: 1, minor: 14 });
     expect(Object.isFrozen(API_VERSION)).toBe(true);
     expect(Number.isInteger(API_VERSION.major) && Number.isInteger(API_VERSION.minor)).toBe(true);
   });

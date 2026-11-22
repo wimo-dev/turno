@@ -1,12 +1,22 @@
-import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { browserPaths as paths, tildify } from "turno-core/paths";
 import { type ProcTable, readProcTable, signalProcess } from "turno-core/process";
 import { type PressureProbe, memoryPressureProbe } from "turno-core/memory";
 import { type SecretStore, secretStore } from "turno-core/secrets";
 import { backgroundAlive, readBackgroundState } from "./background-state.js";
+import {
+  type BrowserLaunch,
+  type DetectedBrowser,
+  browserLabel,
+  detectBrowsers,
+  findBrowser,
+  isBrowserId,
+  majorOf,
+  profileLastVersion,
+  versionFromPlist,
+} from "./browsers.js";
 import { profileHasCookies, readLoginRecord } from "./login.js";
 import { readHealth } from "./health.js";
 import { identityDir, isValidIdentityId } from "./ids.js";
@@ -48,13 +58,15 @@ import { vaultItem, vaultSummary } from "./vault.js";
  * `turno browser doctor`: what a browser identity needs to work, one check per row,
  * each problem with the command that fixes it, like `turno doctor`.
  *
- * - Chrome: found, its version, and a smoke launch on a throwaway profile (headless).
+ * - Browsers: Google Chrome and the other Chromium-based browsers found (`browsers.ts`), their
+ *   versions, and a smoke launch on a throwaway profile (headless); with none, the no-admin way
+ *   to get one (`install-browser`).
  * - System: a headed Chrome needs the desktop session (macOS) or a display (Linux), and the
  *   memory pressure the system reports (a warning when it is up; never a failure).
  * - Engines: Lightpanda for read mode and Camoufox with the stock Playwright it runs on (both
  *   optional; a failure only when an identity uses them), and a Lightpanda an earlier server
  *   left running.
- * - Per identity: identity.json, who holds it (runtime lock and Chrome's profile lock), session
+ * - Per identity: the browser that opens its profile and whether it is installed, identity.json, who holds it (runtime lock and Chrome's profile lock), session
  *   health, challenges in the last 7 days, the opt-in network settings (`proxy`: whether
  *   the secret store has its credentials, never their value; `userAgent`), and whether the
  *   secret store has an item for each vault credential (a lookup, never a read of the value).
@@ -94,8 +106,13 @@ export interface DoctorOptions {
   fix?: boolean;
   /** Finds Chrome (tests inject one). */
   chrome?: (env: NodeJS.ProcessEnv, platform: NodeJS.Platform) => ChromeInfo | undefined;
-  /** Starts and closes Chrome on a temporary profile; resolves with the milliseconds it took. */
-  smoke?: (env: NodeJS.ProcessEnv) => Promise<number>;
+  /** The Chromium-based browsers other than Google Chrome (tests inject them). */
+  otherBrowsers?: (env: NodeJS.ProcessEnv, platform: NodeJS.Platform) => DetectedBrowser[];
+  /**
+   * Starts and closes a browser (Chrome, or the first other one when Chrome is missing) on a
+   * temporary profile; resolves with the milliseconds it took.
+   */
+  smoke?: (env: NodeJS.ProcessEnv, launch?: BrowserLaunch) => Promise<number>;
   /** Finds Lightpanda (tests inject one). */
   lightpanda?: (env: NodeJS.ProcessEnv) => LightpandaInfo | undefined;
   /** Finds Camoufox and the stock Playwright it runs on (tests inject them). */
@@ -139,55 +156,31 @@ export interface DoctorReport {
 
 const FIX = "turno browser doctor --fix";
 
-const CHROME_PATHS = (env: NodeJS.ProcessEnv, platform: NodeJS.Platform): string[] => {
-  const home = paths(env).home;
-  if (platform === "darwin")
-    return [
-      "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-      join(home, "Applications", "Google Chrome.app", "Contents", "MacOS", "Google Chrome"),
-    ];
-  if (platform === "win32") {
-    return [env.LOCALAPPDATA, env.PROGRAMFILES, env["PROGRAMFILES(X86)"]]
-      .filter(Boolean)
-      .map((root) => join(root!, "Google", "Chrome", "Application", "chrome.exe"));
-  }
-  return ["/opt/google/chrome/chrome", "/usr/bin/google-chrome", "/usr/bin/google-chrome-stable"];
-};
-
 /** CFBundleShortVersionString of a macOS Info.plist (XML). */
-export function chromeVersionFromPlist(xml: string): string | undefined {
-  return /<key>CFBundleShortVersionString<\/key>\s*<string>([^<]+)<\/string>/.exec(xml)?.[1]?.trim();
-}
+export const chromeVersionFromPlist = versionFromPlist;
 
 /** The installed Google Chrome (the `chrome` channel Playwright launches) and its version. */
 export function findChrome(
   env: NodeJS.ProcessEnv = process.env,
   platform: NodeJS.Platform = process.platform,
 ): ChromeInfo | undefined {
-  const path = CHROME_PATHS(env, platform).find((p) => existsSync(p));
-  if (!path) return undefined;
-  let version: string | undefined;
-  try {
-    if (platform === "darwin")
-      version = chromeVersionFromPlist(readFileSync(join(dirname(dirname(path)), "Info.plist"), "utf8"));
-    else
-      version = /(\d+\.\d+\.\d+\.\d+)/.exec(
-        execFileSync(path, ["--version"], { encoding: "utf8", timeout: 5000, stdio: ["ignore", "pipe", "ignore"] }),
-      )?.[1];
-  } catch {
-    /* found, version unknown */
-  }
-  return version ? { path, version } : { path };
+  const found = findBrowser("chrome", env, platform);
+  return found ? { path: found.path, ...(found.version ? { version: found.version } : {}) } : undefined;
 }
 
-/** Starts Chrome headless on a throwaway profile, opens a blank page and closes it. */
-async function smokeLaunch(env: NodeJS.ProcessEnv): Promise<number> {
+/** The Chromium-based browsers other than Google Chrome found on this machine. */
+function otherBrowsers(env: NodeJS.ProcessEnv, platform: NodeJS.Platform): DetectedBrowser[] {
+  return detectBrowsers(env, platform).filter((b) => b.id !== "chrome");
+}
+
+/** Starts a browser headless on a throwaway profile, opens a blank page and closes it. */
+async function smokeLaunch(env: NodeJS.ProcessEnv, launch: BrowserLaunch = { channel: "chrome" }): Promise<number> {
   const dir = mkdtempSync(join(tmpdir(), "turno-browser-doctor-"));
   const t0 = Date.now();
   try {
     const { chromium } = await import("patchright-core");
     const context = await chromium.launchPersistentContext(join(dir, "profile"), {
-      channel: "chrome",
+      ...launch,
       headless: true,
       timeout: 30_000,
       env: { ...env } as Record<string, string>,
@@ -307,6 +300,7 @@ function identityChecks(
   env: NodeJS.ProcessEnv,
   now: Date,
   servers: readonly ServedIdentity[] = [],
+  installed: readonly DetectedBrowser[] = [],
 ): DoctorCheck[] {
   const area = `identity ${id}`;
   const out: DoctorCheck[] = [];
@@ -334,6 +328,7 @@ function identityChecks(
   }
 
   if (settings) for (const c of engineRows(id, settings, env)) add(c);
+  out.push(...browserRows(id, env, installed));
   if (!problems.length) for (const c of servingRows(id, settings, servers)) add(c);
 
   const lock = readRuntimeLock(id, env);
@@ -436,6 +431,58 @@ function identityChecks(
 const ENABLE_DEBUGGING = "start Chrome, open chrome://inspect/#remote-debugging and turn remote debugging on";
 
 /** What an identity's engine needs (identity.json `engine`, `attach`); none for Chrome. */
+/** How the chrome engine launches a browser found here. */
+function launchOf(b: DetectedBrowser): BrowserLaunch {
+  return b.id === "chrome-for-testing" ? { channel: "chrome-for-testing" } : { executablePath: b.path };
+}
+
+/**
+ * Which browser opens the identity's profile (identity.json `browser`, or Google Chrome), whether
+ * it is installed, and whether the profile was last opened by a newer version than it.
+ */
+function browserRows(id: string, env: NodeJS.ProcessEnv, installed: readonly DetectedBrowser[]): DoctorCheck[] {
+  const area = `identity ${id}`;
+  const { settings, problems } = checkIdentitySettings(id, env);
+  if (problems.length || settings?.engine === "lightpanda" || settings?.engine === "camoufox") return [];
+  if (settings?.attach !== undefined) return [];
+  const choice = settings?.browser ?? "chrome";
+  const from = settings?.browser === undefined ? "the default" : "identity.json browser";
+  const last = profileLastVersion(identityDir(id, env));
+  let found: DetectedBrowser | undefined;
+  if (isBrowserId(choice)) found = installed.find((b) => b.id === choice);
+  else if (existsSync(choice)) found = { id: "chromium", label: choice, path: choice };
+  if (!found) {
+    const other = installed[0];
+    const force = last !== undefined && settings?.keychain !== "system" ? " --force" : "";
+    return [
+      {
+        area,
+        level: "fail",
+        text: `browser: ${browserLabel(choice)} (${from}) is not installed, so this identity's browser does not start`,
+        fix: other ? `turno browser set ${id} --browser ${other.id}${force}` : "turno browser install-browser",
+        manual: `install ${browserLabel(choice)}, or pick another browser: turno browser set ${id} --browser <name>`,
+      },
+    ];
+  }
+  const out: DoctorCheck[] = [
+    {
+      area,
+      level: "ok",
+      text: `browser: ${found.label}${found.version ? ` ${found.version}` : ""} (${from})`,
+    },
+  ];
+  const lastMajor = majorOf(last);
+  const major = majorOf(found.version);
+  if (lastMajor !== undefined && major !== undefined && lastMajor > major)
+    out.push({
+      area,
+      level: "warn",
+      text: `the profile was last opened by version ${last}, newer than ${found.label} ${found.version}: an older browser can refuse a profile whose data a newer one upgraded`,
+      manual: `update ${found.label}, or open the profile with the browser that last used it`,
+    });
+  return out;
+}
+
 function engineRows(id: string, settings: IdentitySettings, env: NodeJS.ProcessEnv): Omit<DoctorCheck, "area">[] {
   if (settings.engine === "camoufox")
     return [
@@ -745,36 +792,54 @@ async function collect(
 ): Promise<DoctorCheck[]> {
   const checks: DoctorCheck[] = [];
   const chrome = (opts.chrome ?? findChrome)(env, platform);
+  const others = (opts.otherBrowsers ?? otherBrowsers)(env, platform);
   if (chrome)
     checks.push({
       area: "chrome",
       level: "ok",
       text: `Google Chrome${chrome.version ? ` ${chrome.version}` : ""} at ${chrome.path}`,
     });
-  else {
+  for (const b of others)
+    checks.push({ area: "chrome", level: "ok", text: `${b.label}${b.version ? ` ${b.version}` : ""} at ${b.path}` });
+  if (!chrome && others.length)
+    checks.push({
+      area: "chrome",
+      level: "info",
+      text: `Google Chrome is not installed; ${others.map((b) => b.label).join(", ")} can run identities instead (identity.json browser)`,
+      fix: `turno browser set <id> --browser ${others[0]!.id}`,
+    });
+  else if (!chrome)
     checks.push({
       area: "chrome",
       level: "fail",
-      text: "Google Chrome not found",
+      text: "Google Chrome not found, and no other Chromium-based browser (Edge, Brave, Chromium, Chrome for Testing)",
+      fix: "turno browser install-browser",
       manual:
-        "install Google Chrome (https://www.google.com/chrome/): turno-browser drives the installed Chrome, not a bundled browser",
+        "turno browser install-browser downloads Chrome for Testing into your user cache with no admin password; or install Google Chrome (https://www.google.com/chrome/)",
     });
-  }
+  // The test launch uses Chrome, or the first other browser when Chrome is missing.
+  const first = others[0];
+  const target = chrome
+    ? { name: "Chrome", launch: { channel: "chrome" } as BrowserLaunch }
+    : first
+      ? { name: first.label, launch: launchOf(first) }
+      : undefined;
   if (opts.launch === false) checks.push({ area: "chrome", level: "info", text: "smoke launch skipped (--no-launch)" });
+  else if (!target) checks.push({ area: "chrome", level: "info", text: "smoke launch skipped: no browser to start" });
   else {
     try {
-      const ms = await (opts.smoke ?? smokeLaunch)(env);
+      const ms = await (opts.smoke ?? smokeLaunch)(env, target.launch);
       checks.push({
         area: "chrome",
         level: "ok",
-        text: `smoke launch: Chrome started and closed in ${(ms / 1000).toFixed(1)}s on a temporary profile`,
+        text: `smoke launch: ${target.name} started and closed in ${(ms / 1000).toFixed(1)}s on a temporary profile`,
       });
     } catch (err) {
       checks.push({
         area: "chrome",
         level: "fail",
         text: `smoke launch failed: ${firstLine(err)}`,
-        manual: "open Chrome by hand once; on Linux install its system libraries",
+        manual: `open ${target.name} by hand once; on Linux install its system libraries`,
       });
     }
   }
@@ -788,9 +853,10 @@ async function collect(
       text: "no browser identities yet",
       fix: "turno identity add browser:<id>",
     });
+  const installed = [...(chrome ? [{ id: "chrome" as const, label: "Google Chrome", ...chrome }] : []), ...others];
   for (const id of ids)
     checks.push(
-      ...identityChecks(id, env, now, opts.servers),
+      ...identityChecks(id, env, now, opts.servers, installed),
       ...(await networkRows(id, env, opts)),
       ...(await vaultRows(id, env, opts)),
     );

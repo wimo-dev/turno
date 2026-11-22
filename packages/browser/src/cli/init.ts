@@ -30,6 +30,7 @@ import {
   shellLine,
   unknownAgent,
 } from "./setup.js";
+import { defaultBrowser } from "./identity.js";
 
 /**
  * `turno-browser init`: the first setup, step by step. It does what the three commands of the
@@ -235,9 +236,11 @@ export async function init(c: Ctx, args: string[], io: Io, run: RunCommand = run
   if (existed) say(`Using the identity "${id}" that is already here.`);
   else if (dry) say(`(dry run) would create the identity "${id}"`);
   else {
-    const info = api.addIdentity(id, io.env);
+    const pick = defaultBrowser(c, id, io.env);
+    const info = pick?.browser ? api.addIdentity(id, io.env, { browser: pick.browser }) : api.addIdentity(id, io.env);
     created = true;
     say(`Created "${id}" at ${tildify(info.dir, io.env)}`);
+    if (pick) say(pick.note);
   }
   if (policy) {
     if (dry) say(`(dry run) would give "${id}" the policy: ${describePolicy(policy)}`);
