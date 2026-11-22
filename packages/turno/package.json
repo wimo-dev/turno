@@ -1,6 +1,6 @@
 {
   "name": "turno-cli",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "description": "Switch accounts in your coding agents and keep the conversation, the MCP sign-ins and the browser session.",
   "keywords": [
     "claude-code",
