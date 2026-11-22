@@ -67,7 +67,7 @@ export function parseWindowsProcTable(stdout: string): ProcTable {
 /** Lists every process as `parseWindowsProcTable` reads it, in UTF-8 whatever the console code page. */
 const WINDOWS_PROC_SCRIPT =
   "[Console]::OutputEncoding = [Text.Encoding]::UTF8; " +
-  "Get-CimInstance Win32_Process | ForEach-Object { '{0}`t{1}`t{2}' -f $_.ProcessId, $_.ParentProcessId, $_.CommandLine }";
+  "Get-CimInstance Win32_Process | ForEach-Object { ($_.ProcessId, $_.ParentProcessId, $_.CommandLine) -join [char]9 }";
 
 /**
  * Every process with its full command line, or undefined when the table cannot be read (no

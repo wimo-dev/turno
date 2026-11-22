@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { basename, dirname, join } from "node:path";
-import { browserPaths, findOnPath } from "turno-core/paths";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { browserPaths, envValue, findOnPath, replaceFileSync } from "turno-core/paths";
 import { identityStateDir } from "./ids.js";
 
 /**
@@ -214,7 +214,7 @@ export function isTurnoEntry(e: McpEntry): boolean {
   if (/^turno-browser(\.exe)?$/i.test(e.command?.split(/[\\/]/).pop() ?? "") && e.args?.[0] === "mcp") return true;
   return words.some(
     (w) =>
-      basename(w) === "turno-browser-mcp" || basename(w) === "turno" || /turno-browser[\\/].*bin[\\/]mcp\.js$/.test(w),
+      /(^|[\\/])(turno-browser-mcp|turno)(\.cmd|\.exe)?$/i.test(w) || /turno-browser[\\/].*bin[\\/]mcp\.js$/.test(w),
   );
 }
 
@@ -289,7 +289,7 @@ export function recordRegistration(id: string, env: NodeJS.ProcessEnv, reg: Regi
   mkdirSync(identityStateDir(id, env), { recursive: true, mode: 0o700 });
   const tmp = `${file}.${process.pid}.tmp`;
   writeFileSync(tmp, `${JSON.stringify({ version: 1, registrations: [...kept, reg] }, null, 2)}\n`, { mode: 0o600 });
-  renameSync(tmp, file);
+  replaceFileSync(tmp, file);
 }
 
 /** What an agent's own command printed and how it ended. */
@@ -302,6 +302,47 @@ interface ExecResult {
 /** Runs an agent's command with its output captured; tests replace it. */
 export type ExecCommand = (command: string, args: readonly string[], env: NodeJS.ProcessEnv) => Promise<ExecResult>;
 
+/** cmd.exe's own characters, escaped with `^` (the rules cross-spawn uses). */
+const CMD_META = /([()\][%!^"`<>&|;, *?])/g;
+
+/**
+ * One argument of a line cmd.exe runs a batch file with: quoted for the program's own parser
+ * (backslashes before a quote doubled), then cmd's characters escaped twice, because cmd reads the
+ * line once and the batch file's `%*` a second time (npm's shims pass their arguments on that way).
+ */
+export function cmdArgument(arg: string): string {
+  const quoted = `"${arg.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\*)$/, "$1$1")}"`;
+  return quoted.replace(CMD_META, "^$1").replace(CMD_META, "^$1");
+}
+
+/** How Node starts a program: the file, its arguments, and whether they go to it as written. */
+export interface SpawnPlan {
+  file: string;
+  args: string[];
+  /** Node's `windowsVerbatimArguments`: the line is already quoted for cmd.exe. */
+  verbatim: boolean;
+}
+
+/**
+ * How to start `command` by name. On Windows an agent installed with npm is a `.cmd` shim
+ * (`claude.cmd`), which Node cannot start without a shell, and with `shell: true` it would pass
+ * the arguments unquoted: the shim found through PATH and PATHEXT runs through cmd.exe with each
+ * argument quoted and escaped. An `.exe` (or a name not found) starts as it is.
+ */
+export function spawnPlan(
+  command: string,
+  args: readonly string[],
+  env: NodeJS.ProcessEnv,
+  platform: NodeJS.Platform = process.platform,
+): SpawnPlan {
+  if (platform !== "win32") return { file: command, args: [...args], verbatim: false };
+  const found = findOnPath(command, env, "win32");
+  if (!found || !/\.(cmd|bat)$/i.test(found)) return { file: found ?? command, args: [...args], verbatim: false };
+  const line = [found.replace(CMD_META, "^$1"), ...args.map(cmdArgument)].join(" ");
+  const comspec = envValue(env, "ComSpec", "win32") || "cmd.exe";
+  return { file: comspec, args: ["/d", "/s", "/c", `"${line}"`], verbatim: true };
+}
+
 /** The default: spawn it, without a shell, for at most a minute. A missing program is code 127. */
 export const execCommand: ExecCommand = (command, args, env) =>
   new Promise((resolve) => {
@@ -311,7 +352,14 @@ export const execCommand: ExecCommand = (command, args, env) =>
     };
     let child: ReturnType<typeof spawn>;
     try {
-      child = spawn(command, [...args], { env, stdio: ["ignore", "pipe", "pipe"], timeout: 60_000 });
+      const plan = spawnPlan(command, args, env);
+      child = spawn(plan.file, plan.args, {
+        env,
+        stdio: ["ignore", "pipe", "pipe"],
+        timeout: 60_000,
+        windowsVerbatimArguments: plan.verbatim,
+        windowsHide: true,
+      });
     } catch (err) {
       resolve({ code: 127, output: (err as Error).message });
       return;

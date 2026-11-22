@@ -62,7 +62,8 @@ export function turnoRoots(
   const get = (name: string) => envValue(env, name, platform) || undefined;
   const { join } = pathsFor(platform);
   if (platform === "win32") {
-    const home = get("HOME") || get("USERPROFILE") || homedir();
+    // USERPROFILE first, as Node's os.homedir() and the agents read it; Git Bash may set HOME too.
+    const home = get("USERPROFILE") || get("HOME") || homedir();
     const roaming = get("APPDATA") || join(home, "AppData", "Roaming");
     const local = get("LOCALAPPDATA") || join(home, "AppData", "Local");
     const xdg = (name: string) => (get(name) ? join(get(name)!, "turno") : undefined);

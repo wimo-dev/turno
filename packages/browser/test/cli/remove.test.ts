@@ -12,9 +12,10 @@ import { runtimeLockPath } from "../../src/runtime-lock.js";
 import { recordExportFile } from "../../src/session-export.js";
 import { identitySettingsPath } from "../../src/settings.js";
 import { vaultPath } from "../../src/vault.js";
-import { type FakeSecretStore, fakeSecretStore } from "../helpers/fake-secret-store.js";
+import { type FakeSecretStore, fakeSecretStore, noFakeSecretStore } from "../helpers/fake-secret-store.js";
 import { type Sandbox, sandbox } from "../helpers/sandbox.js";
 import { cli, fakeAgentCli, fakeIo, real } from "./helpers.js";
+import { fakeProgram, pathWith } from "../helpers/programs.js";
 
 /**
  * `turno-browser remove`: everything an identity left, removed and checked. The secret store is
@@ -41,9 +42,8 @@ afterEach(() => {
 /** A program on the sandbox PATH that exits 0: an agent that is installed. */
 function installed(name: string): void {
   const dir = join(sb.home, "agentbin");
-  mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, name), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
-  if (!sb.env.PATH!.includes(dir)) sb.env.PATH = `${dir}:${sb.env.PATH}`;
+  fakeProgram(dir, name);
+  if (!sb.env.PATH!.includes(dir)) sb.env.PATH = pathWith(sb.env.PATH, dir);
 }
 
 /** The identity "school" with a vault, a proxy secret, an export and an agent that has it. */
@@ -101,7 +101,8 @@ function claudeHas(id: string, env: NodeJS.ProcessEnv = sb.env): void {
 
 const json = (io: { lines: string[] }) => JSON.parse(io.lines.join("\n"));
 
-describe("turno-browser remove", () => {
+// Every case removes vault credentials from the secret store.
+describe.skipIf(noFakeSecretStore)("turno-browser remove", () => {
   it("without a terminal needs --yes and deletes nothing; an unknown identity is refused", async () => {
     await expect(cli(api).run("remove", ["nope", "--yes"], fakeIo(sb.env))).rejects.toThrow(/does not exist/);
     await school();

@@ -1,17 +1,19 @@
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Io } from "turno-core/cli";
-import { readRegistrations } from "../../src/agent-mcp.js";
+import { cmdArgument, execCommand, readRegistrations, spawnPlan } from "../../src/agent-mcp.js";
 import type { BrowserFunctions } from "../../src/api.js";
 import { localTime } from "../../src/cli/identity.js";
 import { detectAgents, init, shellWords } from "../../src/cli/init.js";
 import { loginSummary } from "../../src/cli/login-summary.js";
 import { errorHint } from "../../src/cli/do.js";
 import { formatIdle } from "../../src/cli/do-background.js";
-import { unknownAgent } from "../../src/cli/setup.js";
+import { mcpCommand, shellLine, unknownAgent } from "../../src/cli/setup.js";
+import { openUrlCommand } from "../../src/cli/context.js";
 import { siteOf, welcomePage } from "../../src/login.js";
+import { fakeProgram, pathWith } from "../helpers/programs.js";
 import { ctx, fakeAgentCli, fakeIo, real } from "./helpers.js";
 
 /** A sandbox: turno's folders, a HOME, and a PATH with only the agents a test puts there. */
@@ -27,11 +29,7 @@ function sandbox() {
     TURNO_DATA_DIR: join(root, "data"),
   };
   mkdirSync(env.HOME!);
-  const agent = (name: string) => {
-    const file = join(bin, name);
-    writeFileSync(file, "#!/bin/sh\nexit 0\n");
-    chmodSync(file, 0o755);
-  };
+  const agent = (name: string) => fakeProgram(bin, name);
   return { root, env, agent, done: () => rmSync(root, { recursive: true, force: true }) };
 }
 
@@ -201,7 +199,7 @@ describe("turno-browser init without a terminal", () => {
         status: "added",
         agent: "claude-code",
         server: "browser-school",
-        file: "~/.claude.json",
+        file: join("~", ".claude.json"),
         exitCode: 0,
         output: "add browser-school",
       },
@@ -210,7 +208,7 @@ describe("turno-browser init without a terminal", () => {
     expect(first.mcp.run.slice(-2)).toEqual(["--identity", "school"]);
     expect(first.next.join("\n")).toContain("turno-browser login school");
     expect(agent.calls).toHaveLength(1);
-    expect(agent.config().mcpServers["browser-school"]!.args).toEqual(["--identity", "school"]);
+    expect(agent.config().mcpServers["browser-school"]!.args.slice(-2)).toEqual(["--identity", "school"]);
     expect(readRegistrations("school", sb.env)).toMatchObject([
       { agent: "claude-code", server: "browser-school", file: join(sb.env.HOME!, ".claude.json") },
     ]);
@@ -265,8 +263,8 @@ describe("turno-browser init without a terminal", () => {
     const io = fakeIo(sb.env);
     expect(await init(ctx(api), ["--identity", "school", "--agent", "cursor", "--yes", "--json"], io)).toBe(0);
     const r = report(io);
-    expect(r.mcp).toMatchObject({ status: "manual", register: null, file: "~/.cursor/mcp.json" });
-    expect(JSON.parse(r.mcp.config).mcpServers["browser-school"].args).toEqual(["--identity", "school"]);
+    expect(r.mcp).toMatchObject({ status: "manual", register: null, file: join("~", ".cursor", "mcp.json") });
+    expect(JSON.parse(r.mcp.config).mcpServers["browser-school"].args.slice(-2)).toEqual(["--identity", "school"]);
   });
 
   it("--json --dry-run creates nothing and says what it would run", async () => {
@@ -348,5 +346,99 @@ describe("the words of the first steps", () => {
     expect(formatIdle(90_000)).toBe("90s");
     expect(localTime("not a time")).toBe("not a time");
     expect(localTime("2026-11-20T05:46:30.169Z")).toMatch(/^2026-11-(19|20) \d\d:\d\d$/);
+  });
+});
+
+describe("running an agent's command on Windows", () => {
+  const tricky = ["a b", 'say "hi"', "100%", "x&y|z", "^caret", "trail\\", 'back\\"slash', "(paren)", "!bang", ""];
+
+  it("quotes each argument for the program and escapes cmd.exe's characters twice", () => {
+    expect(cmdArgument("x&y")).toBe('^^^"x^^^&y^^^"');
+    expect(cmdArgument('a"b\\')).toBe('^^^"a\\^^^"b\\\\^^^"');
+  });
+
+  it("runs a .cmd shim through cmd.exe and an .exe as it is", () => {
+    const dir = mkdtempSync(join(tmpdir(), "turno-spawn-"));
+    try {
+      writeFileSync(join(dir, "claude.cmd"), "");
+      const env = { Path: dir, PATHEXT: ".EXE;.CMD", ComSpec: "C:\\Windows\\system32\\cmd.exe" };
+      expect(spawnPlan("claude", ["mcp", "list"], { ...env, Path: "" }, "win32")).toEqual({
+        file: "claude",
+        args: ["mcp", "list"],
+        verbatim: false,
+      });
+      expect(spawnPlan("claude", ["mcp"], env, "darwin")).toEqual({ file: "claude", args: ["mcp"], verbatim: false });
+      if (process.platform !== "win32") return;
+      const plan = spawnPlan("claude", ["mcp", "x&y"], env, "win32");
+      expect(plan.file).toBe("C:\\Windows\\system32\\cmd.exe");
+      expect(plan.args.slice(0, 3)).toEqual(["/d", "/s", "/c"]);
+      expect(plan.verbatim).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  // A real cmd.exe and a real npm-style shim: each argument arrives as it was given.
+  it.runIf(process.platform === "win32")("passes every argument through an npm-style shim unchanged", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "turno-spawn-"));
+    try {
+      fakeProgram(join(dir, "bin"), "echoargs", "process.stdout.write(JSON.stringify(process.argv.slice(2)));");
+      const env = { ...process.env, PATH: pathWith(process.env.PATH, join(dir, "bin")) };
+      const r = await execCommand("echoargs", tricky, env);
+      expect(r.code).toBe(0);
+      expect(JSON.parse(r.output)).toEqual(tricky);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("how an agent starts turno-browser-mcp", () => {
+  it("by name when it is on the PATH, through cmd /c on Windows; else by its full path, run by Node on Windows", () => {
+    const empty = { PATH: "" };
+    expect(mcpCommand(empty, "linux")).toMatchObject({ prefix: [], onPath: false });
+    expect(mcpCommand(empty, "linux").command).toMatch(/[\\/]bin[\\/]mcp\.js$/);
+    const win = mcpCommand(empty, "win32");
+    expect(win.command).toBe(process.execPath);
+    expect(win.prefix[0]).toMatch(/[\\/]bin[\\/]mcp\.js$/);
+    const dir = mkdtempSync(join(tmpdir(), "turno-mcp-"));
+    try {
+      fakeProgram(dir, "turno-browser-mcp");
+      const env = { PATH: pathWith(undefined, dir) };
+      expect(mcpCommand(env)).toEqual(
+        process.platform === "win32"
+          ? { command: "cmd", prefix: ["/c", "turno-browser-mcp"], onPath: true }
+          : { command: "turno-browser-mcp", prefix: [], onPath: true },
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("prints a line cmd.exe and PowerShell read on Windows, and a POSIX one elsewhere", () => {
+    const words = [
+      "claude",
+      "mcp",
+      "add",
+      "--",
+      "C:\\Program Files\\nodejs\\node.exe",
+      "C:\\x\\mcp.js",
+      "--identity",
+      "a",
+    ];
+    expect(shellLine(words, "win32")).toBe(
+      'claude mcp add -- "C:\\Program Files\\nodejs\\node.exe" C:\\x\\mcp.js --identity a',
+    );
+    expect(shellLine(["claude", "/x y/mcp.js"], "linux")).toBe("claude '/x y/mcp.js'");
+  });
+
+  it("opens a link without cmd.exe on Windows, so & stays part of it", () => {
+    const url = "https://example.com/?a=1&b=2";
+    expect(openUrlCommand(url, "win32")).toEqual({
+      command: "rundll32.exe",
+      args: ["url.dll,FileProtocolHandler", url],
+    });
+    expect(openUrlCommand(url, "darwin")).toEqual({ command: "open", args: [url] });
+    expect(openUrlCommand(url, "linux")).toEqual({ command: "xdg-open", args: [url] });
   });
 });

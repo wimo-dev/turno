@@ -24,7 +24,7 @@ import {
 } from "../src/network.js";
 import { type IdentitySettings, readIdentitySettings, writeIdentitySettings } from "../src/settings.js";
 import type { McpConfig } from "../src/upstream.js";
-import { type FakeSecretStore, fakeSecretStore } from "./helpers/fake-secret-store.js";
+import { type FakeSecretStore, fakeSecretStore, noFakeSecretStore } from "./helpers/fake-secret-store.js";
 import { type Sandbox, sandbox } from "./helpers/sandbox.js";
 
 /**
@@ -144,7 +144,7 @@ describe("identity.json userAgent and proxy (format 11)", () => {
 });
 
 describe("the proxy credentials", () => {
-  it("come from the secret store, and every form of them joins the redactor", async () => {
+  it.skipIf(noFakeSecretStore)("come from the secret store, and every form of them joins the redactor", async () => {
     store.write("proxy-pass", PASSWORD);
     store.write("proxy-user", "alice-zone-1");
     const hidden: [string, string][] = [];
@@ -160,7 +160,7 @@ describe("the proxy credentials", () => {
     expect(hidden.map(([v]) => v).includes(basic)).toBe(true);
   });
 
-  it("fails with the item's name, never a value, when the store lacks it", async () => {
+  it.skipIf(noFakeSecretStore)("fails with the item's name, never a value, when the store lacks it", async () => {
     const error = await resolveProxy(
       { server: "http://127.0.0.1:3128", username: "alice", password: "keychain:missing-item" },
       sb.env,
@@ -297,27 +297,31 @@ describe("the camoufox engine without a browser", () => {
     );
   });
 
-  it("finds Camoufox at TURNO_CAMOUFOX_PATH or in its installer's cache, and never downloads it", () => {
-    expect(findCamoufox(sb.env, "darwin")).toBeUndefined();
-    const app = join(
-      camoufoxCacheDir(sb.env, "darwin"),
-      "browsers",
-      "official",
-      "152.0",
-      "Camoufox.app",
-      "Contents",
-      "MacOS",
-    );
-    mkdirSync(app, { recursive: true });
-    writeFileSync(join(app, "camoufox"), "#!/bin/sh\necho 'Camoufox 152.0'\n");
-    chmodSync(join(app, "camoufox"), 0o755);
-    expect(findCamoufox(sb.env, "darwin")).toEqual({ path: join(app, "camoufox"), version: "Camoufox 152.0" });
-    expect(findCamoufox({ ...sb.env, TURNO_CAMOUFOX_PATH: "relative/camoufox" }, "darwin")).toBeUndefined();
-    expect(findCamoufox({ ...sb.env, TURNO_CAMOUFOX_PATH: join(app, "camoufox") }, "linux")?.path).toBe(
-      join(app, "camoufox"),
-    );
-    expect(camoufoxCacheDir({ ...sb.env, XDG_CACHE_HOME: "/x/cache" }, "linux")).toBe("/x/cache/camoufox");
-  });
+  // The fake Camoufox is a shell script.
+  it.skipIf(process.platform === "win32")(
+    "finds Camoufox at TURNO_CAMOUFOX_PATH or in its installer's cache, and never downloads it",
+    () => {
+      expect(findCamoufox(sb.env, "darwin")).toBeUndefined();
+      const app = join(
+        camoufoxCacheDir(sb.env, "darwin"),
+        "browsers",
+        "official",
+        "152.0",
+        "Camoufox.app",
+        "Contents",
+        "MacOS",
+      );
+      mkdirSync(app, { recursive: true });
+      writeFileSync(join(app, "camoufox"), "#!/bin/sh\necho 'Camoufox 152.0'\n");
+      chmodSync(join(app, "camoufox"), 0o755);
+      expect(findCamoufox(sb.env, "darwin")).toEqual({ path: join(app, "camoufox"), version: "Camoufox 152.0" });
+      expect(findCamoufox({ ...sb.env, TURNO_CAMOUFOX_PATH: "relative/camoufox" }, "darwin")).toBeUndefined();
+      expect(findCamoufox({ ...sb.env, TURNO_CAMOUFOX_PATH: join(app, "camoufox") }, "linux")?.path).toBe(
+        join(app, "camoufox"),
+      );
+      expect(camoufoxCacheDir({ ...sb.env, XDG_CACHE_HOME: "/x/cache" }, "linux")).toBe("/x/cache/camoufox");
+    },
+  );
 
   it("needs stock playwright-core of patchright-core's minor version", () => {
     const dir = join(sb.home, "pw");
@@ -409,34 +413,37 @@ describe("combinations refused before anything starts", () => {
 });
 
 describe("turno browser doctor", () => {
-  it("says whether the secret store holds the proxy credentials, without reading them", async () => {
-    addIdentity("px", sb.env);
-    writeIdentitySettings(
-      "px",
-      { proxy: { server: "http://proxy.example.com:8080", username: "alice", password: "keychain:px-pass" } },
-      sb.env,
-    );
-    const run = () =>
-      runDoctor({
-        env: sb.env,
-        launch: false,
-        chrome: () => ({ path: "/chrome", version: "157.0.0.1" }),
-        lightpanda: () => undefined,
-        camoufox: () => undefined,
-        playwrightCore: () => undefined,
-        procTable: () => new Map(),
-      });
-    const missing = (await run()).checks.filter((c) => c.area === "identity px");
-    expect(
-      missing.find((c) => /proxy http:\/\/proxy\.example\.com:8080: the proxy's operator sees/.test(c.text))?.level,
-    ).toBe("info");
-    const fail = missing.find((c) => c.text.startsWith("proxy credentials"));
-    expect(fail).toMatchObject({ level: "fail", fix: "turno-browser secret set px-pass" });
-    store.write("px-pass", PASSWORD);
-    const present = (await run()).checks.filter((c) => c.area === "identity px");
-    expect(present.find((c) => c.text.startsWith("proxy credentials"))?.level).toBe("ok");
-    expect(JSON.stringify(present)).not.toContain(PASSWORD);
-  });
+  it.skipIf(noFakeSecretStore)(
+    "says whether the secret store holds the proxy credentials, without reading them",
+    async () => {
+      addIdentity("px", sb.env);
+      writeIdentitySettings(
+        "px",
+        { proxy: { server: "http://proxy.example.com:8080", username: "alice", password: "keychain:px-pass" } },
+        sb.env,
+      );
+      const run = () =>
+        runDoctor({
+          env: sb.env,
+          launch: false,
+          chrome: () => ({ path: "/chrome", version: "157.0.0.1" }),
+          lightpanda: () => undefined,
+          camoufox: () => undefined,
+          playwrightCore: () => undefined,
+          procTable: () => new Map(),
+        });
+      const missing = (await run()).checks.filter((c) => c.area === "identity px");
+      expect(
+        missing.find((c) => /proxy http:\/\/proxy\.example\.com:8080: the proxy's operator sees/.test(c.text))?.level,
+      ).toBe("info");
+      const fail = missing.find((c) => c.text.startsWith("proxy credentials"));
+      expect(fail).toMatchObject({ level: "fail", fix: "turno-browser secret set px-pass" });
+      store.write("px-pass", PASSWORD);
+      const present = (await run()).checks.filter((c) => c.area === "identity px");
+      expect(present.find((c) => c.text.startsWith("proxy credentials"))?.level).toBe("ok");
+      expect(JSON.stringify(present)).not.toContain(PASSWORD);
+    },
+  );
 
   it("fails on a missing Camoufox or playwright-core only when an identity uses the engine", async () => {
     const run = () =>
@@ -479,6 +486,8 @@ describe("the chrome engine's network launch options", () => {
     const exe = join(sb.home, "chrome");
     writeFileSync(exe, "#!/bin/sh\necho 'Google Chrome 157.0.8103.79'\n");
     chmodSync(exe, 0o755);
+    // Where Windows keeps the version: a folder next to the executable.
+    mkdirSync(join(sb.home, "157.0.8103.79"));
     // The metadata this Chrome reports, as a first headless launch would have read and kept it.
     const metadata = {
       brands: [{ brand: "Google Chrome", version: "157" }],

@@ -146,7 +146,8 @@ export async function startBackground(id: string, options: StartBackgroundOption
     const child = spawn(
       process.execPath,
       [options.bin ?? defaultBin(), "--identity", id, "--background", ...(options.args ?? [])],
-      { detached: true, stdio: ["ignore", fd, fd], env, cwd: dir },
+      // windowsHide: on Windows a detached child gets a console window of its own otherwise.
+      { detached: true, stdio: ["ignore", fd, fd], env, cwd: dir, windowsHide: true },
     );
     child.once("exit", (code, signal) => {
       exited = code ?? (signal ? -1 : null);
@@ -186,21 +187,46 @@ export async function startBackground(id: string, options: StartBackgroundOption
 }
 
 /**
- * Stops the identity's background server (SIGTERM: it closes its sessions and Chrome, then
- * exits). Resolves true when one ran, false when none did.
+ * Asks the server to stop over its own transport (`POST /shutdown`). Windows has no SIGTERM:
+ * `process.kill` there ends the process at once, before it closes Chrome.
+ */
+async function requestShutdown(state: BackgroundState): Promise<boolean> {
+  try {
+    const signal = AbortSignal.timeout(5000);
+    const res =
+      state.transport === "socket"
+        ? await socketFetch(state.socket!)("http://localhost/shutdown", { method: "POST", signal })
+        : await fetch(`http://127.0.0.1:${state.port}/shutdown`, {
+            method: "POST",
+            signal,
+            headers: { Authorization: `Bearer ${readFileSync(state.tokenFile!, "utf8").trim()}` },
+          });
+    await res.body?.cancel();
+    return res.status === 202;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Stops the identity's background server (SIGTERM, on Windows a `POST /shutdown`: it closes its
+ * sessions and Chrome, then exits). Resolves true when one ran, false when none did.
  */
 export async function stopBackground(
   id: string,
-  options: BackgroundClientOptions & { timeoutMs?: number } = {},
+  options: BackgroundClientOptions & { timeoutMs?: number; platform?: NodeJS.Platform } = {},
 ): Promise<boolean> {
   assertIdentityId(id);
   const env = envOf(options);
   const state = liveBackground(id, env);
   if (!state) return false;
-  try {
-    process.kill(state.pid, "SIGTERM");
-  } catch {
-    /* exited meanwhile */
+  const asked = (options.platform ?? process.platform) === "win32" && state.transport && (await requestShutdown(state));
+  if (!asked) {
+    try {
+      process.kill(state.pid, "SIGTERM");
+    } catch {
+      /* exited meanwhile */
+    }
   }
   const deadline = Date.now() + (options.timeoutMs ?? 10_000);
   while (pidAlive(state.pid) && Date.now() < deadline) await sleep(50);

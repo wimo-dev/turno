@@ -1,5 +1,6 @@
-import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { replaceFileSync } from "turno-core/paths";
 import { pidAlive } from "turno-core/process";
 import { IdentityError, identityStateDir } from "./ids.js";
 import { names } from "./names.js";
@@ -83,8 +84,16 @@ export function runtimeLockAlive(lock: RuntimeLock): boolean {
   return pidAlive(lock.nodePid);
 }
 
+/**
+ * The command that stops a turno-browser-mcp, for messages: `kill <pid>` (SIGTERM: it closes its
+ * Chrome first), or on Windows, which has no SIGTERM, `taskkill` of its tree (its Chrome with it).
+ */
+export function stopCommand(pid: number, platform: NodeJS.Platform = process.platform): string {
+  return platform === "win32" ? `taskkill /PID ${pid} /T /F` : `kill ${pid}`;
+}
+
 /** Who holds the identity and how to get it back, for errors and `turno browser doctor`. */
-export function inUseMessage(id: string, lock: RuntimeLock): string {
+export function inUseMessage(id: string, lock: RuntimeLock, platform: NodeJS.Platform = process.platform): string {
   const pids = `pid ${lock.nodePid}${lock.chromePid ? `, Chrome pid ${lock.chromePid}` : ""}`;
   if (lock.holder === "login") {
     return `browser identity "${id}" is in use by ${names().browser} login (${pids}) since ${lock.startedAt}. Close that Chrome window to finish the login, then try again.`;
@@ -95,14 +104,14 @@ export function inUseMessage(id: string, lock: RuntimeLock): string {
   return (
     `browser identity "${id}" is in use by turno-browser-mcp (${pids}) since ${lock.startedAt}. ` +
     "One identity drives one Chrome at a time: wait for that session to end (mcpd stops the server after its lease or idle time), " +
-    `or stop it now with \`kill ${lock.nodePid}\`, which closes its Chrome first.`
+    `or stop it now with \`${stopCommand(lock.nodePid, platform)}\`, ${platform === "win32" ? "which ends its Chrome with it" : "which closes its Chrome first"}.`
   );
 }
 
 function writeAtomic(file: string, lock: RuntimeLock): void {
   const tmp = `${file}.${process.pid}.tmp`;
   writeFileSync(tmp, `${JSON.stringify(lock)}\n`, { mode: 0o600 });
-  renameSync(tmp, file);
+  replaceFileSync(tmp, file);
 }
 
 /** Locks this process holds, released on exit (sync: an exit handler cannot wait). */

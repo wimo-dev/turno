@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { browserPaths, turnoRoots } from "turno-core/paths";
-import { type ProcTable, pidAlive, readProcTable, signalProcess } from "turno-core/process";
+import { type ProcTable, killTree, pidAlive, readProcTable, signalProcess } from "turno-core/process";
 import { type SecretStore, secretStore } from "turno-core/secrets";
 import {
   AGENTS,
@@ -22,7 +22,7 @@ import { flowsDir } from "./flows.js";
 import { identityDir, identityStateDir, isValidIdentityId } from "./ids.js";
 import { findProfileChrome, stopChrome, usesProfile } from "./lifecycle.js";
 import { names } from "./names.js";
-import { readRuntimeLock, runtimeLockAlive } from "./runtime-lock.js";
+import { readRuntimeLock, runtimeLockAlive, stopCommand } from "./runtime-lock.js";
 import { exportFiles } from "./session-export.js";
 import { identitySettingsPath } from "./settings.js";
 import { vaultItem, vaultPath } from "./vault.js";
@@ -241,8 +241,13 @@ function identityServers(table: ProcTable | undefined, id: string, env: NodeJS.P
   const out: number[] = [];
   for (const p of table.values()) {
     if (p.pid === process.pid) continue;
-    const words = p.command.split(/\s+/);
-    if (!words.some((w) => /(^|\/)turno-browser-mcp$/.test(w) || /turno-browser\/dist\/bin\/mcp\.js$/.test(w)))
+    // Windows separates with backslashes and quotes a path with a space in it.
+    const words = p.command.split(/\s+/).map((w) => w.replace(/^"|"$/g, ""));
+    if (
+      !words.some(
+        (w) => /(^|[\\/])turno-browser-mcp(\.cmd)?$/i.test(w) || /turno-browser[\\/]dist[\\/]bin[\\/]mcp\.js$/.test(w),
+      )
+    )
       continue;
     const at = words.indexOf("--identity");
     const given = at >= 0 ? words[at + 1] : words.find((w) => w.startsWith("--identity="))?.slice(11);
@@ -404,9 +409,14 @@ async function stopProcess(id: string, item: RemovalItem, env: NodeJS.ProcessEnv
     if (chrome && (await stopChrome(chrome, { graceMs })) === "survived") throw new Error(`pid ${pid} did not stop`);
     return;
   }
-  signalProcess(pid, "SIGTERM");
-  if (await waitGone(pid, graceMs)) return;
-  signalProcess(pid, "SIGKILL");
+  if (process.platform === "win32") {
+    // No SIGTERM on Windows: end the server with its tree, its Chrome included.
+    killTree(pid, true, "win32");
+  } else {
+    signalProcess(pid, "SIGTERM");
+    if (await waitGone(pid, graceMs)) return;
+    signalProcess(pid, "SIGKILL");
+  }
   if (!(await waitGone(pid, 5000))) throw new Error(`pid ${pid} did not stop`);
 }
 
@@ -513,7 +523,7 @@ export async function runRemoval(plan: RemovalPlan, options: RemovalOptions): Pr
         what: "a process of the identity",
         pid: p.pid,
         reason: "still running",
-        command: `kill ${p.pid}`,
+        command: stopCommand(p.pid),
       });
   return { deleted: verified, failed, left, kept, complete: failed.length === 0 && left.length === 0 };
 }

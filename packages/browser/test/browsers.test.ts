@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   type BrowserProbe,
   browserSwitchProblem,
+  versionFromFolders,
   detectBrowsers,
   profileLastVersion,
   resolveBrowser,
@@ -65,6 +66,39 @@ describe("detection", () => {
       { id: "chrome", label: "Google Chrome", path: "/usr/bin/google-chrome-stable", version: "157.0.8103.79" },
     ]);
     expect(detectBrowsers(sb.env, "win32", probe)).toEqual([]);
+  });
+
+  it("finds Windows browsers in Program Files, Program Files (x86) and the per-user LOCALAPPDATA", () => {
+    const env = {
+      USERPROFILE: "C:\\Users\\a",
+      ProgramFiles: "C:\\Program Files",
+      "ProgramFiles(x86)": "C:\\Program Files (x86)",
+      LOCALAPPDATA: "C:\\Users\\a\\AppData\\Local",
+    };
+    const chrome = "C:\\Users\\a\\AppData\\Local\\Google\\Chrome\\Application\\chrome.exe";
+    const edge = "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe";
+    const brave = "C:\\Program Files\\BraveSoftware\\Brave-Browser\\Application\\brave.exe";
+    const probe = machine({ [chrome]: "157.0.8103.79", [edge]: "158.0.4370.33", [brave]: "157.1.99.57" });
+    expect(detectBrowsers(env, "win32", probe).map((b) => [b.id, b.path])).toEqual([
+      ["chrome", chrome],
+      ["edge", edge],
+      ["brave", brave],
+    ]);
+    // Without the variables, Windows' default folders.
+    expect(detectBrowsers({ USERPROFILE: "C:\\Users\\a" }, "win32", probe).map((b) => b.id)).toEqual([
+      "chrome",
+      "edge",
+      "brave",
+    ]);
+    // Launched by path: Playwright's channel lookup on Windows has its own order.
+    expect(resolveBrowser("chrome", { env, platform: "win32", probe }).launch).toEqual({ executablePath: chrome });
+  });
+
+  it("reads a Windows browser's version from the folder next to its executable", () => {
+    expect(versionFromFolders(["chrome.exe", "157.0.8103.79", "157.0.8103.114", "SetupMetrics"])).toBe(
+      "157.0.8103.114",
+    );
+    expect(versionFromFolders(["chrome.exe"])).toBeUndefined();
   });
 });
 

@@ -1,6 +1,6 @@
 import { writeFileSync } from "node:fs";
 import { type Server, createServer } from "node:http";
-import { readdirSync, statSync } from "node:fs";
+import { readdirSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -10,7 +10,7 @@ import { POPUP_GRACE_MS } from "../src/governor.js";
 import { identityStateDir } from "../src/ids.js";
 import { writeIdentitySettings } from "../src/settings.js";
 import { chromeUnavailable, stopSandboxProcesses } from "./helpers/chrome.js";
-import { type Sandbox, sandbox } from "./helpers/sandbox.js";
+import { type Sandbox, sandbox, expectMode } from "./helpers/sandbox.js";
 
 /**
  * The browser tools against a real Google Chrome, through the built server: the tab
@@ -390,7 +390,7 @@ describe.skipIf(reason !== undefined)(
       expect(n("/static/app.css")).toBe(1);
       const dir = join(identityStateDir("res-a", sb.env), "resource-cache");
       expect(readdirSync(dir).some((f) => f.endsWith(".json"))).toBe(true);
-      expect(statSync(dir).mode & 0o777).toBe(0o700);
+      expectMode(dir, 0o700);
 
       // Never across identities, and nothing blocked without a block setting.
       writeIdentitySettings("res-b", { cache: {} }, sb.env);

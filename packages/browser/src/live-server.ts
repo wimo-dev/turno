@@ -1,9 +1,10 @@
 import { randomBytes, timingSafeEqual } from "node:crypto";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { type IncomingMessage, type Server, type ServerResponse, createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { replaceFileSync } from "turno-core/paths";
 import type { BrowserContext, CDPSession, Page } from "patchright-core";
 import type { IdentityRef } from "./engine.js";
 import { type LiveFile, type LivePolicy, PauseGate, type PauseHold, type TabState, liveFilePath } from "./live.js";
@@ -23,8 +24,10 @@ import { type BrowserWatch, titleOf } from "./watch.js";
  *   and for two minutes. Every request must name the server by its loopback Host (DNS
  *   rebinding), and every POST must come from the view's own origin with its header.
  * - `turno browser live|pause|resume` talk to the server over a Unix socket in a private
- *   folder (mode 700, socket 600): the file system is the access check there. Where to find
- *   both is in `<state>/browser/identities/<id>/live.json`, without any secret.
+ *   folder (mode 700, socket 600): the file system is the access check there. On Windows it is
+ *   a named pipe with a random name, which by default only its creator, administrators and the
+ *   system can write to. Where to find both is in `<state>/browser/identities/<id>/live.json`,
+ *   without any secret.
  * - The picture is a CDP screencast of one tab (the one the agent used last, or the one the
  *   user picked), taken only while a view is open. A frame of a page that holds a vault or
  *   sensitive value (the vault guard: a `browser_login` fill, a password typed) is never sent;
@@ -192,6 +195,7 @@ export class LiveServer implements BrowserWatch {
   private unix: Server | undefined;
   private port = 0;
   private socketDir: string | undefined;
+  private pipe: string | undefined;
   private started = "";
   private queued = false;
   private heartbeat: NodeJS.Timeout | undefined;
@@ -219,7 +223,7 @@ export class LiveServer implements BrowserWatch {
 
   /** The control socket path (tests). */
   get socket(): string | undefined {
-    return this.socketDir && join(this.socketDir, "control.sock");
+    return this.pipe ?? (this.socketDir && join(this.socketDir, "control.sock"));
   }
 
   private get cookieName(): string {
@@ -235,12 +239,15 @@ export class LiveServer implements BrowserWatch {
   }
 
   private async listenAll(): Promise<void> {
-    this.socketDir = mkdtempSync(join(tmpdir(), "turno-live-"));
-    chmodSync(this.socketDir, 0o700);
+    if (process.platform === "win32") this.pipe = `\\\\.\\pipe\\turno-live-${randomBytes(12).toString("hex")}`;
+    else {
+      this.socketDir = mkdtempSync(join(tmpdir(), "turno-live-"));
+      chmodSync(this.socketDir, 0o700);
+    }
     const socket = this.socket!;
     this.unix = createServer((req, res) => void this.handle(req, res, true));
     await listen(this.unix, socket);
-    chmodSync(socket, 0o600);
+    if (!this.pipe) chmodSync(socket, 0o600);
     this.tcp = createServer((req, res) => void this.handle(req, res, false));
     await listen(this.tcp, 0, "127.0.0.1");
     this.port = (this.tcp.address() as AddressInfo).port;
@@ -253,7 +260,7 @@ export class LiveServer implements BrowserWatch {
     const data: LiveFile = { version: 1, pid: process.pid, socket, port: this.port, started: this.started };
     const tmp = `${file}.${process.pid}.tmp`;
     writeFileSync(tmp, `${JSON.stringify(data, null, 2)}\n`, { mode: 0o600 });
-    renameSync(tmp, file);
+    replaceFileSync(tmp, file);
     process.once("exit", this.onExit);
     this.heartbeat = setInterval(() => {
       for (const v of this.viewers) v.write(": ping\n\n");

@@ -1,6 +1,6 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { browserPaths as paths } from "turno-core/paths";
+import { browserPaths as paths, replaceFileSync } from "turno-core/paths";
 import { type ActSettings, type CaptchaSettings, actProblems, captchaProblems } from "./opt-in-settings.js";
 import { parseAttachTarget } from "./engine-attach.js";
 import { IdentityError, assertIdentityId } from "./ids.js";
@@ -714,7 +714,7 @@ export function writeIdentitySettings(
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
   const tmp = `${path}.${process.pid}.tmp`;
   writeFileSync(tmp, `${JSON.stringify(ordered, null, 2)}\n`, { mode: 0o600 });
-  renameSync(tmp, path);
+  replaceFileSync(tmp, path);
   return ordered;
 }
 

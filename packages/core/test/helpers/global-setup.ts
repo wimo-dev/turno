@@ -9,15 +9,21 @@
  */
 import { chmodSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { delimiter, join } from "node:path";
+import { delimiter, join, sep } from "node:path";
 
 const KEEP = new Set(["TURNO_SKIP_E2E", "TURNO_E2E_NETWORK", "TURNO_SKIP_CHROME"]);
 const LIVE = /^(TURNO_|CLAUDE|CODEX_|CURSOR_|ANTHROPIC_|XDG_)/;
 
+/** The folders the setup itself makes on Windows (above), not counted while they stay empty. */
+const SETUP_DIRS = new Set(["AppData", join("AppData", "Local"), join("AppData", "Roaming")]);
+
 /** Paths written under the guard HOME, relative to it. */
 export function guardFindings(home: string): string[] {
   try {
-    return readdirSync(home, { recursive: true }).map(String).sort();
+    const found = readdirSync(home, { recursive: true }).map(String).sort();
+    return found.filter(
+      (p) => !SETUP_DIRS.has(p) || found.some((q) => q !== p && q.startsWith(`${p}${sep}`) && !SETUP_DIRS.has(q)),
+    );
   } catch {
     return [];
   }
@@ -34,10 +40,12 @@ export default function setup(): () => void {
   process.env.XDG_DATA_HOME = join(home, ".local", "share");
   process.env.XDG_CACHE_HOME = join(home, ".cache");
   // Windows reads these instead of HOME: the profile folder, and turno's and Playwright's defaults.
+  // PowerShell and Chrome create them when they are missing, so they are made here and not counted.
   if (process.platform === "win32") {
     process.env.USERPROFILE = home;
     process.env.APPDATA = join(home, "AppData", "Roaming");
     process.env.LOCALAPPDATA = join(home, "AppData", "Local");
+    for (const dir of [process.env.APPDATA, process.env.LOCALAPPDATA]) mkdirSync(dir, { recursive: true });
   }
   process.env.TURNO_NO_UPDATE_CHECK = "1";
   // No test reaches the real secret store: stand-ins for `security` and `secret-tool` that refuse

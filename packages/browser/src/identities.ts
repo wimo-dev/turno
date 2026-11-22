@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, readlinkSync, rmSync, statSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readlinkSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { browserPaths as paths } from "turno-core/paths";
 import { pidAlive } from "turno-core/process";
@@ -107,9 +107,27 @@ export function inUseBy(id: string, env: NodeJS.ProcessEnv = process.env): strin
   return lock && runtimeLockAlive(lock) ? inUseMessage(id, lock) : undefined;
 }
 
+/**
+ * True while a Chrome holds the profile on Windows: it keeps `lockfile` open without sharing it
+ * and deletes it when it exits (the check Playwright makes before a launch there).
+ */
+export function windowsProfileLocked(userDataDir: string): boolean {
+  try {
+    closeSync(openSync(join(userDataDir, "lockfile"), "r+"));
+    return false;
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code !== "ENOENT";
+  }
+}
+
 /** True when a live process holds the identity's runtime lock or its Chrome profile. */
-export function isInUse(id: string, env: NodeJS.ProcessEnv = process.env): boolean {
+export function isInUse(
+  id: string,
+  env: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform,
+): boolean {
   if (inUseBy(id, env)) return true;
+  if (platform === "win32") return windowsProfileLocked(identityDir(id, env));
   let target: string;
   try {
     target = readlinkSync(join(identityDir(id, env), "SingletonLock"));

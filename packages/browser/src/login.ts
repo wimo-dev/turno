@@ -1,5 +1,6 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { replaceFileSync } from "turno-core/paths";
 import { identityBrowserLaunch } from "./browsers.js";
 import { clearHealth } from "./health.js";
 import { identityStateDir } from "./ids.js";
@@ -58,7 +59,7 @@ function writeLoginRecord(id: string, env: NodeJS.ProcessEnv, record: LoginRecor
   mkdirSync(identityStateDir(id, env), { recursive: true, mode: 0o700 });
   const tmp = `${file}.${process.pid}.tmp`;
   writeFileSync(tmp, `${JSON.stringify(record, null, 2)}\n`, { mode: 0o600 });
-  renameSync(tmp, file);
+  replaceFileSync(tmp, file);
 }
 
 /** The host of a page the person opened, without "www."; undefined for blank and internal pages. */

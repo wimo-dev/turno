@@ -1,10 +1,10 @@
-import { readFileSync, statSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { identityStateDir } from "../src/ids.js";
 import { readLastUsed, touchLastUsed, watchStdinCalls } from "../src/last-used.js";
-import { type Sandbox, sandbox } from "./helpers/sandbox.js";
+import { type Sandbox, sandbox, expectMode } from "./helpers/sandbox.js";
 
 /** When an identity last served a tool call: written at most once a minute, read by `status`. */
 
@@ -22,7 +22,7 @@ describe("last used", () => {
     touchLastUsed("school", sb.env, T);
     expect(readLastUsed("school", sb.env)).toBe(T.toISOString());
     const file = join(identityStateDir("school", sb.env), "last-used.json");
-    expect(statSync(file).mode & 0o777).toBe(0o600);
+    expectMode(file, 0o600);
     expect(JSON.parse(readFileSync(file, "utf8"))).toEqual({ at: T.toISOString() });
     // A file it cannot parse reads as never; a write it cannot make (the state folder is a file) is ignored.
     writeFileSync(file, "{not json");

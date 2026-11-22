@@ -1,9 +1,8 @@
-import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { BrowserContext, Page } from "patchright-core";
 import { PRIVATE_DIR_MODE, PRIVATE_FILE_MODE, browserPaths as paths } from "turno-core/paths";
-import { findBrowser } from "./browsers.js";
+import { findBrowser, readVersion } from "./browsers.js";
 import { findChrome } from "./doctor.js";
 import {
   CHROME_PROXY_ARGS,
@@ -132,15 +131,7 @@ const hasArg = (args: readonly string[], flag: string) => args.some((a) => a ===
 /** The installed Chrome's version, for the user agent string a headless Chrome needs. */
 function chromeVersion(config: McpConfig, env: NodeJS.ProcessEnv): string | undefined {
   const exe = config.browser.launchOptions.executablePath;
-  if (typeof exe === "string") {
-    try {
-      return /(\d+\.\d+\.\d+\.\d+)/.exec(
-        execFileSync(exe, ["--version"], { encoding: "utf8", timeout: 5000, stdio: ["ignore", "pipe", "ignore"] }),
-      )?.[1];
-    } catch {
-      return undefined;
-    }
-  }
+  if (typeof exe === "string") return readVersion(exe);
   const channel = config.browser.launchOptions.channel ?? "chrome";
   if (channel === "chrome-for-testing") return findBrowser("chrome-for-testing", env)?.version;
   return channel === "chrome" ? findChrome(env)?.version : undefined;

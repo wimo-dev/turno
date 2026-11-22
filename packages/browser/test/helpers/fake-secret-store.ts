@@ -7,6 +7,14 @@ import type { Sandbox } from "./sandbox.js";
  * first on the sandbox PATH. Items live under `<sandbox>/fake-secrets/`, never in a real
  * Keychain. `failWrites(true)` makes every store fail, like a locked Keychain.
  */
+/**
+ * Why a test that stores a secret cannot run here: the stand-ins replace the macOS and Linux
+ * commands, and turno-core has no Windows secret store yet, so turno-browser there says "no
+ * secret store" (which other tests cover). Undefined where the stand-ins work.
+ */
+export const noFakeSecretStore: string | undefined =
+  process.platform === "win32" ? "no secret store on Windows yet" : undefined;
+
 export interface FakeSecretStore {
   dir: string;
   read(service: string): string | undefined;

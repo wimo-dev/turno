@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { request } from "node:http";
 import { dirname } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -13,7 +13,7 @@ import { LiveServer } from "../src/live-server.js";
 import { Redactor, VaultGuard } from "../src/redact.js";
 import { writeIdentitySettings } from "../src/settings.js";
 import { upstream } from "../src/upstream.js";
-import { type Sandbox, sandbox } from "./helpers/sandbox.js";
+import { type Sandbox, sandbox, expectMode } from "./helpers/sandbox.js";
 
 /**
  * The live view server without a browser: where it listens, who it answers, the one-time link,
@@ -90,9 +90,9 @@ describe("the live view server", () => {
     const data = JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>;
     expect(Object.keys(data).sort()).toEqual(["pid", "port", "socket", "started", "version"]);
     expect(data.pid).toBe(process.pid);
-    expect(statSync(file).mode & 0o777).toBe(0o600);
-    expect(statSync(server.socket!).mode & 0o777).toBe(0o600);
-    expect(statSync(dirname(server.socket!)).mode & 0o777).toBe(0o700);
+    expectMode(file, 0o600);
+    expectMode(server.socket!, 0o600);
+    expectMode(dirname(server.socket!), 0o700);
     const status = await liveStatus("work", sb.env);
     expect(status).toMatchObject({ identity: "work", paused: null, browser: false, wait: 5_000, waiting: 0 });
     expect(status?.view).toEqual({ available: true, headless: true });

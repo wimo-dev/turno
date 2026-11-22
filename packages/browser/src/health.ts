@@ -1,5 +1,6 @@
-import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { replaceFileSync } from "turno-core/paths";
 import { identityStateDir } from "./ids.js";
 import type { HealthCheck } from "./settings.js";
 import { names } from "./names.js";
@@ -55,7 +56,7 @@ export function writeHealth(id: string, env: NodeJS.ProcessEnv, record: HealthRe
   mkdirSync(identityStateDir(id, env), { recursive: true, mode: 0o700 });
   const tmp = `${file}.${process.pid}.tmp`;
   writeFileSync(tmp, `${JSON.stringify(record, null, 2)}\n`, { mode: 0o600 });
-  renameSync(tmp, file);
+  replaceFileSync(tmp, file);
 }
 
 /** Forget the last result (after a login), so the next launch checks again. */

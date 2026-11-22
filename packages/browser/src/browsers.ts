@@ -1,12 +1,12 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
-import { dirname, isAbsolute, join } from "node:path";
-import { browserPaths as paths } from "turno-core/paths";
+import { dirname, isAbsolute, join, win32 } from "node:path";
+import { envValue, browserPaths as paths } from "turno-core/paths";
 
 /**
  * Which Chromium-based browser runs an identity (identity.json `browser`), where each one lives
- * on macOS and Linux, and how Playwright launches it.
+ * on macOS, Linux and Windows, and how Playwright launches it.
  *
  * - `chrome` (the default): Google Chrome.
  * - `edge`: Microsoft Edge.
@@ -21,8 +21,10 @@ import { browserPaths as paths } from "turno-core/paths";
  * Every browser in the table was launched on a persistent profile through Playwright's pipe,
  * headed and headless, with the live view's screencast and the agent cursor (see the
  * browsers section of the identities doc). Arc and Dia are Chromium builds turno could not
- * test, so they have no name here: they may work with a path. Windows paths are a later stage;
- * a new browser or OS is one more entry in `BROWSERS`.
+ * test, so they have no name here: they may work with a path. On Windows each browser is looked
+ * for where its installer puts it: per machine under Program Files (64 and 32 bit), then per
+ * user under %LOCALAPPDATA%, which needs no admin rights. A new browser or OS is one more entry
+ * in `BROWSERS`.
  */
 
 export const BROWSER_IDS = ["chrome", "edge", "brave", "chromium", "chrome-for-testing"] as const;
@@ -31,7 +33,23 @@ export type BrowserId = (typeof BROWSER_IDS)[number];
 /** identity.json `browser`: one of `BROWSER_IDS`, or the absolute path of a browser's executable. */
 export type BrowserChoice = BrowserId | (string & {});
 
-type Os = "darwin" | "linux";
+type Os = "darwin" | "linux" | "win32";
+
+/** The folders a Windows browser installs into, from the environment (with Windows' defaults). */
+interface WindowsDirs {
+  programFiles: string;
+  programFilesX86: string;
+  localAppData: string;
+}
+
+function windowsDirs(env: NodeJS.ProcessEnv, home: string): WindowsDirs {
+  const get = (name: string) => envValue(env, name, "win32") || undefined;
+  return {
+    programFiles: get("ProgramFiles") || "C:\\Program Files",
+    programFilesX86: get("ProgramFiles(x86)") || "C:\\Program Files (x86)",
+    localAppData: get("LOCALAPPDATA") || win32.join(home, "AppData", "Local"),
+  };
+}
 
 interface BrowserSpec {
   id: BrowserId;
@@ -41,16 +59,22 @@ interface BrowserSpec {
    * somewhere else (Chrome in ~/Applications) is launched by path instead.
    */
   channel?: string;
-  /** Where Playwright's channel looks, per OS. */
+  /** Where Playwright's channel looks, per OS. None on Windows, where the found path is launched as is. */
   channelPaths?: Partial<Record<Os, string[]>>;
   /** Where the browser lives, per OS: system folders first, then the user's own. */
-  paths: Partial<Record<Os, (home: string) => string[]>>;
+  paths: Partial<Record<Os, (home: string, win: WindowsDirs) => string[]>>;
 }
 
 const macApp = (app: string, exe: string) => (home: string) => [
   `/Applications/${app}.app/Contents/MacOS/${exe}`,
   join(home, "Applications", `${app}.app`, "Contents", "MacOS", exe),
 ];
+
+/** A Windows install: Program Files, Program Files (x86), then the per-user one in %LOCALAPPDATA%. */
+const winApp =
+  (...rel: string[]) =>
+  (_home: string, win: WindowsDirs) =>
+    [win.programFiles, win.programFilesX86, win.localAppData].map((dir) => win32.join(dir, ...rel));
 
 const BROWSERS: readonly BrowserSpec[] = [
   {
@@ -64,6 +88,7 @@ const BROWSERS: readonly BrowserSpec[] = [
     paths: {
       darwin: macApp("Google Chrome", "Google Chrome"),
       linux: () => ["/opt/google/chrome/chrome", "/usr/bin/google-chrome", "/usr/bin/google-chrome-stable"],
+      win32: winApp("Google", "Chrome", "Application", "chrome.exe"),
     },
   },
   {
@@ -77,6 +102,7 @@ const BROWSERS: readonly BrowserSpec[] = [
     paths: {
       darwin: macApp("Microsoft Edge", "Microsoft Edge"),
       linux: () => ["/opt/microsoft/msedge/msedge", "/usr/bin/microsoft-edge", "/usr/bin/microsoft-edge-stable"],
+      win32: winApp("Microsoft", "Edge", "Application", "msedge.exe"),
     },
   },
   {
@@ -85,6 +111,7 @@ const BROWSERS: readonly BrowserSpec[] = [
     paths: {
       darwin: macApp("Brave Browser", "Brave Browser"),
       linux: () => ["/opt/brave.com/brave/brave", "/usr/bin/brave-browser", "/usr/bin/brave-browser-stable"],
+      win32: winApp("BraveSoftware", "Brave-Browser", "Application", "brave.exe"),
     },
   },
   {
@@ -93,6 +120,7 @@ const BROWSERS: readonly BrowserSpec[] = [
     paths: {
       darwin: macApp("Chromium", "Chromium"),
       linux: () => ["/usr/bin/chromium", "/usr/bin/chromium-browser", "/usr/lib/chromium/chromium"],
+      win32: winApp("Chromium", "Application", "chrome.exe"),
     },
   },
   {
@@ -129,7 +157,10 @@ export interface DetectedBrowser {
 /** What detection reads from the machine; tests give a fake one. */
 export interface BrowserProbe {
   exists(path: string): boolean;
-  /** The browser's version, from the app's Info.plist on macOS or `--version` elsewhere. */
+  /**
+   * The browser's version: the app's Info.plist on macOS, the version folder next to the
+   * executable on Windows (`Application\\<version>\\`), `--version` on Linux.
+   */
   version(path: string, platform: NodeJS.Platform): string | undefined;
   /** True for a launcher that hands over to a snap (Ubuntu's chromium-browser). */
   isSnap(path: string): boolean;
@@ -145,8 +176,24 @@ export function versionFromPlist(xml: string): string | undefined {
   return /<key>CFBundleShortVersionString<\/key>\s*<string>([^<]+)<\/string>/.exec(xml)?.[1]?.trim();
 }
 
-function readVersion(path: string, platform: NodeJS.Platform): string | undefined {
+/** The highest `<a>.<b>.<c>.<d>` among folder names: the version a Windows install keeps next to its exe. */
+export function versionFromFolders(names: string[]): string | undefined {
+  const versions = names.filter((n) => /^\d+\.\d+\.\d+\.\d+$/.test(n));
+  const key = (v: string) => v.split(".").map(Number);
+  return versions
+    .sort((a, b) => {
+      const [x, y] = [key(a), key(b)];
+      for (let i = 0; i < 4; i++) if (x[i] !== y[i]) return x[i]! - y[i]!;
+      return 0;
+    })
+    .at(-1);
+}
+
+/** The version of the browser at `path` (see `BrowserProbe.version`); never starts a Windows browser. */
+export function readVersion(path: string, platform: NodeJS.Platform = process.platform): string | undefined {
   try {
+    // A Windows browser has no --version on the console: it would open a window instead.
+    if (platform === "win32") return versionFromFolders(readdirSync(dirname(path)));
     if (platform === "darwin") {
       const plist = join(dirname(dirname(path)), "Info.plist");
       if (existsSync(plist)) return versionFromPlist(readFileSync(plist, "utf8"));
@@ -195,7 +242,7 @@ const MACHINE_PROBE: BrowserProbe = {
 };
 
 function osOf(platform: NodeJS.Platform): Os | undefined {
-  return platform === "darwin" || platform === "linux" ? platform : undefined;
+  return platform === "darwin" || platform === "linux" || platform === "win32" ? platform : undefined;
 }
 
 /** The first install of one browser, or undefined. */
@@ -212,8 +259,9 @@ export function findBrowser(
     path = exe && probe.exists(exe) ? exe : undefined;
   } else {
     const os = osOf(platform);
-    const candidates = os ? (spec.paths[os]?.(paths(env).home) ?? []) : [];
-    path = candidates.find((p) => probe.exists(p) && !probe.isSnap(p));
+    const home = paths(env, platform).home;
+    const candidates = os ? (spec.paths[os]?.(home, windowsDirs(env, home)) ?? []) : [];
+    path = candidates.find((p) => probe.exists(p) && (platform === "win32" || !probe.isSnap(p)));
   }
   if (!path) return undefined;
   const version = probe.version(path, platform);

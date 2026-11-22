@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import type { Browser, Page } from "patchright-core";
-import { browserPaths as paths } from "turno-core/paths";
+import { envValue, browserPaths as paths } from "turno-core/paths";
 import type { Engine, LaunchedBrowser } from "./engine.js";
 import { IdleTimer, idleMs } from "./idle-timer.js";
 import { playwright, upstream } from "./upstream.js";
@@ -74,7 +74,12 @@ export function defaultChromeUserDataDir(
   const home = paths(env).home;
   if (platform === "darwin") return join(home, "Library", "Application Support", "Google", "Chrome");
   if (platform === "win32")
-    return join(env.LOCALAPPDATA ?? join(home, "AppData", "Local"), "Google", "Chrome", "User Data");
+    return join(
+      envValue(env, "LOCALAPPDATA", "win32") || join(home, "AppData", "Local"),
+      "Google",
+      "Chrome",
+      "User Data",
+    );
   return join(env.XDG_CONFIG_HOME || join(home, ".config"), "google-chrome");
 }
 

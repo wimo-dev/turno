@@ -216,6 +216,12 @@ function systemChecks(env: NodeJS.ProcessEnv, platform: NodeJS.Platform): Doctor
         manual: "run the browser through mcpd, or pass --headless when you start turno-browser-mcp here",
       });
     }
+  } else if (platform === "win32") {
+    out.push({
+      area: "system",
+      level: "info",
+      text: "Windows: Chrome opens in your desktop session, and the background server listens on a named pipe only your user can open",
+    });
   } else if (platform === "linux") {
     if (env.DISPLAY || env.WAYLAND_DISPLAY)
       out.push({
@@ -667,7 +673,7 @@ async function networkRows(id: string, env: NodeJS.ProcessEnv, opts: DoctorOptio
       area,
       level: "fail",
       text: "the proxy credentials are in the secret store, and this machine has none",
-      manual: "install libsecret (secret-tool), or use a proxy without a password",
+      manual: `${noStoreHint(opts.platform ?? process.platform)}, or use a proxy without a password`,
     });
     return out;
   }
@@ -686,6 +692,13 @@ async function networkRows(id: string, env: NodeJS.ProcessEnv, opts: DoctorOptio
   return out;
 }
 
+/** What gives this machine a secret store: libsecret on Linux; on Windows turno-browser has none yet. */
+function noStoreHint(platform: NodeJS.Platform): string {
+  return platform === "win32"
+    ? "turno-browser has no secret store on Windows yet: run this identity from macOS or Linux"
+    : "install libsecret (secret-tool)";
+}
+
 /** Whether the secret store has an item for each credential of the vault: lookups only, never a value. */
 async function vaultRows(id: string, env: NodeJS.ProcessEnv, opts: DoctorOptions): Promise<DoctorCheck[]> {
   const sites = vaultSummary(id, env)?.sites ?? [];
@@ -698,7 +711,7 @@ async function vaultRows(id: string, env: NodeJS.ProcessEnv, opts: DoctorOptions
         area,
         level: "fail",
         text: `the vault has ${sites.length} credential${sites.length === 1 ? "" : "s"} in the secret store, and this machine has none`,
-        manual: "install libsecret (secret-tool), then add them again with turno browser vault add",
+        manual: `${noStoreHint(opts.platform ?? process.platform)}, then add them again with turno browser vault add`,
       },
     ];
   const missing: string[] = [];
@@ -832,8 +845,7 @@ async function collect(
       level: "fail",
       text: "Google Chrome not found, and no other Chromium-based browser (Edge, Brave, Chromium, Chrome for Testing)",
       fix: "turno browser install-browser",
-      manual:
-        "turno browser install-browser downloads Chrome for Testing into your user cache with no admin password; or install Google Chrome (https://www.google.com/chrome/)",
+      manual: `turno browser install-browser downloads Chrome for Testing into your user cache with no admin password; or install Google Chrome (https://www.google.com/chrome/)${platform === "win32" ? ", or with winget for your user alone: winget install --id Google.Chrome.EXE --scope user" : ""}`,
     });
   // The test launch uses Chrome, or the first other browser when Chrome is missing.
   const first = others[0];
