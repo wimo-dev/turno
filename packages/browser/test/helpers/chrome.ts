@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { type ChildProcess, execFileSync, spawn } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -42,6 +42,28 @@ export function chromeUnavailable(): string | undefined {
   } finally {
     rmSync(home, { recursive: true, force: true });
   }
+}
+
+/**
+ * Starts a Chrome (Chrome, Edge, Brave or another Chromium) outside Playwright, on its own user
+ * data dir. Every Chrome a test or experiment starts by hand goes through here: Playwright adds
+ * `--use-mock-keychain` and `--password-store=basic` to the Chromes it launches, a direct spawn
+ * does not, and with a sandbox HOME macOS then shows the person a "Keychain not found" dialog
+ * for each launch.
+ */
+export function spawnChrome(exe: string, userDataDir: string, args: string[], env: NodeJS.ProcessEnv): ChildProcess {
+  return spawn(
+    exe,
+    [
+      `--user-data-dir=${userDataDir}`,
+      "--use-mock-keychain",
+      "--password-store=basic",
+      "--no-first-run",
+      "--no-default-browser-check",
+      ...args,
+    ],
+    { stdio: "ignore", env },
+  );
 }
 
 export function alive(pid: number): boolean {

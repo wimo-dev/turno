@@ -1,4 +1,4 @@
-import { type ChildProcess, spawn } from "node:child_process";
+import type { ChildProcess } from "node:child_process";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -7,7 +7,7 @@ import type { Browser } from "patchright-core";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { resolveAttachEndpoint } from "../src/engine-attach.js";
 import { playwright } from "../src/upstream.js";
-import { alive, chromeUnavailable, stopSandboxProcesses, waitFor } from "./helpers/chrome.js";
+import { alive, chromeUnavailable, spawnChrome, stopSandboxProcesses, waitFor } from "./helpers/chrome.js";
 import { type Sandbox, sandbox } from "./helpers/sandbox.js";
 
 /**
@@ -54,19 +54,8 @@ function sandboxEnv(): NodeJS.ProcessEnv {
 /** The "user's" Chrome: headless, a throwaway profile, remote debugging on a free port. */
 async function startUserChrome(): Promise<string> {
   const dir = join(sb.home, "user-chrome");
-  chrome = spawn(
-    exe,
-    [
-      "--headless=new",
-      `--user-data-dir=${dir}`,
-      "--remote-debugging-port=0",
-      "--no-first-run",
-      "--no-default-browser-check",
-      USER_PAGE,
-    ],
-    // The sandbox HOME and XDG dirs: Chrome writes crash reports and the font cache under them.
-    { stdio: "ignore", env: sandboxEnv() },
-  );
+  // The sandbox HOME and XDG dirs: Chrome writes crash reports and the font cache under them.
+  chrome = spawnChrome(exe, dir, ["--headless=new", "--remote-debugging-port=0", USER_PAGE], sandboxEnv());
   // Chrome creates the file before it writes the port and path into it: wait for both.
   await resolveAttachEndpoint({ kind: "dir", dir }, sandboxEnv(), process.platform, 20_000);
   return dir;
