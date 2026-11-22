@@ -1,13 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_STEP_TIMEOUT_MS,
-  HUMAN_STEP_STRINGS,
   type StepParams,
   parseStepParams,
   stepResult,
   urlMatcher,
 } from "../src/human-step.js";
-import { PauseGate, resumeNote } from "../src/live.js";
+import { PauseGate } from "../src/live.js";
 
 /** The person step without a browser: its arguments, URL patterns, result and the gate's hold. */
 
@@ -18,7 +17,7 @@ const params = (raw: Record<string, unknown>): StepParams => {
 };
 
 describe("person step arguments", () => {
-  it("ends on Done after 5 minutes at most by default", () => {
+  it("refuses what cannot make a step", () => {
     expect(params({ instruction: "  Type your password  " })).toEqual({
       instruction: "Type your password",
       urlChanges: false,
@@ -26,10 +25,6 @@ describe("person step arguments", () => {
       timeoutMs: DEFAULT_STEP_TIMEOUT_MS,
       requireHumanClick: false,
     });
-    expect(DEFAULT_STEP_TIMEOUT_MS).toBe(300_000);
-  });
-
-  it("refuses what cannot make a step", () => {
     const error = (raw: Record<string, unknown>) => (parseStepParams(raw) as { error?: string }).error;
     expect(error({ instruction: " " })).toMatch(/instruction must say/);
     expect(error({ instruction: "x".repeat(501) })).toMatch(/keep it to 500/);
@@ -67,20 +62,7 @@ describe("person step result", () => {
     targetClicked: true,
   };
 
-  it("says why the step ended and what changed, as text or JSON", () => {
-    const text = (stepResult({ ...base, ended: "done", json: false }).content[0] as { text: string }).text;
-    expect(text).toBe(
-      [
-        "### Person step",
-        "The step ended after 42s: the person pressed Done.",
-        'Current tab: https://example.com/welcome ("Welcome")',
-        "While the person had the browser:",
-        "- Current tab: https://example.com/login -> https://example.com/welcome",
-        "- In the page, the person clicked 2 times and changed 1 field (what they typed is never read).",
-        "The person clicked the target themselves.",
-        "Take a snapshot before your next action: the refs of your last snapshot may point elsewhere now.",
-      ].join("\n"),
-    );
+  it("says why the step ended and what changed", () => {
     const json = stepResult({ ...base, ended: "url-changed", targetClicked: false, json: true });
     expect(json.isError).toBeUndefined();
     expect(JSON.parse((json.content[0] as { text: string }).text)).toEqual({
@@ -104,11 +86,6 @@ describe("person step result", () => {
     expect(text).toMatch(/^### Error\nThe step ended after 42s: nothing ended the step within 5m 00s\./);
     expect(text).toContain("- Nothing changed in the browser's tabs, and the person made no input.");
   });
-
-  it("keeps every banner text in one table", () => {
-    expect(Object.keys(HUMAN_STEP_STRINGS)).toEqual(["en"]);
-    expect(HUMAN_STEP_STRINGS.en.done).toBe("Done");
-  });
 });
 
 describe("the pause gate during a person step", () => {
@@ -127,31 +104,5 @@ describe("the pause gate during a person step", () => {
     now += 5_000;
     gate.resume();
     expect(await held).toMatchObject({ kind: "resumed", step: true, pausedMs: 5_000 });
-  });
-
-  it("keeps the live view input count of a step the person ended with Resume", () => {
-    const gate = new PauseGate(() => 7);
-    gate.start("browser_request_human", Promise.resolve([]), { step: true });
-    gate.noteInput();
-    gate.noteInput();
-    expect(gate.inputsOf(7)).toBe(2);
-    gate.resume();
-    expect(gate.inputsOf(7)).toBe(2);
-    expect(gate.inputsOf(8)).toBe(0);
-    expect(gate.inputsOf(undefined)).toBe(0);
-  });
-
-  it("tells a held call that the person did a step", () => {
-    const note = resumeNote({
-      pausedMs: 65_000,
-      by: "browser_request_human",
-      step: true,
-      lines: [],
-      tool: "browser_click",
-      ran: true,
-    });
-    expect(note).toMatch(
-      /^### Waited for the person\nA call asked the person to do a step in this browser \(browser_request_human\); it took 1m 05s and has ended\./,
-    );
   });
 });

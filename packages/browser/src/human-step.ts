@@ -32,7 +32,7 @@ import type { BrowserWatch } from "./watch.js";
 export const HUMAN_STEP_TOOL = "browser_request_human";
 
 /** What the banner says to the person. */
-export interface StepStrings {
+interface StepStrings {
   title: string;
   done: string;
   /** Under the instruction, with a Done button. */
@@ -42,7 +42,7 @@ export interface StepStrings {
 }
 
 /** Every person-facing text of the banner, by locale: one place to add a language. */
-export const HUMAN_STEP_STRINGS = {
+const HUMAN_STEP_STRINGS = {
   en: {
     title: "Your turn",
     done: "Done",

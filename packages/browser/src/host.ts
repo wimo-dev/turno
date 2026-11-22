@@ -1260,7 +1260,7 @@ class SessionBackend extends EventEmitter implements ServerBackend {
     if (!page) return errorResult("no page is open; navigate to the page of the step first", json);
     const { launched } = running;
     const headless = this.host.config.browser?.launchOptions?.headless === true && !launched.userBrowser;
-    const unseen = headless ? this.unseenReason() : undefined;
+    const unseen = headless ? unseenReason(this.host.live, this.host.identity?.id) : undefined;
     return await runHumanStep(params, {
       page,
       watch: this.watch,
@@ -1273,20 +1273,6 @@ class SessionBackend extends EventEmitter implements ServerBackend {
       ...(progress ? { progress } : {}),
       currentPage: () => stock.currentPage(),
     });
-  }
-
-  /** Why the person cannot see a headless Chrome now, or undefined when the live view shows it. */
-  private unseenReason(): string | undefined {
-    const live = this.host.live;
-    const id = this.host.identity?.id;
-    const b = names().browser;
-    if (live && live.viewerCount > 0) return undefined;
-    if (live && id)
-      return `Chrome runs without a window here, so the person sees the page only in the live view, and it is not open. Ask the person to run \`${b} live ${id}\` (it opens the view in their browser), then call ${HUMAN_STEP_TOOL} again.`;
-    const start = id
-      ? `\`${b} set ${id} --live true\` and a new session, then \`${b} live ${id}\``
-      : "an identity with the live view on";
-    return `Chrome runs without a window here (--headless) and the live view is off, so the person cannot see the page. Ask the person to run the browser with a window (start turno-browser-mcp without --headless), or to turn the live view on (${start}), then call ${HUMAN_STEP_TOOL} again.`;
   }
 
   /**
@@ -1788,4 +1774,16 @@ export async function runHost(
     console.error((error as Error).message);
     core.utils.gracefullyProcessExitDoNotHang(1);
   }
+}
+
+/** Why the person cannot see a headless Chrome now, or undefined when the live view shows it. */
+export function unseenReason(live: { viewerCount: number } | undefined, id: string | undefined): string | undefined {
+  const b = names().browser;
+  if (live && live.viewerCount > 0) return undefined;
+  if (live && id)
+    return `Chrome runs without a window here, so the person sees the page only in the live view, and it is not open. Ask the person to run \`${b} live ${id}\` (it opens the view in their browser), then call ${HUMAN_STEP_TOOL} again.`;
+  const start = id
+    ? `\`${b} set ${id} --live true\` and a new session, then \`${b} live ${id}\``
+    : "an identity with the live view on";
+  return `Chrome runs without a window here (--headless) and the live view is off, so the person cannot see the page. Ask the person to run the browser with a window (start turno-browser-mcp without --headless), or to turn the live view on (${start}), then call ${HUMAN_STEP_TOOL} again.`;
 }

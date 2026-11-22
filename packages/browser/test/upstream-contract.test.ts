@@ -13,6 +13,7 @@ import { TURNO_TOOLS, checkTurnoTools } from "../src/tools.js";
 import { BACKGROUND_SWITCHES } from "../src/tuning.js";
 import { upstream } from "../src/upstream.js";
 import { type Sandbox, sandbox } from "./helpers/sandbox.js";
+import { TOOL_NAMES } from "./helpers/upstream-tools.js";
 
 /**
  * What turno-browser relies on in the Playwright MCP program bundled in patchright-core.
@@ -71,34 +72,6 @@ const TURNO_NAMES = [
   "browser_replay",
   "browser_flows",
   "browser_request_human",
-];
-
-const TOOL_NAMES = [
-  "browser_close",
-  "browser_resize",
-  "browser_console_messages",
-  "browser_handle_dialog",
-  "browser_emulate_media",
-  "browser_evaluate",
-  "browser_file_upload",
-  "browser_drop",
-  "browser_find",
-  "browser_fill_form",
-  "browser_press_key",
-  "browser_type",
-  "browser_navigate",
-  "browser_navigate_back",
-  "browser_network_requests",
-  "browser_network_request",
-  "browser_run_code_unsafe",
-  "browser_take_screenshot",
-  "browser_snapshot",
-  "browser_click",
-  "browser_drag",
-  "browser_hover",
-  "browser_select_option",
-  "browser_tabs",
-  "browser_wait_for",
 ];
 
 let sb: Sandbox;

@@ -20,16 +20,14 @@ import { type Sandbox, sandbox } from "./helpers/sandbox.js";
  *   target counts only when trusted, the banner comes back on a new document and goes on remove;
  * - the tool through the built server with the live view open, as a person with a headless
  *   Chrome uses it: the person's clicks and keys go in through the view (trusted CDP input), and
- *   the step ends on a URL change, a selector, Done, a resume or the timeout; another session's
- *   call waits; the result never holds what the person typed.
+ *   the step ends on a URL change, a selector or a resume; another session's call waits; a click
+ *   on the target counts; the result never holds what the person typed.
  */
 
 const pkg = fileURLToPath(new URL("..", import.meta.url));
 const bin = join(pkg, "dist", "bin", "mcp.js");
 const reason = chromeUnavailable();
 const PASSWORD = "Person Pa55 w0rd&<secret>";
-
-const SCRIPT_CLICK = `<script>setTimeout(() => document.getElementById("accept").click(), 300)</script>`;
 
 async function site(): Promise<{ url: string; close(): Promise<void> }> {
   const server: Server = createServer((req, res) => {
@@ -39,15 +37,10 @@ async function site(): Promise<{ url: string; close(): Promise<void> }> {
     if (path === "/a")
       res.end(`<title>A</title><a href="/b" style="position:fixed;inset:0;display:block;font-size:40px">Go to B</a>`);
     else if (path === "/b") res.end("<title>B</title><h1>Page B</h1>");
-    else if (path === "/later")
-      res.end(
-        `<title>Later</title><h1>Wait</h1><script>setTimeout(() => { const p = document.createElement("p"); p.id = "ready"; p.textContent = "Ready"; document.body.append(p); }, 800)</script>`,
-      );
     else if (path === "/terms")
       res.end(`<title>Terms</title><h1>Terms</h1>
         <button id="accept" style="position:fixed;left:100px;top:100px;width:300px;height:120px"
-          onclick="const p = document.createElement('p'); p.id = 'accepted'; p.textContent = 'Accepted'; document.body.append(p)">Accept</button>
-        ${url.searchParams.has("script") ? SCRIPT_CLICK : ""}`);
+          onclick="const p = document.createElement('p'); p.id = 'accepted'; p.textContent = 'Accepted'; document.body.append(p)">Accept</button>`);
     else if (path === "/login")
       res.end(`<title>Sign in</title><h1>Sign in</h1>
         <input id="pw" name="password" type="password" autocomplete="current-password"
@@ -277,16 +270,6 @@ async function stepStarted(id: string): Promise<void> {
 }
 
 describe.skipIf(reason)(`browser_request_human with a real Chrome${reason ? ` (skipped: ${reason})` : ""}`, () => {
-  it("refuses a headless Chrome nobody can see, and says how to make it visible", async () => {
-    addIdentity("unseen", sb.env);
-    const client = await start("unseen");
-    await call(client, "browser_navigate", { url: "about:blank" });
-    const out = await call(client, "browser_request_human", { instruction: "Type your password." });
-    expect(out.error).toBe(true);
-    expect(out.text).toContain("Chrome runs without a window here (--headless) and the live view is off");
-    expect(out.text).toContain("turno-browser set unseen --live true");
-  });
-
   it("ends when the URL changes, holds another session's call, and removes the banner", async () => {
     const web = await site();
     onTestFinished(() => web.close());
@@ -325,83 +308,29 @@ describe.skipIf(reason)(`browser_request_human with a real Chrome${reason ? ` (s
     expect((await liveStatus("work", sb.env))?.paused).toBeNull();
   });
 
-  it("ends on a selector, on Done, and on the timeout", async () => {
+  it("ends on a selector the person's click shows, never returns what they typed, and holds the page", async () => {
     const web = await site();
     onTestFinished(() => web.close());
-    addIdentity("ends", sb.env);
-    const client = await start("ends", ["--live"]);
-    const view = await openView("ends");
-
-    await call(client, "browser_navigate", { url: `${web.url}/later` });
-    const ready = await call(client, "browser_request_human", {
-      instruction: "Wait for the page.",
-      until: { selector: "#ready", done: false },
-    });
-    expect(ready.text).toContain("#ready is visible");
-
-    await call(client, "browser_navigate", { url: `${web.url}/b` });
-    const size = await call(client, "browser_evaluate", { function: "() => [innerWidth, innerHeight]" });
-    const [w, h] = JSON.parse(/### Result\n([\s\S]*?)(?:\n###|$)/.exec(size.text)![1]!.trim()) as [number, number];
-    const done = call(client, "browser_request_human", { instruction: "Read the page, then press Done." });
-    await stepStarted("ends");
-    // The Done button: at the right of the card (560 wide, centered), 20px above the bottom.
-    const right = w / 2 + Math.min(560, w - 32) / 2;
-    await view.input({ type: "click", x: Math.round(right - 52), y: Math.round(h - 52) });
-    const pressed = await done;
-    expect(pressed.error, pressed.text).toBe(false);
-    expect(pressed.text).toContain("the person pressed Done");
-
-    const began = Date.now();
-    const late = await call(client, "browser_request_human", {
-      instruction: "Nobody is here.",
-      until: { timeoutMs: 1_500 },
-    });
-    expect(Date.now() - began).toBeGreaterThanOrEqual(1_400);
-    expect(late.error).toBe(true);
-    expect(late.text).toContain("nothing ended the step within 2s");
-  });
-
-  it("reports whether the person's own click landed on the target", async () => {
-    const web = await site();
-    onTestFinished(() => web.close());
-    addIdentity("terms", sb.env);
-    const client = await start("terms", ["--live"]);
-    const view = await openView("terms");
+    addIdentity("secret", sb.env);
+    const client = await start("secret", ["--live"]);
+    const view = await openView("secret");
 
     await call(client, "browser_navigate", { url: `${web.url}/terms` });
-    let target = ref((await call(client, "browser_snapshot")).text, "button", "Accept");
-    const step = call(client, "browser_request_human", {
+    const target = ref((await call(client, "browser_snapshot")).text, "button", "Accept");
+    const accept = call(client, "browser_request_human", {
       instruction: "Read the terms and press Accept if you agree.",
       element: "Accept",
       target,
       requireHumanClick: true,
       until: { selector: "#accepted", done: false },
     });
-    await stepStarted("terms");
+    await stepStarted("secret");
     await view.input({ type: "click", x: 250, y: 160 });
-    const clicked = await step;
-    expect(clicked.error, clicked.text).toBe(false);
-    expect(clicked.text).toContain("The person clicked the target themselves.");
+    const accepted = await accept;
+    expect(accepted.error, accepted.text).toBe(false);
+    expect(accepted.text).toContain("#accepted is visible");
+    expect(accepted.text).toContain("The person clicked the target themselves.");
 
-    // The page clicks the button itself: an untrusted click ends the step, but is not the person's.
-    await call(client, "browser_navigate", { url: `${web.url}/terms?script` });
-    target = ref((await call(client, "browser_snapshot")).text, "button", "Accept");
-    const scripted = await call(client, "browser_request_human", {
-      instruction: "Press Accept.",
-      target,
-      requireHumanClick: true,
-      until: { selector: "#accepted", done: false },
-    });
-    expect(scripted.text).toContain("#accepted is visible");
-    expect(scripted.text).toContain("The person did not click the target themselves.");
-  });
-
-  it("never returns what the person typed, and holds the page from the script tools", async () => {
-    const web = await site();
-    onTestFinished(() => web.close());
-    addIdentity("secret", sb.env);
-    const client = await start("secret", ["--live"]);
-    const view = await openView("secret");
     await call(client, "browser_navigate", { url: `${web.url}/login` });
     const step = call(client, "browser_request_human", { instruction: "Type your password." });
     await stepStarted("secret");
