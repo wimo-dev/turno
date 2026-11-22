@@ -31,6 +31,7 @@ import { vaultCommand } from "./vault.js";
 import { BACKGROUND_JSON, backgroundCommand } from "./background.js";
 import { secretCommand } from "./secret.js";
 import { SETUP_DETAILS, SETUP_JSON, setup } from "./setup.js";
+import { STATUS_JSON, status } from "./status.js";
 import { INIT_DETAILS, INIT_JSON, INIT_SYNOPSIS, init } from "./init.js";
 import { loginSummary } from "./login-summary.js";
 
@@ -336,6 +337,8 @@ async function dispatch(c: Ctx, sub: string, rest: string[], io: Io): Promise<nu
         return await liveCmd.resume(c, rest, io);
       case "setup":
         return setup(c, rest, io);
+      case "status":
+        return await status(c, rest, io);
       default:
         return fail(`unknown ${c.names.subject}command "${sub}"`);
     }
@@ -377,6 +380,7 @@ function examples(c: Ctx): string[] {
     `${b} set school --humanize light`,
     `${b} set school --sharing tabs`,
     `${b} login school --url https://example.com`,
+    `${b} status --json`,
     `${b} doctor --fix`,
     `${b} reputation school --json`,
     `${b} vault add school mail --url https://mail.example.com --username alice`,
@@ -483,6 +487,17 @@ function subcommands(c: Ctx): Record<string, Sub> {
       flags: ident.SET_FLAG_NAMES,
       json: ident.SET_JSON,
       run: run("set"),
+    },
+    status: {
+      summary: "each identity at a glance: settings, sign-ins, last use, which agents have it",
+      synopsis: "[<id>] [--json]",
+      details: `Only reads. For each identity: its profile, a summary of identity.json, who holds it, the
+vault's sites, the last sign-in by hand, the host names the profile holds cookies for (never their
+values; not read while Chrome has the profile open), when it last served a tool call, and the
+agents whose config has it.`,
+      flags: ["--json"],
+      json: STATUS_JSON,
+      run: run("status"),
     },
     doctor: {
       summary: "check Chrome, a test launch and every identity (settings, lock, sign-in), with fixes",

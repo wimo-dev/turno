@@ -75,6 +75,8 @@ From the shell
   background  the background server do starts per identity: status, start, stop
 
 Checks
+  status      each identity at a glance: settings, sign-ins, last use, which
+              agents have it
   doctor      check Chrome, a test launch and every identity (settings, lock,
               sign-in), with fixes
   reputation  challenges each identity met per site (captcha, verify it's you,
@@ -763,6 +765,22 @@ Usage:
 
 Examples:
   $ turno-browser background stop school
+```
+
+## turno-browser status
+
+```text
+Usage:
+  turno-browser status [<id>] [--json]  each identity at a glance: settings,
+                                        sign-ins, last use, which agents have it
+
+Only reads. For each identity: its profile, a summary of identity.json, who holds it, the
+vault's sites, the last sign-in by hand, the host names the profile holds cookies for (never their
+values; not read while Chrome has the profile open), when it last served a tool call, and the
+agents whose config has it.
+
+Examples:
+  $ turno-browser status --json
 ```
 
 ## turno-browser doctor

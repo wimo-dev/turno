@@ -11,6 +11,7 @@ import {
   type McpAgent,
   agentReachable,
   agentServers,
+  isTurnoEntry,
   envForFile,
   readRegistrations,
   serverName,
@@ -294,7 +295,8 @@ function mcpItems(id: string, env: NodeJS.ProcessEnv): { items: RemovalItem[]; l
     const info = AGENTS[agent];
     const agentEnv = envForFile(agent, file, env);
     if (!agentEnv) continue;
-    if (!agentServers(agent, agentEnv).entries.some((e) => e.server === server)) continue;
+    // Only turno's own entry: a server of the same name that runs something else is not removed.
+    if (!agentServers(agent, agentEnv).entries.some((e) => e.server === server && isTurnoEntry(e))) continue;
     const words = info.remove?.(server);
     const prefix = agentEnv === env || !info.homeEnv ? "" : `${info.homeEnv}=${agentEnv[info.homeEnv]} `;
     const item: RemovalItem = {

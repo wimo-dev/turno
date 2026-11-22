@@ -6,6 +6,7 @@ import { type BackgroundFlags, extractBackground, serveBackground, sharingOf } f
 import { engineChoice } from "../engine.js";
 import { lightpandaCookieJar, sweepOrphanLightpandas } from "../engine-lightpanda.js";
 import { runHost } from "../host.js";
+import { watchStdinCalls } from "../last-used.js";
 import { installShutdownGuard, sweepOrphan } from "../lifecycle.js";
 import { readIdentitySettings } from "../settings.js";
 
@@ -165,6 +166,8 @@ function readMode(argv: BuiltArgv): boolean {
 }
 
 const identity = built.identity !== undefined ? { id: built.identity, env: process.env } : undefined;
+// `status` shows when the identity last served a call; the background server counts its own.
+if (identity && !background.background && !help) watchStdinCalls(identity.id, identity.env);
 await runHost(built.args, {
   ...(identity ? { identity } : {}),
   ...(built.tuning ? { tuning: built.tuning } : {}),

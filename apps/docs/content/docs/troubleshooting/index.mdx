@@ -98,6 +98,13 @@ It exits with code 1 when a check fails; warnings exit 0. Each row below is one 
 | [playwright-core has the wrong version for Camoufox](/docs/troubleshooting/browser-playwright-core-wrong-version) | `playwright-core <version> at <dir> is not the version patchright-core is built on, so Camoufox cannot run on it` | warning or failure |
 | [No secret store for the proxy credentials](/docs/troubleshooting/browser-proxy-no-secret-store) | `the proxy credentials are in the secret store, and this machine has none` | failure |
 | [The proxy credentials are not in the secret store](/docs/troubleshooting/browser-proxy-secret-missing) | `proxy credentials: <label> has no item "<item>", so the browser does not start` | failure |
+| [No secret store for the vault](/docs/troubleshooting/browser-vault-no-secret-store) | `the vault has <sites> credential<s> in the secret store, and this machine has none` | failure |
+| [The secret store did not answer for the vault](/docs/troubleshooting/browser-vault-store-no-answer) | `the <label> did not answer for the vault: <first line>` | warning |
+| [A vault credential is missing from the secret store](/docs/troubleshooting/browser-vault-item-missing) | `vault: <label> has no item for the credentials of <site>, so browser_login cannot sign in there` | failure |
+| [An agent's MCP config cannot be read](/docs/troubleshooting/browser-agent-config-unreadable) | `could not read <label>'s config <file>: <error>` | warning |
+| [An agent still has the server of a deleted identity](/docs/troubleshooting/browser-agent-stale-server) | `<label> still has the MCP server <server> (<file>), and there is no identity "<id>"` | warning |
+| [An agent runs turno-browser-mcp from a path that is gone](/docs/troubleshooting/browser-agent-command-missing) | `<label> runs <server> with <e>, which is not there` | warning |
+| [An agent lost the server init registered](/docs/troubleshooting/browser-agent-registration-lost) | `<label> no longer has <server>, which init registered in <file>` | warning |
 | [No Chrome to attach to](/docs/troubleshooting/browser-attach-not-listening) | `attach: no Chrome with remote debugging on< for <dir>>, so the next tool call fails` | warning |
 | [Several sessions share one tab](/docs/troubleshooting/browser-sharing-not-exclusive) | `[server.<name>] in mcp.toml lets several sessions in (exclusive = false), but this identity serves one at a time ("sharing": "session"), so those sessions share one current tab` | warning |
 | [A Lightpanda was left running](/docs/troubleshooting/browser-stray-lightpanda) | `Lightpanda pid <stray> was left running by a server that is gone` | warning |

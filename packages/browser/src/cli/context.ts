@@ -1,8 +1,8 @@
 import { spawn } from "node:child_process";
 import type { Io } from "turno-core/cli";
-import type { ExecCommand } from "../agent-mcp.js";
+import { type ExecCommand, browserEntries } from "../agent-mcp.js";
 import type { BrowserFunctions } from "../api.js";
-import type { ServedIdentity } from "../doctor.js";
+import type { DoctorOptions, ServedIdentity } from "../doctor.js";
 import type { SettingsPatch } from "../settings.js";
 import { type CliNames, STANDALONE_NAMES } from "../names.js";
 import type { DoTransport } from "./do.js";
@@ -35,6 +35,11 @@ export interface BrowserCliHost {
   restart: string;
   /** The servers that run turno-browser-mcp for each identity, for the doctor's sharing check. */
   servers?(env: NodeJS.ProcessEnv): ServedIdentity[];
+  /**
+   * The turno-browser servers in the agents' own config files, for the doctor's registration
+   * checks: turno-browser on its own (inside turno, `turno mcp sync` writes those files).
+   */
+  agents?(env: NodeJS.ProcessEnv): NonNullable<DoctorOptions["agents"]>;
   /** How `do` reaches the identity's server. Without one, `do` says what it needs. */
   doTransport?: DoTransport;
   /** Whether `Next:` hints print (turno's config.toml `hints`); on when not given. */
@@ -125,6 +130,7 @@ credentials in the secret store (turno-browser vault).`,
       io.out(`Any other MCP client runs: turno-browser-mcp --identity ${id}`);
     },
     restart: "a new agent session",
+    agents: browserEntries,
     doTransport: backgroundTransport(doDeps),
   };
 }

@@ -204,10 +204,16 @@ export function findEntry(agent: McpAgent, id: string, env: NodeJS.ProcessEnv): 
   return agentServers(agent, env).entries.find((e) => e.server === serverName(id));
 }
 
-/** True when the entry runs turno-browser-mcp (by name, or this package's bin/mcp.js). */
-function runsBrowserServer(e: McpEntry): boolean {
+/**
+ * True when the entry runs turno-browser-mcp (by name, or this package's bin/mcp.js) or turno.
+ * A server merely named `browser-<something>` (browser-use, say) is someone else's.
+ */
+export function isTurnoEntry(e: McpEntry): boolean {
   const words = [e.command ?? "", ...(e.args ?? [])];
-  return words.some((w) => basename(w) === "turno-browser-mcp" || /turno-browser[\\/].*bin[\\/]mcp\.js$/.test(w));
+  return words.some(
+    (w) =>
+      basename(w) === "turno-browser-mcp" || basename(w) === "turno" || /turno-browser[\\/].*bin[\\/]mcp\.js$/.test(w),
+  );
 }
 
 /** The identity an entry serves: its `--identity` argument, else its `browser-<id>` name. */
@@ -221,8 +227,8 @@ export function entryIdentity(e: McpEntry): string | undefined {
 }
 
 /**
- * The turno-browser servers in every known agent's config: entries named `browser-<id>` or
- * running turno-browser-mcp. Config files that exist and cannot be read come back in `errors`.
+ * The turno-browser servers in every known agent's config: the entries that run
+ * turno-browser-mcp (or turno). Config files that exist and cannot be read come back in `errors`.
  */
 export function browserEntries(env: NodeJS.ProcessEnv): { entries: McpEntry[]; errors: AgentServers[] } {
   const entries: McpEntry[] = [];
@@ -230,7 +236,7 @@ export function browserEntries(env: NodeJS.ProcessEnv): { entries: McpEntry[]; e
   for (const agent of MCP_AGENTS) {
     const found = agentServers(agent, env);
     if (found.error) errors.push(found);
-    entries.push(...found.entries.filter((e) => e.server.startsWith("browser-") || runsBrowserServer(e)));
+    entries.push(...found.entries.filter(isTurnoEntry));
   }
   return { entries, errors };
 }

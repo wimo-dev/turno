@@ -41,7 +41,7 @@ const SECTIONS: readonly { title: string; commands: readonly string[] }[] = [
   { title: "Flows and recordings", commands: ["record", "flows", "replay", "traces"] },
   { title: "Watch and take over", commands: ["live", "pause", "resume"] },
   { title: "From the shell", commands: ["do", "background"] },
-  { title: "Checks", commands: ["doctor", "reputation", "bench"] },
+  { title: "Checks", commands: ["status", "doctor", "reputation", "bench"] },
 ];
 
 export function version(): string {
