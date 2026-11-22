@@ -74,26 +74,34 @@ jobs:
         continue-on-error: true
         shell: pwsh
         run: |
-          Set-Location packages/browser
-          $core = Resolve-Path node_modules/patchright-core
-          $probe = "const { chromium } = require(process.argv[1]); chromium.launch({ channel: 'chrome', headless: true, timeout: 30000 }).then((b) => { console.log('started'); return b.close(); }).catch((e) => { console.error(e.message.split('\n')[0]); process.exit(1); });"
-          $home2 = Join-Path $env:RUNNER_TEMP "home2"
-          New-Item -ItemType Directory -Force $home2 | Out-Null
-          foreach ($v in "USERPROFILE", "LOCALAPPDATA", "APPDATA", "HOME") {
-            $old = [Environment]::GetEnvironmentVariable($v)
-            [Environment]::SetEnvironmentVariable($v, $home2)
-            "probe with only $v redirected:"; node -e $probe $core
-            [Environment]::SetEnvironmentVariable($v, $old)
+          $js = @'
+          const { spawnSync } = require("node:child_process");
+          const { mkdtempSync } = require("node:fs");
+          const { tmpdir } = require("node:os");
+          const { join } = require("node:path");
+          const e = process.env;
+          const home = mkdtempSync(join(tmpdir(), "ps-"));
+          const keep = ["SystemRoot", "windir", "ComSpec", "PATHEXT", "TEMP", "TMP", "ProgramFiles", "ProgramFiles(x86)", "PATH"];
+          const base = Object.fromEntries(keep.map((k) => [k, e[k]]));
+          const sandbox = { ...base, HOME: home, USERPROFILE: home, APPDATA: join(home, "r"), LOCALAPPDATA: join(home, "l") };
+          const variants = {
+            full: e,
+            sandbox,
+            "sandbox + real USERPROFILE": { ...sandbox, USERPROFILE: e.USERPROFILE },
+            "sandbox + real LOCALAPPDATA": { ...sandbox, LOCALAPPDATA: e.LOCALAPPDATA },
+            "sandbox + PSModulePath": { ...sandbox, PSModulePath: e.PSModulePath },
+            "sandbox + SystemDrive, ProgramData": { ...sandbox, SystemDrive: e.SystemDrive, ProgramData: e.ProgramData },
+            "full - USERPROFILE": { ...e, USERPROFILE: home },
+          };
+          for (const [name, env] of Object.entries(variants)) {
+            const t = Date.now();
+            const r = spawnSync(join(e.SystemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"), ["-NoProfile", "-NonInteractive", "-Command", "(Get-CimInstance Win32_Process).Count"], { env, encoding: "utf8", timeout: 25000, windowsHide: true });
+            console.log(`${name}: ${((Date.now() - t) / 1000).toFixed(1)}s status=${r.status} out=${(r.stdout || "").trim()} err=${(r.stderr || "").trim().split("\n")[0]} ${r.error ? r.error.code : ""}`);
           }
-          $env:TURNO_CONFIG_DIR = Join-Path $env:RUNNER_TEMP "t\c"; $env:TURNO_STATE_DIR = Join-Path $env:RUNNER_TEMP "t\s"; $env:TURNO_DATA_DIR = Join-Path $env:RUNNER_TEMP "t\d"
-          $env:TURNO_NO_INPUT = "1"
-          "add: " + (Measure-Command { node dist/cli/main.js add school | Out-Host }).TotalSeconds
-          "do session: " + (Measure-Command { node dist/cli/main.js do school session | Out-Host }).TotalSeconds
-          "do end: " + (Measure-Command { node dist/cli/main.js do school end | Out-Host }).TotalSeconds
-          "remove: " + (Measure-Command { node dist/cli/main.js remove school --yes --json | Out-Host }).TotalSeconds
-      # The secret store tests drive POSIX shell stand-ins for security and secret-tool; the
-      # Windows secret store comes with its own tests.
-      - run: pnpm --filter turno-core exec vitest run --exclude test/secrets.test.ts
+          '@
+          node -e $js
+      # The core suite, the Windows secret store's DPAPI round trip included.
+      - run: pnpm --filter turno-core run test
       - run: pnpm --filter turno-browser exec vitest run --reporter=verbose
         if: ${{ !cancelled() }}
       # What a person gets from npm: the packed packages installed with npm (its .cmd shims),
@@ -175,22 +183,3 @@ jobs:
         with:
           fail-on-severity: moderate
           deny-licenses: GPL-2.0-only, GPL-2.0-or-later, GPL-3.0-only, GPL-3.0-or-later, AGPL-3.0-only, AGPL-3.0-or-later, SSPL-1.0
-
-  windows-secrets:
-    # The Windows secret store (DPAPI through Windows PowerShell) with a real round trip in a
-    # temporary folder. Only these tests run here; the rest of the suite is not ported to Windows.
-    name: secret store on windows
-    runs-on: windows-latest
-    permissions:
-      contents: read # check out the code
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: 24
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter turno-core exec vitest run test/secrets.test.ts --reporter verbose

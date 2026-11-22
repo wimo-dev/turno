@@ -17,6 +17,7 @@ import {
   readIdentitySettings,
   recordEngineClash,
   systemTimezone,
+  chromeEnv,
 } from "./settings.js";
 import { type Tuning, launchTuning } from "./tuning.js";
 import { IdleTimer, idleMs } from "./idle-timer.js";
@@ -224,6 +225,8 @@ const chromeEngine: Engine = {
         ...(network?.proxy ? { proxy: network.proxy } : {}),
         handleSIGINT: false,
         handleSIGTERM: false,
+        // Elsewhere Chrome gets this process's environment, as before.
+        ...(process.platform === "win32" ? { env: chromeEnv(process.env) } : {}),
         ignoreDefaultArgs:
           ignore === true
             ? true

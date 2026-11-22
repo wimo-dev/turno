@@ -1,6 +1,6 @@
 import { type ChildProcess, execFileSync, spawn } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { tmpdir, userInfo } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readProcTable } from "turno-core/process";
@@ -37,7 +37,8 @@ export function chromeUnavailable(): string | undefined {
     execFileSync(process.execPath, ["-e", probe, core], {
       env:
         process.platform === "win32"
-          ? { ...process.env, HOME: home, USERPROFILE: home, LOCALAPPDATA: home, APPDATA: home }
+          ? // USERPROFILE stays the account's: Chrome refuses the DevTools pipe with another one.
+            { ...process.env, HOME: home, USERPROFILE: userInfo().homedir, LOCALAPPDATA: home, APPDATA: home }
           : { PATH: process.env.PATH, HOME: home },
       stdio: ["ignore", "ignore", "pipe"],
       timeout: 40_000,
@@ -69,7 +70,7 @@ export function spawnChrome(exe: string, userDataDir: string, args: string[], en
       "--no-default-browser-check",
       ...args,
     ],
-    { stdio: "ignore", env },
+    { stdio: "ignore", env: process.platform === "win32" ? { ...env, USERPROFILE: userInfo().homedir } : env },
   );
 }
 

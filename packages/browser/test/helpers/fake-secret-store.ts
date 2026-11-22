@@ -9,11 +9,11 @@ import type { Sandbox } from "./sandbox.js";
  */
 /**
  * Why a test that stores a secret cannot run here: the stand-ins replace the macOS and Linux
- * commands, and turno-core has no Windows secret store yet, so turno-browser there says "no
- * secret store" (which other tests cover). Undefined where the stand-ins work.
+ * commands, and Windows' DPAPI store runs Windows PowerShell instead (turno-core tests it with
+ * a real round trip). Undefined where the stand-ins work.
  */
 export const noFakeSecretStore: string | undefined =
-  process.platform === "win32" ? "no secret store on Windows yet" : undefined;
+  process.platform === "win32" ? "the stand-ins replace macOS and Linux commands" : undefined;
 
 export interface FakeSecretStore {
   dir: string;

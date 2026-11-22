@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { windowsPowerShell } from "./secrets.js";
 
 /**
  * Process helpers shared by turno-cli and turno-browser: whether a PID lives, a signal that
@@ -76,13 +77,18 @@ const WINDOWS_PROC_SCRIPT =
 export function readProcTable(platform: NodeJS.Platform = process.platform): ProcTable | undefined {
   if (platform === "win32") {
     try {
-      const out = execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", WINDOWS_PROC_SCRIPT], {
-        encoding: "utf8",
-        stdio: ["ignore", "pipe", "ignore"],
-        windowsHide: true,
-        maxBuffer: 64 * 1024 * 1024,
-        timeout: 15_000,
-      });
+      // By its full path: the PATH an agent hands a server can leave System32 out.
+      const out = execFileSync(
+        windowsPowerShell(process.env),
+        ["-NoProfile", "-NonInteractive", "-Command", WINDOWS_PROC_SCRIPT],
+        {
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "ignore"],
+          windowsHide: true,
+          maxBuffer: 64 * 1024 * 1024,
+          timeout: 15_000,
+        },
+      );
       return parseWindowsProcTable(out);
     } catch {
       return undefined;

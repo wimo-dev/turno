@@ -41,7 +41,13 @@ import { findProfileChrome, sweepOrphan } from "./lifecycle.js";
 import { totalMemory } from "./memory.js";
 import { readChallenges, summarizeChallenges } from "./reputation.js";
 import { inUseMessage, readRuntimeLock, runtimeLockAlive, runtimeLockPath } from "./runtime-lock.js";
-import { type IdentitySettings, acceptLanguages, checkIdentitySettings, systemTimezone } from "./settings.js";
+import {
+  type IdentitySettings,
+  acceptLanguages,
+  checkIdentitySettings,
+  chromeEnv,
+  systemTimezone,
+} from "./settings.js";
 import { names } from "./names.js";
 import {
   AGENTS,
@@ -184,7 +190,7 @@ async function smokeLaunch(env: NodeJS.ProcessEnv, launch: BrowserLaunch = { cha
       ...launch,
       headless: true,
       timeout: 30_000,
-      env: { ...env } as Record<string, string>,
+      env: chromeEnv(env),
     });
     try {
       const page = context.pages()[0] ?? (await context.newPage());
@@ -673,10 +679,7 @@ async function networkRows(id: string, env: NodeJS.ProcessEnv, opts: DoctorOptio
       area,
       level: "fail",
       text: "the proxy credentials are in the secret store, and this machine has none",
-      manual:
-        (opts.platform ?? process.platform) === "win32"
-          ? "turno-browser has no secret store on Windows yet: use a proxy without a password"
-          : "install libsecret (secret-tool), or use a proxy without a password",
+      manual: "install libsecret (secret-tool), or use a proxy without a password",
     });
     return out;
   }
@@ -707,10 +710,7 @@ async function vaultRows(id: string, env: NodeJS.ProcessEnv, opts: DoctorOptions
         area,
         level: "fail",
         text: `the vault has ${sites.length} credential${sites.length === 1 ? "" : "s"} in the secret store, and this machine has none`,
-        manual:
-          (opts.platform ?? process.platform) === "win32"
-            ? "turno-browser has no secret store on Windows yet: run this identity's vault from macOS or Linux"
-            : "install libsecret (secret-tool), then add them again with turno browser vault add",
+        manual: "install libsecret (secret-tool), then add them again with turno browser vault add",
       },
     ];
   const missing: string[] = [];

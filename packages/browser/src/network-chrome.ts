@@ -15,7 +15,7 @@ import {
   reducedUserAgent,
   resolveProxy,
 } from "./network.js";
-import { type IdentitySettings, acceptLanguages } from "./settings.js";
+import { type IdentitySettings, acceptLanguages, chromeEnv } from "./settings.js";
 import type { McpConfig } from "./upstream.js";
 
 /**
@@ -105,6 +105,7 @@ async function realMetadata(config: McpConfig, env: NodeJS.ProcessEnv, version: 
       : { channel: lo.channel ?? "chrome" }),
     headless: true,
     timeout: 20_000,
+    ...(process.platform === "win32" ? { env: chromeEnv(process.env) } : {}),
   });
   let metadata: UserAgentMetadata;
   try {
