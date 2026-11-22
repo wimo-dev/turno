@@ -11,7 +11,9 @@ import s from "./pictures.module.css";
  * The credential vault. `vault add` keeps a username, a password and a TOTP secret per site in
  * the OS secret store, asked with hidden prompts. An agent then calls `browser_login` with the
  * site's name on its sign-in page: the tool fills the fields, only on the origins the site was
- * stored with, and what the model gets back names the fields and never the values. The form is
+ * stored with, and what the model gets back names the fields and never the values. In a snapshot
+ * a password or one-time code field reads `[sensitive field]`, whoever filled it; the username
+ * the vault filled reads `[vault: ...]`. The form is
  * not submitted unless the identity allows it.
  */
 
@@ -106,8 +108,8 @@ export default function VaultPicture({ lang, chosen, run, drawn, armed, reduced,
                   </span>
                   <span className={s.reply}>
                     - textbox "{t.username}": <b>[vault: ...]</b>
-                    <br />- textbox "{t.password}": <b>[vault: ...]</b>
-                    <br />- textbox "{t.code}": <b>[vault: ...]</b>
+                    <br />- textbox "{t.password}": <b>[sensitive field]</b>
+                    <br />- textbox "{t.code}": <b>[sensitive field]</b>
                   </span>
                 </>
               ) : null}
