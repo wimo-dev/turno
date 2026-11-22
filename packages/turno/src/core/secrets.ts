@@ -8,6 +8,7 @@ export {
   NO_SECRET_STORE,
   SecretError,
   type SecretStore,
+  describeSecretStore,
   keychainAddLine,
   requireSecretStore,
   secretStore,

@@ -159,7 +159,8 @@ export function secretCommand(c: Ctx): Command {
     fallback: "list",
     footer: `An identity.json names a secret as "keychain:<item>" (proxy.password, act.key, captcha.key), and
 so does a replay parameter (--param password=keychain:<item>). The store is the login Keychain on
-macOS and the Secret Service (libsecret's secret-tool) on Linux, the same items turno secret uses.
+macOS, the Secret Service (libsecret's secret-tool) on Linux and files encrypted with DPAPI for
+the current user on Windows (%LOCALAPPDATA%\\turno\\secrets), the same items turno secret uses.
 Values are never printed and never passed as an argument. Sign-in credentials live in the vault
 (${b} vault).`,
     prefix: `${b} secret`,

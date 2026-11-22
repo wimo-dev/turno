@@ -134,6 +134,25 @@ describe("browser doctor: Chrome and the system", () => {
     expect(find(withDisplay.checks, "system", /display/)).toMatchObject({ level: "ok" });
   });
 
+  it("names the secret store in use, with the folder of the Windows DPAPI files", async () => {
+    const mac = await doctor({ secrets: memoryStore([]) });
+    expect(find(mac.checks, "system", /^secret store/)).toEqual({
+      area: "system",
+      level: "ok",
+      text: "secret store: macOS Keychain (security)",
+    });
+    const dir = "C:\\Users\\alice\\AppData\\Local\\turno\\secrets";
+    const win = await doctor({ platform: "win32", secrets: { ...memoryStore([]), kind: "dpapi", location: dir } });
+    expect(find(win.checks, "system", /^secret store/)?.text).toBe(
+      `secret store: Windows DPAPI, current user (files in ${dir})`,
+    );
+    const none = await doctor({ platform: "win32", env: { ...sb.env, SystemRoot: join(sb.home, "no-windows") } });
+    expect(find(none.checks, "system", /^secret store/)).toMatchObject({
+      level: "info",
+      manual: expect.stringContaining("WindowsPowerShell"),
+    });
+  });
+
   it("reads Chrome's version from its Info.plist", () => {
     const plist = `<?xml version="1.0"?><plist><dict><key>CFBundleName</key><string>Chrome</string>
       <key>CFBundleShortVersionString</key>

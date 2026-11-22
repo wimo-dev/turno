@@ -12,8 +12,8 @@ import { readIdentitySettings } from "./settings.js";
  * a TOTP secret per site, so `browser_login` can fill a sign-in form without the model ever
  * seeing them.
  *
- * - The values live only in the OS secret store (turno-core: the macOS Keychain or the Linux
- *   Secret Service), one item per site named `turno-browser/vault/<identity>/<site>`, holding one
+ * - The values live only in the OS secret store (turno-core: the macOS Keychain, the Linux
+ *   Secret Service or DPAPI-encrypted files on Windows), one item per site named `turno-browser/vault/<identity>/<site>`, holding one
  *   line of JSON. Nothing here writes a value to a file, a log or an error message.
  * - An index next to identity.json (`<data>/browser/identities/<id>.vault.json`, mode 600) lists
  *   the sites with their origins and whether they have a TOTP secret, plus the identity's submit

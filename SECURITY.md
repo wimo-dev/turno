@@ -54,7 +54,7 @@ is what it stores, what it trusts, and what it does not protect against.
 | Per-profile gateway tokens | each profile's agent config (`.claude.json` for Claude Code), and `~/.local/state/turno/mcpd-tokens/<profile>.token` for the launchers of Codex, Copilot and Cursor | file mode 600; each one holds that profile's own token, derived from the master token |
 | Browser identities | `~/.local/share/turno/browser/<identity>` | live cookies of the sites you signed into: treat as credentials. By default Chrome encrypts them with a fixed public key (`--use-mock-keychain`), so anyone who can read the folder can read them; `"keychain": "system"` in identity.json uses the OS keychain's key instead, so a copy of the folder (a backup, a synced disk) does not hand over the sessions; changing it signs the identity out, so export first and import after |
 | Session exports (`turno browser export`) | the file you name, mode 600 | cookies, localStorage and IndexedDB of an identity, encrypted with your passphrase (scrypt, AES-256-GCM) and refused on import after their expiry (default 7 days); never the vault |
-| Browser vault credentials (username, password, TOTP secret per site) | the same secret store, items `turno-browser/vault/<identity>/<site>` | never in a file, a log, a tool result or a snapshot; the index `<identity>.vault.json` (mode 600) holds only site names, origins and the submit policy |
+| Browser vault credentials (username, password, TOTP secret per site) | the same secret store (on Windows, DPAPI-encrypted files in `%LOCALAPPDATA%\turno\secrets`), items `turno-browser/vault/<identity>/<site>` | never in a file, a log, a tool result or a snapshot; the index `<identity>.vault.json` (mode 600) holds only site names, origins and the submit policy |
 | Chrome profiles for `turno open` | `~/.local/share/turno/chrome/<profile>` | the claude.ai session of each profile |
 | Installed MCP servers | `~/.local/share/turno/servers/<name>/` | folders mode 700; exact versions, no install scripts unless `--allow-scripts` |
 | Usage, run records, exhausted marks, logs, caches, `mcpd-clients.json` | `~/.local/state/turno/` | folders 0700, files 0600; no secrets |
@@ -67,6 +67,10 @@ starts a server, in the background, without a Keychain dialog. The price: any pr
 as you can read those items without a prompt too, as it could a mode 600 file. They are still
 encrypted at rest and stay out of backups, dotfile repositories and config diffs. The Linux
 Secret Service has no per-application access control, so an unlocked collection is the same.
+On Windows (turno-browser), each item is a file in `%LOCALAPPDATA%\turno\secrets` encrypted
+with DPAPI for the current user: only that user can decrypt it (on that machine, unless the
+account has a roaming profile), any process running as that user can, and the value reaches
+Windows PowerShell on stdin, never in a command line.
 Machines without a secret store (most servers and containers) use `env:` references in
 `mcp.toml` instead.
 

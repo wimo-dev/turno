@@ -3,7 +3,7 @@ title: "Vault, sign-in and secrets"
 description: "Credentials an agent can use without seeing them, and where the other secrets an identity names are kept."
 ---
 
-An identity can keep a username, a password and a TOTP secret per site, only in the OS secret store (the macOS Keychain or the Linux Secret Service):
+An identity can keep a username, a password and a TOTP secret per site, only in the OS secret store (the macOS Keychain, the Linux Secret Service, or DPAPI-encrypted files on Windows):
 
 ```sh
 turno-browser vault add school mail --url https://mail.example.com/login --username alice --totp
@@ -22,7 +22,7 @@ Values are matched as typed and in the usual encodings; one shorter than four ch
 
 ## Secrets
 
-An `identity.json` never holds a secret. It names one as `keychain:<item>` (`proxy.password`, `act.key`, `captcha.key`), and so does a replay parameter (`--param password=keychain:<item>`). The value lives in the login Keychain on macOS or the Secret Service on Linux:
+An `identity.json` never holds a secret. It names one as `keychain:<item>` (`proxy.password`, `act.key`, `captcha.key`), and so does a replay parameter (`--param password=keychain:<item>`). The value lives in the login Keychain on macOS, the Secret Service on Linux, or a DPAPI-encrypted file on Windows:
 
 ```sh
 # asks with a hidden prompt, or reads stdin
@@ -35,3 +35,13 @@ turno-browser secret remove proxy-password
 ```
 
 Values are never printed and never passed as an argument. They are the same items `turno secret` uses, so with turno installed either command works. Sign-in credentials do not go here: they live in the vault above.
+
+### On Windows
+
+Windows has no command line keychain like `security` or `secret-tool`, so each item (a vault credential or a `keychain:` secret) is a file in `%LOCALAPPDATA%\turno\secrets`, encrypted with DPAPI for your Windows user (the `CurrentUser` scope). Windows PowerShell 5.1, which every Windows 10 and 11 has, does the encryption: the value goes to it on stdin and comes back on stdout, never in a command line, and only the encrypted blob is written to disk. `turno-browser doctor` shows the folder in its `secret store` row.
+
+- Only your Windows user can decrypt an item, and only on this machine unless your account has a roaming domain profile. A copy of the folder under another user or on another machine (a backup, a synced folder) does not open; set the items again there.
+- Any program running as you can decrypt them, as on macOS and Linux. Admin rights are not needed, and neither are native modules.
+- Each file carries its item name, and DPAPI binds the value to that name, so a file copied over another item's file does not decrypt.
+- The items are not in Credential Manager. Credential Manager caps an item at 2560 bytes, which an OAuth record can pass, and has no credentials in an SSH session; these files have no size limit.
+- Reading or storing a value starts Windows PowerShell, about 0.35 s on a GitHub Actions Windows runner; checking whether an item exists (`secret has`, `secret list`, `vault list`, `doctor`) only looks at the file.
