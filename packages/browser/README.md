@@ -18,6 +18,12 @@ turno-browser init
 identity to your agent. Each step is also a command of its own: `turno-browser add`, `login` and
 `setup`.
 
+No Node on the machine? Each [GitHub release](https://github.com/wimo-dev/turno/releases) of
+turno-browser also has a standalone executable for macOS (Apple silicon and Intel) and Linux, with
+`SHA256SUMS` and build provenance attestations; a Windows one is experimental.
+[Install without Node](https://turno.wimo.dev/docs/browser/get-started#install-without-node) has
+the steps.
+
 The docs are at [turno.wimo.dev/docs/browser](https://turno.wimo.dev/docs/browser), starting with
 [Get started](https://turno.wimo.dev/docs/browser/get-started).
 

@@ -3,7 +3,7 @@ title: "Get started"
 description: "Install turno-browser and let turno-browser init set it up: an identity, a sign-in by hand and your agent."
 ---
 
-turno-browser works on its own: you do not need turno to use it. It needs Node 22.11 or newer and a Chromium-based browser on the machine: Google Chrome, or Microsoft Edge, Brave or Chromium ([Choosing the browser](/docs/browser/identities#choosing-the-browser)). It downloads no browser unless you ask: on a machine with none, and no admin password to install one, `turno-browser install-browser` puts Chrome for Testing in your user cache.
+turno-browser works on its own: you do not need turno to use it. It needs Node 22.11 or newer (or the [standalone executable](#install-without-node), which needs no Node) and a Chromium-based browser on the machine: Google Chrome, or Microsoft Edge, Brave or Chromium ([Choosing the browser](/docs/browser/identities#choosing-the-browser)). It downloads no browser unless you ask: on a machine with none, and no admin password to install one, `turno-browser install-browser` puts Chrome for Testing in your user cache.
 
 ## Install
 
@@ -12,6 +12,72 @@ npm install --global turno-browser
 ```
 
 This installs two commands: `turno-browser`, which manages identities, and `turno-browser-mcp`, the MCP server an agent runs for one identity.
+
+## Install without Node
+
+On a machine without Node or npm, use the standalone executable: one file that holds turno-browser and the Node.js runtime it needs. It still drives the Chrome, Edge or Brave installed on the machine, or the Chrome for Testing that `turno-browser install-browser` puts in your user cache. The GitHub release of each turno-browser version, tagged `turno-browser@<version>` on the [releases page](https://github.com/wimo-dev/turno/releases), has one archive per platform and a `SHA256SUMS` file:
+
+| Platform | Archive |
+|---|---|
+| macOS, Apple silicon | `turno-browser-darwin-arm64.zip` |
+| macOS, Intel | `turno-browser-darwin-x64.zip` |
+| Linux, x64 | `turno-browser-linux-x64.zip` |
+| Windows, x64 (experimental) | `turno-browser-win-x64.zip` |
+
+Windows is experimental: turno-browser does not support Windows yet, so that executable is published for testing and may not work.
+
+Each archive holds the executable (`turno-browser`, or `turno-browser.exe`) and its license files. The one executable is both programs: `turno-browser <command>` is the CLI, and `turno-browser mcp` is the MCP server that `turno-browser-mcp` is in the npm package.
+
+```sh
+version=0.9.0   # the version you want
+platform=darwin-arm64
+base="https://github.com/wimo-dev/turno/releases/download/turno-browser%40$version"
+curl -fLO "$base/turno-browser-$platform.zip"
+curl -fLO "$base/SHA256SUMS"
+```
+
+### Check the download
+
+Compare the archive with `SHA256SUMS`:
+
+```sh
+shasum -a 256 -c SHA256SUMS --ignore-missing     # macOS
+sha256sum -c SHA256SUMS --ignore-missing         # Linux
+```
+
+On Windows, `Get-FileHash .\turno-browser-win-x64.zip -Algorithm SHA256` in PowerShell prints the hash to compare with the line in `SHA256SUMS`.
+
+Each archive also has a build provenance attestation: a signed record that the release workflow of this repository built it. With the [GitHub CLI](https://cli.github.com):
+
+```sh
+gh attestation verify turno-browser-darwin-arm64.zip --repo wimo-dev/turno
+```
+
+### Put it in place
+
+Unzip the archive and move the executable to a folder you keep, for example `~/.local/bin` (add that folder to your `PATH` to type just `turno-browser`):
+
+```sh
+unzip turno-browser-darwin-arm64.zip turno-browser
+mkdir -p ~/.local/bin && mv turno-browser ~/.local/bin/
+~/.local/bin/turno-browser --version
+```
+
+`turno-browser setup` and `init` give the agent this executable by its full path (`<path>/turno-browser mcp --identity <id>`), so after moving it, run `setup` again. To update, replace the file with the one from a newer release; the identities stay.
+
+**macOS.** The executable is not signed with an Apple Developer ID yet, so Gatekeeper refuses to open a copy that a browser downloaded. A file fetched with `curl`, as above, is not marked and runs as it is. For a browser download, remove the mark in Terminal:
+
+```sh
+xattr -d com.apple.quarantine ~/.local/bin/turno-browser
+```
+
+or, after the first refusal, open System Settings, Privacy & Security, and click Open Anyway next to the message about `turno-browser` (on macOS 14 and older, Control-click the file in Finder and choose Open).
+
+**Windows.** The executable is not Authenticode-signed yet, so SmartScreen may warn that it is unrecognized: choose More info, then Run anyway. In PowerShell, `Unblock-File .\turno-browser.exe` removes the downloaded-from-the-internet mark before the first run.
+
+### Where it keeps its data
+
+The same places as the npm package, so the standalone executable and an npm install share the identities: profiles and settings under `~/.local/share/turno/browser/` (or `$XDG_DATA_HOME/turno/browser/`), and Chrome for Testing, when you install it, in the Playwright cache (`~/Library/Caches/ms-playwright` on macOS, `~/.cache/ms-playwright` on Linux, or `PLAYWRIGHT_BROWSERS_PATH`). The executable itself writes nothing next to itself.
 
 ## Set it up
 
