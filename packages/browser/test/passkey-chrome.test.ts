@@ -104,9 +104,11 @@ describe.skipIf(reason)(`a page's passkey prompt on a real Chrome${reason ? ` (s
   beforeAll(async () => {
     sb = sandbox();
     const env = { ...sb.env, XDG_CONFIG_HOME: join(sb.home, ".config"), XDG_CACHE_HOME: join(sb.home, ".cache") };
-    web = createServer((_req, res) => {
+    web = createServer((req, res) => {
       res.setHeader("content-type", "text/html; charset=utf-8");
-      res.end(PAGE);
+      // Only the sign-in page asks: a passkey request another page left pending would make its
+      // autofill request fail at once (OperationError) instead of waiting.
+      res.end(req.url === "/" ? PAGE : "<!doctype html><title>Elsewhere</title>");
     });
     await new Promise<void>((r) => web.listen(0, "127.0.0.1", () => r()));
     // WebAuthn needs a secure context and a domain for its RP ID: localhost is both.
