@@ -205,11 +205,13 @@ export function findEntry(agent: McpAgent, id: string, env: NodeJS.ProcessEnv): 
 }
 
 /**
- * True when the entry runs turno-browser-mcp (by name, or this package's bin/mcp.js) or turno.
- * A server merely named `browser-<something>` (browser-use, say) is someone else's.
+ * True when the entry runs turno-browser-mcp (by name, or this package's bin/mcp.js), the
+ * standalone turno-browser executable with `mcp`, or turno. A server merely named
+ * `browser-<something>` (browser-use, say) is someone else's.
  */
 export function isTurnoEntry(e: McpEntry): boolean {
   const words = [e.command ?? "", ...(e.args ?? [])];
+  if (/^turno-browser(\.exe)?$/i.test(e.command?.split(/[\\/]/).pop() ?? "") && e.args?.[0] === "mcp") return true;
   return words.some(
     (w) =>
       basename(w) === "turno-browser-mcp" || basename(w) === "turno" || /turno-browser[\\/].*bin[\\/]mcp\.js$/.test(w),

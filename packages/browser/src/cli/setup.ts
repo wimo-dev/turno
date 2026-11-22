@@ -1,3 +1,4 @@
+import { isSea } from "node:sea";
 import { fileURLToPath } from "node:url";
 import {
   type FlagSpec,
@@ -70,18 +71,22 @@ function json(v: unknown): string {
 }
 
 /**
- * The command an agent runs: `turno-browser-mcp` when it is on the PATH, else this install's
- * full path (a `pnpm add` or a local checkout puts it nowhere on the PATH).
+ * The command an agent runs, and the arguments that go before the identity's. The standalone
+ * executable (a Node.js single executable application, with this package inside it) runs
+ * itself as `<executable> mcp`. Otherwise `turno-browser-mcp` when it is on the PATH, else this
+ * install's full path (a `pnpm add` or a local checkout puts it nowhere on the PATH); `onPath`
+ * is false only then.
  */
-export function mcpCommand(env: NodeJS.ProcessEnv): { command: string; onPath: boolean } {
-  if (findOnPath("turno-browser-mcp", env)) return { command: "turno-browser-mcp", onPath: true };
-  return { command: fileURLToPath(new URL("../bin/mcp.js", import.meta.url)), onPath: false };
+export function mcpCommand(env: NodeJS.ProcessEnv): { command: string; args: string[]; onPath: boolean } {
+  if (isSea()) return { command: process.execPath, args: ["mcp"], onPath: true };
+  if (findOnPath("turno-browser-mcp", env)) return { command: "turno-browser-mcp", args: [], onPath: true };
+  return { command: fileURLToPath(new URL("../bin/mcp.js", import.meta.url)), args: [], onPath: false };
 }
 
-/** The config of `agent` for identity `id`, run as `command`. */
-export function setupConfig(agent: SetupAgent, id: string, command: string): SetupConfig {
+/** The config of `agent` for identity `id`, run as `command` with `lead` before `--identity`. */
+export function setupConfig(agent: SetupAgent, id: string, command: string, lead: readonly string[] = []): SetupConfig {
   const server = serverName(id);
-  const args = ["--identity", id];
+  const args = [...lead, "--identity", id];
   const base = { agent, identity: id, server, command, args };
   const stdio = { command, args };
   switch (agent) {
@@ -210,8 +215,8 @@ export function setup(c: Ctx, args: string[], io: Io): number {
   if (!agent) return fail(`setup needs an agent: ${b} setup <${SETUP_AGENTS.join("|")}> [--identity <id>]`);
   if (!(SETUP_AGENTS as readonly string[]).includes(agent)) return fail(unknownAgent(agent));
   const id = pickIdentity(c, str(p, "identity"), io);
-  const { command, onPath } = mcpCommand(io.env);
-  const cfg = setupConfig(agent as SetupAgent, id, command);
+  const { command, args: lead, onPath } = mcpCommand(io.env);
+  const cfg = setupConfig(agent as SetupAgent, id, command, lead);
   if (!onPath) cfg.notes.push("turno-browser-mcp is not on the PATH here, so this names it by its full path.");
   if (bool(p, "json")) {
     emit(io, p, SETUP_JSON, cfg);
