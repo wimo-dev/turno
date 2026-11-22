@@ -11,7 +11,7 @@ Usage:
                                         are in use
   turno browser add <id> [--timezone <zone>] [--locale <tag>] [--languages
       <tag,...>] [--region <CC>] [--health-url <url> --health-text <text>]
-      [--dry-run]
+      [--browser <name|path>] [--dry-run]
                                         create an identity (pinned to this time
                                         zone) and print its mcp.toml block
   turno browser show <id> [--json]      an identity's settings, session health
@@ -38,15 +38,21 @@ Usage:
       [--proxy-server <url>] [--proxy-username <name|keychain:item>]
       [--proxy-password keychain:<item>] [--no-proxy] [--policy-file <file>]
       [--allowed-domains <host,...>] [--disable <feature,...>] [--auto-submit
-      true|false] [--no-policy] [--dry-run] [--json]
+      true|false] [--no-policy] [--browser
+      chrome|edge|brave|chromium|chrome-for-testing|<path>] [--force]
+      [--dry-run] [--json]
                                         change an identity's identity.json (an
                                         empty value removes a setting)
   turno browser status [<id>] [--json]  each identity at a glance: settings,
                                         sign-ins, last use, which agents have it
   turno browser doctor [--fix] [--no-launch] [--json]
-                                        check Chrome, a test launch and every
-                                        identity (settings, lock, sign-in), with
-                                        fixes
+                                        check the browsers, a test launch and
+                                        every identity (browser, settings, lock,
+                                        sign-in), with fixes
+  turno browser install-browser [--dry-run] [--json]
+                                        download Chrome for Testing into your
+                                        user cache, for a machine without Chrome
+                                        (no admin)
   turno browser reputation [<id>] [--json]
                                         challenges each identity met per site
                                         (captcha, verify it's you, block) and
@@ -121,6 +127,8 @@ Examples:
   $ turno browser login school --url https://example.com
   $ turno browser status --json
   $ turno browser doctor --fix
+  $ turno browser add work --browser brave
+  $ turno browser install-browser --dry-run
   $ turno browser reputation school --json
   $ turno browser vault add school mail --url https://mail.example.com --username alice
   $ turno browser record school --flows --traces
@@ -161,11 +169,12 @@ Examples:
 Usage:
   turno browser add <id> [--timezone <zone>] [--locale <tag>] [--languages
       <tag,...>] [--region <CC>] [--health-url <url> --health-text <text>]
-      [--dry-run]
+      [--browser <name|path>] [--dry-run]
     create an identity (pinned to this time zone) and print its mcp.toml block
 
 Examples:
   $ turno browser add school --languages es-MX,es,en
+  $ turno browser add work --browser brave
 ```
 
 ### turno browser show
@@ -205,7 +214,9 @@ Usage:
       [--proxy-server <url>] [--proxy-username <name|keychain:item>]
       [--proxy-password keychain:<item>] [--no-proxy] [--policy-file <file>]
       [--allowed-domains <host,...>] [--disable <feature,...>] [--auto-submit
-      true|false] [--no-policy] [--dry-run] [--json]
+      true|false] [--no-policy] [--browser
+      chrome|edge|brave|chromium|chrome-for-testing|<path>] [--force]
+      [--dry-run] [--json]
     change an identity's identity.json (an empty value removes a setting)
 
 Each flag writes one key of identity.json; an empty value (--settle "") removes it, and
@@ -317,6 +328,15 @@ What the identity may do (a policy; only this command writes it, no agent tool c
 Any policy turns browser_run_code_unsafe off, and allowedDomains the network tools. The server
 reads the policy when it starts.
 
+Which browser opens the profile (read at every browser start; turno browser doctor lists the installed ones):
+  --browser <name|path>           chrome (the default), edge, brave, chromium, chrome-for-testing
+                                  (turno browser install-browser downloads it, no admin password), or the
+                                  absolute path of another Chromium-based browser. A server's own
+                                  --browser or --executable-path wins over it
+  --force                         switch the browser of a profile another browser already opened:
+                                  the cookies carry over with the default keychain, but the new
+                                  browser rewrites the profile and an older one can refuse it
+
 Examples:
   $ turno browser set school --health-url https://mail.example.com/ --health-text Inbox
   $ turno browser set school --tabs-max 5 --tabs-popups keep --settle 250ms
@@ -347,11 +367,36 @@ Examples:
 ```text
 Usage:
   turno browser doctor [--fix] [--no-launch] [--json]
-    check Chrome, a test launch and every identity (settings, lock, sign-in),
-    with fixes
+    check the browsers, a test launch and every identity (browser, settings,
+    lock, sign-in), with fixes
 
 Examples:
   $ turno browser doctor --fix
+```
+
+### turno browser install-browser
+
+```text
+Usage:
+  turno browser install-browser [--dry-run] [--json]
+    download Chrome for Testing into your user cache, for a machine without
+    Chrome (no admin)
+
+Downloads Chrome for Testing, the Chrome build Google publishes for automation, with the
+installer of the patchright-core turno-browser drives it with, into your user cache:
+~/Library/Caches/ms-playwright on macOS, ~/.cache/ms-playwright on Linux, or
+PLAYWRIGHT_BROWSERS_PATH. No admin password and no change outside that folder; about 190 MB.
+
+For a machine without Google Chrome, Edge, Brave or Chromium. Then point an identity at it:
+  turno-browser add <id> --browser chrome-for-testing
+  turno-browser set <id> --browser chrome-for-testing
+
+Its limits: it does not update itself (run this again after updating turno-browser), it is one
+major version behind Chrome stable at times, and Google publishes it for testing and
+automation, not as an everyday browser. Sign-in pages load in it like in Chrome.
+
+Examples:
+  $ turno browser install-browser --dry-run
 ```
 
 ### turno browser reputation

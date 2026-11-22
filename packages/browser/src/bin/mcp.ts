@@ -26,6 +26,10 @@ import { backgroundIdleMs } from "../tuning.js";
 const HELP = `turno-browser-mcp: a browser MCP server that drives your installed Chrome, with one
 persistent profile per identity (turno-browser add <id>).
 
+Which browser: the identity's identity.json browser (chrome, edge, brave, chromium,
+chrome-for-testing or a path; turno-browser set <id> --browser), else Google Chrome. The
+Playwright MCP flags --browser and --executable-path win over identity.json for this server.
+
   --identity <id>          use the identity's saved profile (served one session at a time by
                            mcpd, unless the identity's "sharing" is "tabs")
   --allow-http-identity    allow --port or --host together with --identity; the server then

@@ -7,7 +7,7 @@ This page explains what a browser identity is, what stays the same about it from
 
 ## One identity, one Chrome profile
 
-`turno-browser` drives the Google Chrome you have installed, headed, with a persistent user data folder per identity. You sign into a site once by hand; the cookies stay in that identity's profile, and the agent works there afterwards.
+`turno-browser` drives the Google Chrome you have installed (or [another Chromium-based browser](#choosing-the-browser)), headed, with a persistent user data folder per identity. You sign into a site once by hand; the cookies stay in that identity's profile, and the agent works there afterwards.
 
 ```sh
 # a new identity, and how to connect an agent to it
@@ -58,6 +58,72 @@ turno-browser set school --locale es-MX
 
 An identity can also carry a [policy](/docs/browser/policy): the hosts its tabs may show, features that do not exist for it (captcha solving, natural language actions, scripts) and whether `browser_login` may submit. Only the command line writes it (`turno-browser set <id> --policy-file <file>`, or `init --policy-file`), and no agent tool can change it.
 
+## Choosing the browser
+
+An identity's profile opens in Google Chrome unless its `identity.json` names another
+Chromium-based browser (`browser`, format 13). Every command uses it: the agent's server, `login`,
+`export` and `import`, the background server and `replay`.
+
+```sh
+# a new identity on Brave
+turno-browser add school --browser brave
+# the installed browsers, and which one each identity uses
+turno-browser doctor
+```
+
+| `browser` | What opens the profile | Checked on macOS |
+|---|---|---|
+| `chrome` (default) | Google Chrome, in /Applications or ~/Applications | Chrome 157 and 158 |
+| `edge` | Microsoft Edge | Edge 158 |
+| `brave` | Brave | Brave 157 |
+| `chrome-for-testing` | the build `turno-browser install-browser` downloads into your user cache | Chrome for Testing 156 |
+| `chromium` | a Chromium installed on the machine (Chromium.app, or a distribution's package; not a snap) | not checked |
+| an absolute path | any other Chromium-based browser | may work |
+
+"Checked" means turno launched it on a persistent profile, headed and headless, and the agent's
+tools, the [live view](/docs/browser/live-view)'s picture and the [agent cursor](/docs/browser/agent-cursor)
+worked, with cookies kept from one start to the next. Arc and Dia are Chromium builds turno has
+not tested: give their path if you want to try one. On Linux turno looks in the packages' usual
+places (`/opt/google/chrome`, `/opt/microsoft/msedge`, `/opt/brave.com/brave`, `/usr/bin`).
+
+When Google Chrome is not installed, `add` and `init` pick the first browser they find and write
+it to `identity.json`, so the profile never changes browser by itself. A server's own `--browser`
+or `--executable-path` wins over `identity.json` for that server.
+
+### No browser, and no admin password
+
+```sh
+turno-browser install-browser
+turno-browser set school --browser chrome-for-testing
+```
+
+`install-browser` downloads Chrome for Testing, the Chrome build Google publishes for automation,
+with the installer of the Playwright build turno-browser uses: about 190 MB into your user cache
+(`~/Library/Caches/ms-playwright` on macOS, `~/.cache/ms-playwright` on Linux, or
+`PLAYWRIGHT_BROWSERS_PATH`). It needs no admin password and changes nothing outside that folder.
+Its limits: it does not update itself (run the command again after you update turno-browser), it
+can be a version behind Chrome, and Google publishes it for testing, not as an everyday browser.
+Google's sign-in page loaded in it as in Chrome and Brave when turno tried it.
+
+On macOS, Google Chrome itself also runs from `~/Applications`, which needs no admin password:
+open Google's disk image and drag Chrome into the Applications folder of your home folder.
+turno finds it there.
+
+### Changing the browser of an identity
+
+`turno-browser set <id> --browser <name>` on a profile no browser has opened yet just changes the
+setting. On a profile another browser already opened it is refused unless you add `--force`:
+
+- With the default keychain, the cookies carried over in every direction turno tried (Chrome,
+  Brave, Edge and Chrome for Testing, even from Chrome 157 to Chrome for Testing 156).
+- But the new browser rewrites the profile (Brave adds its own components and settings, which stay
+  when you switch back), and an older browser can refuse a profile a newer one upgraded.
+- With `keychain: "system"` each browser encrypts cookies with its own key, so the new browser
+  cannot read the sign-ins: sign in again.
+
+To keep things simple, make a new identity for the other browser and sign in there. `doctor` warns
+when a newer browser than the identity's last opened its profile.
+
 ## One Chrome per identity
 
 While a server drives an identity's Chrome it holds a runtime lock. A second session on the same identity gets an error that names the process holding it and how to stop it, instead of Chrome's "Browser is already in use". That is also why an identity is declared as a `shared`, `exclusive` server ([Scopes](/docs/concepts/scopes#exclusive-shared-one-session-at-a-time)): one agent session uses it at a time, unless you turn on tab sharing.
@@ -84,7 +150,7 @@ turno-browser reputation school
 ## Doctor
 
 ```sh
-# Chrome and its version, a test launch, Lightpanda, Camoufox, and each identity's settings, engine, lock, sign-in and proxy credentials
+# the browsers installed, a test launch, Lightpanda, Camoufox, and each identity's browser, settings, engine, lock, sign-in and proxy credentials
 turno-browser doctor
 # clears stale locks, a Chrome left running with no server, and a stray Lightpanda
 turno-browser doctor --fix

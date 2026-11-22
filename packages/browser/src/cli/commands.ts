@@ -145,14 +145,62 @@ function add(c: Ctx, args: string[], io: Io): number {
   const p = parseFlags(args, { ...DRY_RUN, ...ident.SETTINGS_FLAGS }, 1);
   const id = checkId(c, p.positionals[0], "add");
   const settings = ident.settingsPatch(p);
+  const pick = settings.browser === undefined && !settings.engine ? ident.defaultBrowser(c, id, io.env) : undefined;
+  if (pick?.browser) settings.browser = pick.browser;
   if (bool(p, "dry-run")) {
     io.out(`(dry run) would create browser identity "${id}"`);
+    if (pick) io.out(pick.note);
     return 0;
   }
   const info = ident.hasSettings(settings) ? c.api.addIdentity(id, io.env, settings) : c.api.addIdentity(id, io.env);
   io.out(`identity "${id}" ready at ${tildify(info.dir, io.env)}`);
   io.out(`settings (time zone, languages, health check) in ${tildify(c.api.identitySettingsPath(id, io.env), io.env)}`);
+  if (pick) io.out(style(io).note(pick.browser ? "ok" : "warn", pick.note));
   c.host.connect(id, settings, io);
+  return 0;
+}
+
+/** `install-browser --json`. */
+const INSTALL_BROWSER_JSON = jsonOutput(["installed", "dryRun", "browser"]);
+
+const INSTALL_BROWSER_DETAILS = `Downloads Chrome for Testing, the Chrome build Google publishes for automation, with the
+installer of the patchright-core turno-browser drives it with, into your user cache:
+~/Library/Caches/ms-playwright on macOS, ~/.cache/ms-playwright on Linux, or
+PLAYWRIGHT_BROWSERS_PATH. No admin password and no change outside that folder; about 190 MB.
+
+For a machine without Google Chrome, Edge, Brave or Chromium. Then point an identity at it:
+  turno-browser add <id> --browser chrome-for-testing
+  turno-browser set <id> --browser chrome-for-testing
+
+Its limits: it does not update itself (run this again after updating turno-browser), it is one
+major version behind Chrome stable at times, and Google publishes it for testing and
+automation, not as an everyday browser. Sign-in pages load in it like in Chrome.`;
+
+async function installBrowserCommand(c: Ctx, args: string[], io: Io): Promise<number> {
+  const p = parseFlags(args, { ...DRY_RUN, ...JSON_FLAG }, 0);
+  const dryRun = bool(p, "dry-run");
+  const json = bool(p, "json");
+  const result = await c.api.installBrowser({
+    env: io.env,
+    dryRun,
+    output: (chunk) => io.err(chunk.replace(/\n$/, "")),
+  });
+  if (result.code !== 0)
+    return fail("the browser installer failed (its output is above); try again, or check the network");
+  if (json) {
+    emit(io, p, INSTALL_BROWSER_JSON, {
+      installed: !dryRun && result.browser !== undefined,
+      dryRun,
+      browser: result.browser ? { ...result.browser, path: tildify(result.browser.path, io.env) } : null,
+    });
+    return 0;
+  }
+  if (dryRun) return 0;
+  if (!result.browser) return fail("the installer finished, but turno-browser does not find Chrome for Testing");
+  const b = result.browser;
+  io.out(`${b.label}${b.version ? ` ${b.version}` : ""} at ${tildify(b.path, io.env)}`);
+  io.out(`\nUse it for an identity:\n  ${c.names.browser} set <id> --browser chrome-for-testing`);
+  io.out(`or for a new one:\n  ${c.names.identity("add", "<id>")} --browser chrome-for-testing`);
   return 0;
 }
 
@@ -319,6 +367,8 @@ async function dispatch(c: Ctx, sub: string, rest: string[], io: Io): Promise<nu
         return ident.set(c, checkId(c, firstId(rest), "set"), rest, io);
       case "doctor":
         return await ident.doctor(c, rest, io);
+      case "install-browser":
+        return await installBrowserCommand(c, rest, io);
       case "reputation":
         return ident.reputation(c, rest, io, (id) => checkId(c, id, "reputation"));
       case "flows":
@@ -344,7 +394,7 @@ async function dispatch(c: Ctx, sub: string, rest: string[], io: Io): Promise<nu
     }
   } catch (err) {
     const name = (err as Error).name;
-    if (["IdentityError", "VaultError", "SealError", "FlowError", "LiveError"].includes(name))
+    if (["IdentityError", "VaultError", "SealError", "FlowError", "LiveError", "BrowserNotFound"].includes(name))
       return fail((err as Error).message);
     throw err;
   }
@@ -382,6 +432,8 @@ function examples(c: Ctx): string[] {
     `${b} login school --url https://example.com`,
     `${b} status --json`,
     `${b} doctor --fix`,
+    `${b} add work --browser brave`,
+    `${b} install-browser --dry-run`,
     `${b} reputation school --json`,
     `${b} vault add school mail --url https://mail.example.com --username alice`,
     `${b} record school --flows --traces`,
@@ -469,7 +521,7 @@ function subcommands(c: Ctx): Record<string, Sub> {
     add: {
       summary: c.host.addSummary,
       synopsis:
-        "<id> [--timezone <zone>] [--locale <tag>] [--languages <tag,...>] [--region <CC>] [--health-url <url> --health-text <text>] [--dry-run]",
+        "<id> [--timezone <zone>] [--locale <tag>] [--languages <tag,...>] [--region <CC>] [--health-url <url> --health-text <text>] [--browser <name|path>] [--dry-run]",
       flags: ["--dry-run", ...ident.SETTINGS_FLAG_NAMES],
       run: run("add"),
     },
@@ -500,11 +552,19 @@ agents whose config has it.`,
       run: run("status"),
     },
     doctor: {
-      summary: "check Chrome, a test launch and every identity (settings, lock, sign-in), with fixes",
+      summary: "check the browsers, a test launch and every identity (browser, settings, lock, sign-in), with fixes",
       synopsis: "[--fix] [--no-launch] [--json]",
       flags: ["--fix", "--no-launch", "--json"],
       json: ident.DOCTOR_JSON,
       run: run("doctor"),
+    },
+    "install-browser": {
+      summary: "download Chrome for Testing into your user cache, for a machine without Chrome (no admin)",
+      synopsis: "[--dry-run] [--json]",
+      details: INSTALL_BROWSER_DETAILS,
+      flags: ["--dry-run", "--json"],
+      json: INSTALL_BROWSER_JSON,
+      run: run("install-browser"),
     },
     reputation: {
       summary: "challenges each identity met per site (captcha, verify it's you, block) and their trend",

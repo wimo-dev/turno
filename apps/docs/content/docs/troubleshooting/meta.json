@@ -66,6 +66,8 @@
     "browser-health-check-failed",
     "browser-challenges",
     "browser-chrome-not-found",
+    "browser-identity-browser-missing",
+    "browser-profile-newer",
     "browser-lightpanda-not-found",
     "browser-camoufox-not-found",
     "browser-playwright-core-missing",

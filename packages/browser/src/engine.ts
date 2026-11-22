@@ -8,6 +8,7 @@ import { findProfileChrome, readLockPid } from "./lifecycle.js";
 import { chromeNetwork, pinUserAgent, verifyCoherence } from "./network-chrome.js";
 import { networkEngineClash } from "./network.js";
 import { policyEngineClash } from "./policy.js";
+import { type ResolvedBrowser, resolveBrowser } from "./browsers.js";
 import { acquireRuntimeLock } from "./runtime-lock.js";
 import {
   type IdentitySettings,
@@ -386,6 +387,8 @@ export interface EngineFlags {
   engine?: "chrome" | "lightpanda" | "camoufox";
   /** An attach target (`parseAttachTarget`). */
   attach?: string;
+  /** `--browser` or `--executable-path` was given: identity.json `browser` is not applied. */
+  browserFromFlags?: boolean;
 }
 
 /** The engine one launch uses, before the config decides between `chrome` and `upstream`. */
@@ -434,6 +437,32 @@ export function tuningClash(engine: string, tuning: Pick<Tuning, "sharing" | "hu
   return undefined;
 }
 
+/**
+ * The config with identity.json `browser` applied, for the chrome engine. Precedence: a server's
+ * `--browser` or `--executable-path` (and an executable path from the environment or a config
+ * file), then identity.json `browser`, then Google Chrome. Throws `BrowserNotFound` when the
+ * identity's browser is not installed: turno never opens the profile in another browser on its
+ * own.
+ */
+export function withIdentityBrowser(
+  config: McpConfig,
+  settings: Pick<IdentitySettings, "browser"> | undefined,
+  flags: Pick<EngineFlags, "browserFromFlags">,
+  resolve: (choice: string) => ResolvedBrowser = (choice) => resolveBrowser(choice, { command: names().browser }),
+  platform: NodeJS.Platform = process.platform,
+): McpConfig {
+  const choice = settings?.browser;
+  const lo = config.browser.launchOptions;
+  if (choice === undefined || flags.browserFromFlags || lo.executablePath !== undefined) return config;
+  const { launch } = resolve(choice);
+  const { channel: _channel, ...rest } = lo;
+  const launchOptions: McpConfig["browser"]["launchOptions"] = { ...rest, ...launch };
+  // As upstream does for `--browser chromium`: the downloaded build has no setuid sandbox helper
+  // on Linux, where user namespaces are often restricted.
+  if (platform === "linux" && choice === "chrome-for-testing") launchOptions.chromiumSandbox = false;
+  return { ...config, browser: { ...config.browser, launchOptions } };
+}
+
 export function createEngine(config: McpConfig, flags: EngineFlags = {}, fallback?: Engine): Engine {
   const base = selectEngine(config, fallback ?? createUpstreamEngine());
   const lightpanda = createLightpandaEngine();
@@ -460,6 +489,8 @@ export function createEngine(config: McpConfig, flags: EngineFlags = {}, fallbac
         (settings ? networkEngineClash(engine.id, settings) : undefined) ??
         policyEngineClash(engine.id, settings?.policy);
       if (clash) throw new Error(clash);
+      if (engine.id === "chrome")
+        return await engine.launch({ ...request, config: withIdentityBrowser(request.config, settings, flags) });
       return await engine.launch(request);
     },
     refuse(tool, identity) {

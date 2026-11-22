@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { identityBrowserLaunch } from "./browsers.js";
 import { clearHealth } from "./health.js";
 import { identityStateDir } from "./ids.js";
 import { IdentityError, identityDir, inUseBy, isInUse } from "./identities.js";
@@ -134,7 +135,7 @@ export async function loginIdentity(id: string, options: LoginOptions = {}): Pro
     const applied = launchSettings(settings, [], systemTimezone());
     const { chromium } = await import("patchright-core");
     const ctx = await chromium.launchPersistentContext(dir, {
-      channel: "chrome",
+      ...identityBrowserLaunch(settings, env, names().browser),
       headless: false,
       viewport: null,
       ...(applied.args.length || proxy ? { args: [...applied.args, ...(proxy ? CHROME_PROXY_ARGS : [])] } : {}),

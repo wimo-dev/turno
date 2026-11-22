@@ -3,6 +3,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { BrowserContext, Page } from "patchright-core";
 import { PRIVATE_DIR_MODE, PRIVATE_FILE_MODE, browserPaths as paths } from "turno-core/paths";
+import { findBrowser } from "./browsers.js";
 import { findChrome } from "./doctor.js";
 import {
   CHROME_PROXY_ARGS,
@@ -141,6 +142,7 @@ function chromeVersion(config: McpConfig, env: NodeJS.ProcessEnv): string | unde
     }
   }
   const channel = config.browser.launchOptions.channel ?? "chrome";
+  if (channel === "chrome-for-testing") return findBrowser("chrome-for-testing", env)?.version;
   return channel === "chrome" ? findChrome(env)?.version : undefined;
 }
 

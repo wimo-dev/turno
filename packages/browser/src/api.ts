@@ -1,5 +1,7 @@
 import { ENGINES, engineId, formatBenchTable, runBench } from "./bench.js";
+import { browserLabel, browserSwitchProblem, detectBrowsers, profileLastVersion } from "./browsers.js";
 import { runDoctor } from "./doctor.js";
+import { installBrowser } from "./install-browser.js";
 import { readHealth } from "./health.js";
 import { addIdentity, identityExists, inUseBy, isInUse, listIdentities, removeIdentity } from "./identities.js";
 import { assertIdentityId, identityDir } from "./ids.js";
@@ -29,7 +31,7 @@ import { browserCli } from "./cli/commands.js";
  *
  * `test/api.test.ts` lists the members, so a change here cannot ship without the version.
  */
-export const API_VERSION = Object.freeze({ major: 1, minor: 13 } as const);
+export const API_VERSION = Object.freeze({ major: 1, minor: 14 } as const);
 
 /** What `API_VERSION` looks like to a reader that does not know this package's version. */
 export interface ApiVersion {
@@ -53,7 +55,9 @@ export interface ApiVersion {
  * and (1.11) the background server of an identity: start, status, stop, and its sessions.
  * and (1.12) `cli`, the identity commands themselves (`turno-browser <cmd>`), which turno-cli runs
  * as `turno browser <cmd>` and `turno identity ... browser:<id>` with a host of its own,
- * and (1.13) `readLoginRecord`, the last sign-in by hand, `profileHasCookies`, and the sites `loginIdentity` returns.
+ * and (1.13) `readLoginRecord`, the last sign-in by hand, `profileHasCookies`, and the sites `loginIdentity` returns,
+ * and (1.14) the `browser` key of identity.json: `detectBrowsers`, `browserLabel`, `profileLastVersion`,
+ * `browserSwitchProblem` and `installBrowser`.
  */
 const functions = {
   ENGINES,
@@ -104,6 +108,11 @@ const functions = {
   backgroundStatus,
   stopBackground,
   openBackgroundSession,
+  detectBrowsers,
+  browserLabel,
+  profileLastVersion,
+  browserSwitchProblem,
+  installBrowser,
 };
 
 /** The functions the identity commands call; tests of the commands pass fakes of them. */

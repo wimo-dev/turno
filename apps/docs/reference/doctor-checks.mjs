@@ -440,9 +440,23 @@ export const DOCTOR_CHECKS = [
   {
     id: "browser-chrome-not-found",
     source: BROWSER,
-    match: "Google Chrome not found",
-    title: "Google Chrome is not installed (turno-browser)",
-    why: "turno-browser drives the Google Chrome you have installed. It was not found.",
+    match: "Google Chrome not found, and no other Chromium-based browser",
+    title: "No Chromium-based browser is installed (turno-browser)",
+    why: "turno-browser drives a Chromium-based browser you have installed: Google Chrome, Microsoft Edge, Brave or Chromium. None was found. `install-browser` downloads Chrome for Testing into your user cache, which needs no admin password.",
+  },
+  {
+    id: "browser-identity-browser-missing",
+    source: BROWSER,
+    match: "so this identity's browser does not start",
+    title: "An identity's browser is not installed",
+    why: "The identity opens its profile with the browser its identity.json names (`browser`), or Google Chrome when it names none, and that browser is not on this machine. turno never opens the profile in another browser on its own, since that can lose its sign-ins.",
+  },
+  {
+    id: "browser-profile-newer",
+    source: BROWSER,
+    match: "an older browser can refuse a profile whose data a newer one upgraded",
+    title: "A newer browser last opened the identity's profile",
+    why: "The profile's `Last Version` is newer than the identity's browser: it was opened by a newer browser, or by another one with --force. Chromium upgrades a profile's databases, and an older build can refuse them.",
   },
   {
     id: "browser-lightpanda-not-found",
@@ -569,7 +583,7 @@ export const DOCTOR_CHECKS = [
     id: "browser-smoke-launch-failed",
     source: BROWSER,
     match: "smoke launch failed",
-    title: "The test launch of Chrome failed",
-    why: "doctor starts Chrome once on a temporary profile to see that it opens. It did not.",
+    title: "The test launch of the browser failed",
+    why: "doctor starts Chrome (or, without Chrome, the first other Chromium-based browser it found) once on a temporary profile to see that it opens. It did not.",
   },
 ];

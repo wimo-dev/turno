@@ -40,7 +40,9 @@ Usage:
       [--proxy-server <url>] [--proxy-username <name|keychain:item>]
       [--proxy-password keychain:<item>] [--no-proxy] [--policy-file <file>]
       [--allowed-domains <host,...>] [--disable <feature,...>] [--auto-submit
-      true|false] [--no-policy] [--dry-run] [--json]
+      true|false] [--no-policy] [--browser
+      chrome|edge|brave|chromium|chrome-for-testing|<path>] [--force]
+      [--dry-run] [--json]
                                 change a browser identity's identity.json:
                                 place, languages, health check, tabs, blocking,
                                 cache
@@ -141,7 +143,9 @@ Usage:
       [--proxy-server <url>] [--proxy-username <name|keychain:item>]
       [--proxy-password keychain:<item>] [--no-proxy] [--policy-file <file>]
       [--allowed-domains <host,...>] [--disable <feature,...>] [--auto-submit
-      true|false] [--no-policy] [--dry-run] [--json]
+      true|false] [--no-policy] [--browser
+      chrome|edge|brave|chromium|chrome-for-testing|<path>] [--force]
+      [--dry-run] [--json]
     change a browser identity's identity.json: place, languages, health check,
     tabs, blocking, cache
 
@@ -253,6 +257,15 @@ What the identity may do (a policy; only this command writes it, no agent tool c
   --no-policy                     remove the policy
 Any policy turns browser_run_code_unsafe off, and allowedDomains the network tools. The server
 reads the policy when it starts.
+
+Which browser opens the profile (read at every browser start; turno browser doctor lists the installed ones):
+  --browser <name|path>           chrome (the default), edge, brave, chromium, chrome-for-testing
+                                  (turno browser install-browser downloads it, no admin password), or the
+                                  absolute path of another Chromium-based browser. A server's own
+                                  --browser or --executable-path wins over it
+  --force                         switch the browser of a profile another browser already opened:
+                                  the cookies carry over with the default keychain, but the new
+                                  browser rewrites the profile and an older one can refuse it
 
 Examples:
   $ turno identity set browser:school --timezone Europe/Madrid --languages es-ES,es,en

@@ -4,6 +4,7 @@ import { browserPaths as paths } from "turno-core/paths";
 import { type ActSettings, type CaptchaSettings, actProblems, captchaProblems } from "./opt-in-settings.js";
 import { parseAttachTarget } from "./engine-attach.js";
 import { IdentityError, assertIdentityId } from "./ids.js";
+import { type BrowserChoice, browserProblem } from "./browsers.js";
 import { HUMANIZE_LEVELS, type HumanizeSettings } from "./humanize.js";
 import { type ProxySettings, type UserAgentMode, networkEngineClash, networkProblems } from "./network.js";
 import { type IdentityPolicy, policyProblems } from "./policy.js";
@@ -65,6 +66,9 @@ import { parseDuration, parseSize } from "./units.js";
  * - `policy` (format 13): what the identity may do (`policy.ts`): the hosts its pages may show,
  *   the features that do not exist for it, and whether browser_login may submit. Only the
  *   command line writes it.
+ * - `browser` (format 13): which Chromium-based browser opens the profile (`browsers.ts`):
+ *   `"chrome"` (the default), `"edge"`, `"brave"`, `"chromium"`, `"chrome-for-testing"`, or the
+ *   absolute path of another one. A server's `--browser` or `--executable-path` wins over it.
  *
  * A missing file means Chrome's own defaults, as before identity.json existed.
  */
@@ -135,7 +139,7 @@ const FORMAT_11_KEYS = ["userAgent", "proxy"] as const;
 const FORMAT_12_KEYS = ["cursor"] as const;
 
 /** The keys format 13 added. */
-const FORMAT_13_KEYS = ["resources", "policy"] as const;
+const FORMAT_13_KEYS = ["resources", "policy", "browser"] as const;
 
 /** The values of `resources`: the defaults, or the low-resource preset (`tuning.ts`). */
 export const RESOURCE_MODES = ["normal", "low"] as const;
@@ -261,6 +265,8 @@ export interface IdentitySettings {
   resources?: ResourceMode;
   /** What the identity may do: allowed hosts, disabled features, auto submit (`policy.ts`). */
   policy?: IdentityPolicy;
+  /** The Chromium-based browser that opens the profile; default `"chrome"` (`browsers.ts`). */
+  browser?: BrowserChoice;
   /** ISO dates. */
   created: string;
   updated: string;
@@ -392,6 +398,14 @@ function browserProblems(v: Record<string, unknown>, out: string[]): void {
   if (v.resources !== undefined && !(RESOURCE_MODES as readonly unknown[]).includes(v.resources))
     out.push('resources must be "normal" (the default) or "low" (the low-resource preset)');
   engineProblems(v, out);
+  if (v.browser !== undefined) {
+    const problem = browserProblem(v.browser);
+    if (problem) out.push(problem);
+    else if (v.engine === "camoufox" || v.engine === "lightpanda")
+      out.push(
+        `browser does not go with engine "${v.engine}": it picks the Chromium-based browser of the chrome engine`,
+      );
+  }
   recordProblems(v, out);
   actProblems(v.act, out);
   captchaProblems(v.captcha, v, out);

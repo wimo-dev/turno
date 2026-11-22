@@ -31,6 +31,8 @@ function fakeModule(calls: Calls): BrowserApi {
     inUseBy: () => undefined,
     identitySettingsPath: (id: string) => `/x/${id}.json`,
     listIdentities: () => [],
+    // Google Chrome is installed, so `add` writes no browser.
+    detectBrowsers: () => [{ id: "chrome", label: "Google Chrome", path: "/x/chrome" }],
     addIdentity: (id: string) => {
       calls.added.push(id);
       return { id, dir: `/x/${id}`, inUse: false };

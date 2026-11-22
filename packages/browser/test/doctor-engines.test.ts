@@ -23,6 +23,7 @@ const base = (more: Partial<DoctorOptions> = {}): DoctorOptions => ({
   platform: "darwin",
   launch: false,
   chrome: () => ({ path: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", version: "157.0.0.0" }),
+  otherBrowsers: () => [],
   lightpanda: () => undefined,
   camoufox: () => undefined,
   playwrightCore: () => undefined,

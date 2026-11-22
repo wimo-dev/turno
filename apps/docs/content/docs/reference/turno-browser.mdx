@@ -77,8 +77,8 @@ From the shell
 Checks
   status      each identity at a glance: settings, sign-ins, last use, which
               agents have it
-  doctor      check Chrome, a test launch and every identity (settings, lock,
-              sign-in), with fixes
+  doctor      check the browsers, a test launch and every identity (browser,
+              settings, lock, sign-in), with fixes
   reputation  challenges each identity met per site (captcha, verify it's you,
               block) and their trend
   bench       check how each browser engine loads reference test pages and your
@@ -139,11 +139,12 @@ Usage:
 Usage:
   turno-browser add <id> [--timezone <zone>] [--locale <tag>] [--languages
       <tag,...>] [--region <CC>] [--health-url <url> --health-text <text>]
-      [--dry-run]
+      [--browser <name|path>] [--dry-run]
     create an identity (pinned to this time zone) and print how an agent uses it
 
 Examples:
   $ turno-browser add school --languages es-MX,es,en
+  $ turno-browser add work --browser brave
 ```
 
 ## turno-browser show
@@ -183,7 +184,9 @@ Usage:
       [--proxy-server <url>] [--proxy-username <name|keychain:item>]
       [--proxy-password keychain:<item>] [--no-proxy] [--policy-file <file>]
       [--allowed-domains <host,...>] [--disable <feature,...>] [--auto-submit
-      true|false] [--no-policy] [--dry-run] [--json]
+      true|false] [--no-policy] [--browser
+      chrome|edge|brave|chromium|chrome-for-testing|<path>] [--force]
+      [--dry-run] [--json]
     change an identity's identity.json (an empty value removes a setting)
 
 Each flag writes one key of identity.json; an empty value (--settle "") removes it, and
@@ -294,6 +297,15 @@ What the identity may do (a policy; only this command writes it, no agent tool c
   --no-policy                     remove the policy
 Any policy turns browser_run_code_unsafe off, and allowedDomains the network tools. The server
 reads the policy when it starts.
+
+Which browser opens the profile (read at every browser start; turno-browser doctor lists the installed ones):
+  --browser <name|path>           chrome (the default), edge, brave, chromium, chrome-for-testing
+                                  (turno-browser install-browser downloads it, no admin password), or the
+                                  absolute path of another Chromium-based browser. A server's own
+                                  --browser or --executable-path wins over it
+  --force                         switch the browser of a profile another browser already opened:
+                                  the cookies carry over with the default keychain, but the new
+                                  browser rewrites the profile and an older one can refuse it
 
 Examples:
   $ turno-browser set school --health-url https://mail.example.com/ --health-text Inbox
@@ -811,8 +823,8 @@ Examples:
 ```text
 Usage:
   turno-browser doctor [--fix] [--no-launch] [--json]
-    check Chrome, a test launch and every identity (settings, lock, sign-in),
-    with fixes
+    check the browsers, a test launch and every identity (browser, settings,
+    lock, sign-in), with fixes
 
 Examples:
   $ turno-browser doctor --fix
@@ -850,6 +862,10 @@ The MCP server an agent runs for one identity. `turno-browser-mcp --help` also l
 ```text title="turno-browser-mcp --help"
 turno-browser-mcp: a browser MCP server that drives your installed Chrome, with one
 persistent profile per identity (turno-browser add <id>).
+
+Which browser: the identity's identity.json browser (chrome, edge, brave, chromium,
+chrome-for-testing or a path; turno-browser set <id> --browser), else Google Chrome. The
+Playwright MCP flags --browser and --executable-path win over identity.json for this server.
 
   --identity <id>          use the identity's saved profile (served one session at a time by
                            mcpd, unless the identity's "sharing" is "tabs")

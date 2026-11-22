@@ -22,7 +22,9 @@ import { parseDuration } from "./units.js";
  * Turns `turno-browser-mcp [--identity <id>] [playwright-mcp flags]` into the argv for the
  * Patchright MCP program, adding turno's defaults that the user did not set:
  *
- * - `--browser chrome`: the installed Google Chrome, not a bundled Chromium.
+ * - `--browser chrome`: the installed Google Chrome, not a bundled Chromium. With an identity
+ *   whose identity.json names another `browser`, the engine launches that one instead, unless
+ *   the user gave `--browser` or `--executable-path` (`browserFromFlags`): a flag wins.
  * - `--user-data-dir <dir>`: the identity's persistent profile, or a fresh temporary one.
  *   Patchright recommends persistent contexts, and the upstream default (a profile shared by
  *   every server started in the same folder) is neither isolated nor per identity.
@@ -329,6 +331,9 @@ export function buildArgv(rawArgs: string[], options: BuildOptions = {}): BuiltA
     out.identity = identity;
   }
 
+  // A browser of the user's own wins over identity.json `browser` (`engine.ts`).
+  if (hasFlag(args, "--browser") || hasFlag(args, "--executable-path"))
+    out.engineFlags = { ...out.engineFlags, browserFromFlags: true };
   if (!external && !hasFlag(args, "--browser")) args.push("--browser", "chrome");
 
   const makeTemp = () => {

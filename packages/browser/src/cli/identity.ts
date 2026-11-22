@@ -136,6 +136,8 @@ export const SETTINGS_FLAGS: FlagSpec = {
   disable: { type: "string" },
   "auto-submit": { type: "string" },
   "no-policy": { type: "boolean" },
+  // The Chromium-based browser that opens the profile (format 13): a name or an absolute path.
+  browser: { type: "string" },
 };
 
 /** The identity.json key behind each tuning flag, so the package's messages name the flag. */
@@ -154,6 +156,7 @@ const KEY_FLAGS: readonly (readonly [string, string])[] = [
   ["sharing", "--sharing"],
   ["cursor", "--cursor"],
   ["resources", "--resources"],
+  ["browser", "--browser"],
   ["tabLocks.wait", "--tab-lock-wait"],
   ["tabLocks.release", "--tab-lock-release"],
   ["engine", "--engine"],
@@ -270,6 +273,9 @@ export function settingsPatch(p: Parsed, current?: IdentitySettings): SettingsPa
   tuningPatch(p, value, patch, current);
   const engine = value("engine");
   if (engine !== undefined) patch.engine = engine as SettingsPatch["engine"];
+  // Checked by the package: an unknown name comes back as `--browser must be ...`.
+  const browser = value("browser");
+  if (browser !== undefined) patch.browser = browser;
   const attach = value("attach");
   if (attach !== undefined) patch.attach = attach;
   networkPatch(p, value, patch, current);
@@ -689,6 +695,7 @@ export function show(c: Ctx, id: string, args: string[], io: Io): number {
       ]);
     if (settings.sharing === "tabs") rows.push(["sharing", "every agent session at once, each in its own tabs"]);
     rows.push(["agent cursor", CURSOR_TEXT[settings.cursor ?? "auto"] ?? String(settings.cursor)]);
+    if (settings.browser !== undefined) rows.push(["browser", m.browserLabel(settings.browser)]);
     if (settings.tabLocks)
       rows.push([
         "tab locks",
@@ -751,7 +758,12 @@ export function show(c: Ctx, id: string, args: string[], io: Io): number {
   return Exit.ok;
 }
 
-const SET_FLAGS: FlagSpec = { ...SETTINGS_FLAGS, "dry-run": { type: "boolean" }, ...JSON_FLAG };
+const SET_FLAGS: FlagSpec = {
+  ...SETTINGS_FLAGS,
+  force: { type: "boolean" },
+  "dry-run": { type: "boolean" },
+  ...JSON_FLAG,
+};
 
 /** The arguments of `set` after the identity, for the usage line. */
 export const SET_SYNOPSIS =
@@ -762,7 +774,7 @@ export const SET_SYNOPSIS =
   "[--act] [--act-sampling true|false] [--act-provider chat-completions] [--act-endpoint <url>] [--act-model <name>] [--act-key keychain:<item>] [--act-max-steps <n>] [--act-max-tokens <n>] [--act-timeout <duration>] [--no-act] " +
   "[--captcha-provider task-api] [--captcha-endpoint <url>] [--captcha-key keychain:<item>] [--captcha-timeout <duration>] [--no-captcha] [--live true|false] [--live-wait <duration>] [--no-live] " +
   "[--user-agent coherent] [--proxy-server <url>] [--proxy-username <name|keychain:item>] [--proxy-password keychain:<item>] [--no-proxy] " +
-  "[--policy-file <file>] [--allowed-domains <host,...>] [--disable <feature,...>] [--auto-submit true|false] [--no-policy] [--dry-run] [--json]";
+  "[--policy-file <file>] [--allowed-domains <host,...>] [--disable <feature,...>] [--auto-submit true|false] [--no-policy] [--browser chrome|edge|brave|chromium|chrome-for-testing|<path>] [--force] [--dry-run] [--json]";
 
 /** More help for `set`: what each tuning flag writes to identity.json, with the host's command names. */
 export function setDetails(n: CliNames): string {
@@ -874,11 +886,20 @@ What the identity may do (a policy; only this command writes it, no agent tool c
   --auto-submit false             browser_login never submits, whatever vault submit says
   --no-policy                     remove the policy
 Any policy turns browser_run_code_unsafe off, and allowedDomains the network tools. The server
-reads the policy when it starts.`;
+reads the policy when it starts.
+
+Which browser opens the profile (read at every browser start; ${b} doctor lists the installed ones):
+  --browser <name|path>           chrome (the default), edge, brave, chromium, chrome-for-testing
+                                  (${b} install-browser downloads it, no admin password), or the
+                                  absolute path of another Chromium-based browser. A server's own
+                                  --browser or --executable-path wins over it
+  --force                         switch the browser of a profile another browser already opened:
+                                  the cookies carry over with the default keychain, but the new
+                                  browser rewrites the profile and an older one can refuse it`;
 }
 
 /** The flags of `set`, for completion. */
-export const SET_FLAG_NAMES = ["--dry-run", "--json", ...SETTINGS_FLAG_NAMES];
+export const SET_FLAG_NAMES = ["--dry-run", "--json", "--force", ...SETTINGS_FLAG_NAMES];
 
 /**
  * The package's own validation, run on a copy: identity.json is copied to a throwaway data
@@ -902,6 +923,57 @@ export function rehearse(
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+}
+
+/**
+ * The switch of a used profile to another browser: refused without `--force` (it fails with
+ * why), and with it the reason to print as a warning. Undefined when nothing changes or the
+ * profile was never opened.
+ */
+function browserSwitch(
+  c: Ctx,
+  id: string,
+  current: IdentitySettings | undefined,
+  patch: SettingsPatch,
+  force: boolean,
+  io: Io,
+): string | undefined {
+  const m = c.api;
+  const to = patch.browser ?? "chrome";
+  const problem = m.browserSwitchProblem(
+    current?.browser ?? "chrome",
+    to,
+    m.profileLastVersion(m.identityDir(id, io.env)),
+    patch.keychain === null ? undefined : (patch.keychain ?? current?.keychain),
+  );
+  if (!problem || force) return problem;
+  return fail(
+    `not switching the browser of "${id}": ${problem}. To keep the sign-ins, keep the browser, or make a new identity for ${to} (${c.names.identity("add", `${id}-${typeof to === "string" && !to.startsWith("/") ? to : "other"}`)} --browser ${to}); --force switches anyway`,
+  );
+}
+
+/**
+ * The browser a new identity gets when `--browser` is not given: none (Google Chrome, the
+ * default) when Chrome is installed; else the first other Chromium-based browser found, written
+ * to identity.json so the profile never changes browser by itself; else none, with the
+ * no-admin way to get one.
+ */
+export function defaultBrowser(
+  c: Ctx,
+  id: string,
+  env: NodeJS.ProcessEnv,
+): { browser?: string; note: string } | undefined {
+  const found = c.api.detectBrowsers(env);
+  if (found.some((b) => b.id === "chrome")) return undefined;
+  const first = found[0];
+  if (first)
+    return {
+      browser: first.id,
+      note: `Google Chrome is not installed, so this identity uses ${first.label} (identity.json browser; change it with ${c.names.browser} set ${id} --browser <name> before the first sign-in)`,
+    };
+  return {
+    note: `no Chromium-based browser found (Google Chrome, Edge, Brave, Chromium): run ${c.names.browser} install-browser (no admin password), then ${c.names.browser} set ${id} --browser chrome-for-testing`,
+  };
 }
 
 /** What turning on natural language actions or captcha solving costs, said once at `set`. */
@@ -940,9 +1012,11 @@ export function set(c: Ctx, id: string, args: string[], io: Io): number {
   const m = c.api;
   const p = parseFlags(args, SET_FLAGS, 1);
   if (!m.identityExists(id, io.env)) return fail(`identity "${id}" does not exist (${c.names.identity("add", id)})`);
-  const patch = settingsPatch(p, m.checkIdentitySettings(id, io.env).settings);
+  const current = m.checkIdentitySettings(id, io.env).settings;
+  const patch = settingsPatch(p, current);
   if (!hasSettings(patch))
     return fail(`nothing to set: pass ${SETTINGS_FLAG_NAMES.join(", ")} (an empty value removes one)`);
+  const switched = patch.browser !== undefined ? browserSwitch(c, id, current, patch, bool(p, "force"), io) : undefined;
   const dryRun = bool(p, "dry-run");
   let settings: IdentitySettings;
   try {
@@ -967,6 +1041,7 @@ export function set(c: Ctx, id: string, args: string[], io: Io): number {
   }
   io.out(`updated identity.json of "${id}"; the next Chrome start of browser-${id} uses it\n`);
   const code = show(c, id, [], io);
+  if (switched) io.out(style(io).note("warn", `browser switched with --force: ${switched}`));
   const sharing = patch.sharing !== undefined ? c.host.sharingNote?.(id, settings.sharing) : undefined;
   if (sharing) io.out(`\n${sharing}`);
   for (const note of optInNotes(c, id, patch)) io.out(style(io).note("warn", note));
@@ -987,7 +1062,7 @@ export function set(c: Ctx, id: string, args: string[], io: Io): number {
 const DOCTOR_FLAGS: FlagSpec = { fix: { type: "boolean" }, "no-launch": { type: "boolean" }, ...JSON_FLAG };
 
 const SECTIONS: [string, (area: string) => boolean][] = [
-  ["Chrome", (a) => a === "chrome"],
+  ["Browsers", (a) => a === "chrome"],
   ["System", (a) => a === "system"],
   ["Engines", (a) => a === "engines"],
   ["Identities", (a) => a === "identities" || a.startsWith("identity ")],
