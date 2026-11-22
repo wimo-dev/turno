@@ -75,13 +75,18 @@ async function until<T>(get: () => Promise<T> | T, ok: (v: T) => boolean, ms = 1
 describe.skipIf(reason)(`the person step's banner on a real Chrome${reason ? ` (skipped: ${reason})` : ""}`, () => {
   let browser: Browser;
   let web: { url: string; close(): Promise<void> };
+  // Chrome's own files (fontconfig cache, crash reports) go to a sandbox HOME, never the run's.
+  let home: Sandbox | undefined;
   beforeAll(async () => {
-    browser = await chromium.launch({ channel: "chrome", headless: true });
+    home = sandbox();
+    const env = Object.fromEntries(Object.entries(home.env).filter((e): e is [string, string] => e[1] !== undefined));
+    browser = await chromium.launch({ channel: "chrome", headless: true, env });
     web = await site();
   });
   afterAll(async () => {
     await browser?.close();
     await web?.close();
+    home?.cleanup();
   });
 
   const view = (step: string, done: string | null = "Done"): StepView => ({
