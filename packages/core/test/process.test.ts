@@ -1,6 +1,14 @@
 import { spawn } from "node:child_process";
 import { describe, expect, it } from "vitest";
-import { parentIsInit, parseProcTable, pidAlive, readProcTable, signalProcess } from "../src/process.js";
+import {
+  parentIsInit,
+  parseProcTable,
+  parseWindowsProcTable,
+  pidAlive,
+  readProcTable,
+  signalProcess,
+  treeKillCommand,
+} from "../src/process.js";
 
 describe("process helpers", () => {
   it("parses ps output with process groups and skips other lines", () => {
@@ -12,6 +20,27 @@ describe("process helpers", () => {
     expect(parentIsInit(1, t)).toBe(true);
     expect(parentIsInit(42, t)).toBe(false);
     expect(parentIsInit(999, t)).toBe(true);
+  });
+
+  it("parses the Windows table, where every process leads its own group", () => {
+    const t = parseWindowsProcTable(
+      '4\t0\t\r\n900\t12\t"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" --user-data-dir=C:\\p q\r\nnoise\r\n',
+    );
+    expect([...t.keys()]).toEqual([4, 900]);
+    expect(t.get(900)).toEqual({
+      pid: 900,
+      ppid: 12,
+      pgid: 900,
+      command: '"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" --user-data-dir=C:\\p q',
+    });
+    expect(t.get(4)?.command).toBe("");
+    expect(parentIsInit(12, t)).toBe(true);
+  });
+
+  it("ends a tree with taskkill /T on Windows only", () => {
+    expect(treeKillCommand(900, true, "win32")).toEqual({ file: "taskkill.exe", args: ["/PID", "900", "/T", "/F"] });
+    expect(treeKillCommand(900, false, "win32")?.args).toEqual(["/PID", "900", "/T"]);
+    expect(treeKillCommand(900, true, "darwin")).toBeUndefined();
   });
 
   it("reads this process from the real process table", () => {

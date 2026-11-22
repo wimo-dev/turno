@@ -11,7 +11,7 @@
  */
 import { chmodSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 
 const KEEP = new Set([
   "TURNO_SKIP_E2E",
@@ -43,6 +43,12 @@ export default function setup(): () => void {
   process.env.XDG_STATE_HOME = join(home, ".local", "state");
   process.env.XDG_DATA_HOME = join(home, ".local", "share");
   process.env.XDG_CACHE_HOME = join(home, ".cache");
+  // Windows reads these instead of HOME: the profile folder, and turno's and Playwright's defaults.
+  if (process.platform === "win32") {
+    process.env.USERPROFILE = home;
+    process.env.APPDATA = join(home, "AppData", "Roaming");
+    process.env.LOCALAPPDATA = join(home, "AppData", "Local");
+  }
   process.env.TURNO_NO_UPDATE_CHECK = "1";
   // No test reaches the real secret store: stand-ins for `security` and `secret-tool` that refuse
   // come first on PATH. A real Keychain call can open a macOS dialog that blocks the whole
@@ -57,7 +63,7 @@ export default function setup(): () => void {
     );
     chmodSync(file, 0o755);
   }
-  process.env.PATH = `${guard}:${process.env.PATH ?? ""}`;
+  process.env.PATH = `${guard}${delimiter}${process.env.PATH ?? ""}`;
   return () => {
     const found = guardFindings(home);
     rmSync(root, { recursive: true, force: true });

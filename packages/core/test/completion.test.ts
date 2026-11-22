@@ -29,21 +29,25 @@ describe("completion scripts", () => {
     expect(s.fish).toContain("complete -c turno-browser -f -a '(__turno_browser_complete)'");
   });
 
-  it("pass each word to the program on its own under bash, empty last word included", () => {
-    const bin = fakeProgram("demo-prog");
-    const script = completionScripts("demo-prog").bash;
-    const r = spawnSync(
-      "bash",
-      [
-        "--norc",
-        "-c",
-        `eval "$1"; COMP_WORDS=(demo-prog do "two words" ""); COMP_CWORD=3; _demo_prog; printf '%s\\n' "\${COMPREPLY[@]}"`,
-        "x",
-        script,
-      ],
-      { encoding: "utf8", env: { PATH: `${bin}:/usr/bin:/bin` } },
-    );
-    expect(r.stderr).toBe("");
-    expect(r.stdout.trim().split("\n")).toEqual(["<do>", "<two words>", "<>"]);
-  });
+  // The fake program is a POSIX shell script.
+  it.skipIf(process.platform === "win32")(
+    "pass each word to the program on its own under bash, empty last word included",
+    () => {
+      const bin = fakeProgram("demo-prog");
+      const script = completionScripts("demo-prog").bash;
+      const r = spawnSync(
+        "bash",
+        [
+          "--norc",
+          "-c",
+          `eval "$1"; COMP_WORDS=(demo-prog do "two words" ""); COMP_CWORD=3; _demo_prog; printf '%s\\n' "\${COMPREPLY[@]}"`,
+          "x",
+          script,
+        ],
+        { encoding: "utf8", env: { PATH: `${bin}:/usr/bin:/bin` } },
+      );
+      expect(r.stderr).toBe("");
+      expect(r.stdout.trim().split("\n")).toEqual(["<do>", "<two words>", "<>"]);
+    },
+  );
 });

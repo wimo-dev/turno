@@ -10,9 +10,12 @@ export {
   type TurnoRoots,
   browserPaths,
   ensurePrivateDir,
+  envValue,
   findOnPath,
   isPrivatePath,
+  pathsFor,
   privateRoots,
+  replaceFileSync,
   resetPrivateDirCache,
   turnoRoots,
   writePrivateFile,
@@ -30,11 +33,14 @@ export {
 export {
   type ProcInfo,
   type ProcTable,
+  killTree,
   parentIsInit,
   parseProcTable,
+  parseWindowsProcTable,
   pidAlive,
   readProcTable,
   signalProcess,
+  treeKillCommand,
 } from "./process.js";
 export {
   type PressureLevel,

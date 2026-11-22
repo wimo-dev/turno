@@ -2,8 +2,10 @@ import { execFileSync } from "node:child_process";
 
 /**
  * Process helpers shared by turno-cli and turno-browser: whether a PID lives, a signal that
- * never throws, and the process table with process groups (Chrome runs as the leader of its own
- * group).
+ * never throws, the process table with process groups (Chrome runs as the leader of its own
+ * group), and how to end a whole process tree. Windows has no process groups and no signals
+ * (`process.kill` terminates at once there), so the table comes from PowerShell with each
+ * process as its own group, and a tree ends with `taskkill /T`.
  */
 
 /** Whether a process is alive. EPERM means it exists but belongs to someone else. */
@@ -46,8 +48,46 @@ export function parseProcTable(stdout: string): ProcTable {
   return t;
 }
 
-/** Every process with its full command line, or undefined when `ps` is not available. */
-export function readProcTable(): ProcTable | undefined {
+/**
+ * PowerShell's `Win32_Process` lines, `<pid>\t<ppid>\t<command line>`. There are no process
+ * groups on Windows: each process counts as the leader of its own. A process whose command line
+ * the user may not read (another user's, a system one) has an empty one.
+ */
+export function parseWindowsProcTable(stdout: string): ProcTable {
+  const t: ProcTable = new Map();
+  for (const line of stdout.split(/\r?\n/)) {
+    const m = /^(\d+)\t(\d+)\t(.*)$/.exec(line);
+    if (!m) continue;
+    const pid = Number(m[1]);
+    t.set(pid, { pid, ppid: Number(m[2]), pgid: pid, command: m[3]!.trim() });
+  }
+  return t;
+}
+
+/** Lists every process as `parseWindowsProcTable` reads it, in UTF-8 whatever the console code page. */
+const WINDOWS_PROC_SCRIPT =
+  "[Console]::OutputEncoding = [Text.Encoding]::UTF8; " +
+  "Get-CimInstance Win32_Process | ForEach-Object { '{0}`t{1}`t{2}' -f $_.ProcessId, $_.ParentProcessId, $_.CommandLine }";
+
+/**
+ * Every process with its full command line, or undefined when the table cannot be read (no
+ * `ps`; on Windows, no PowerShell).
+ */
+export function readProcTable(platform: NodeJS.Platform = process.platform): ProcTable | undefined {
+  if (platform === "win32") {
+    try {
+      const out = execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", WINDOWS_PROC_SCRIPT], {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+        windowsHide: true,
+        maxBuffer: 64 * 1024 * 1024,
+        timeout: 15_000,
+      });
+      return parseWindowsProcTable(out);
+    } catch {
+      return undefined;
+    }
+  }
   try {
     const out = execFileSync("ps", ["-A", "-ww", "-o", "pid=,ppid=,pgid=,command="], {
       encoding: "utf8",
@@ -59,6 +99,40 @@ export function readProcTable(): ProcTable | undefined {
     return parseProcTable(out);
   } catch {
     return undefined;
+  }
+}
+
+/**
+ * The command that ends a process and every process it started: `taskkill /T` on Windows, which
+ * walks the tree by parent PID (with `/F` it does not ask first). Undefined on other systems,
+ * where a tree is a process group and gets a signal (`signalProcess(-pgid, ...)`).
+ */
+export function treeKillCommand(
+  pid: number,
+  force: boolean,
+  platform: NodeJS.Platform = process.platform,
+): { file: string; args: string[] } | undefined {
+  if (platform !== "win32") return undefined;
+  return { file: "taskkill.exe", args: ["/PID", String(pid), "/T", ...(force ? ["/F"] : [])] };
+}
+
+/**
+ * Ends the tree of `pid`. On Windows through `treeKillCommand`: without `force`, taskkill asks
+ * the windows of the tree to close, as the close button does (a headless process has none and
+ * keeps running); false when taskkill failed (the process is already gone, or access was
+ * denied). Elsewhere `pid` must lead its process group, which gets SIGTERM, or SIGKILL with `force`.
+ */
+export function killTree(pid: number, force: boolean, platform: NodeJS.Platform = process.platform): boolean {
+  const cmd = treeKillCommand(pid, force, platform);
+  if (!cmd) {
+    signalProcess(-pid, force ? "SIGKILL" : "SIGTERM");
+    return true;
+  }
+  try {
+    execFileSync(cmd.file, cmd.args, { stdio: "ignore", windowsHide: true, timeout: 15_000 });
+    return true;
+  } catch {
+    return false;
   }
 }
 
