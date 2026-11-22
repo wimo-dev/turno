@@ -40,7 +40,7 @@ On a machine without Node or npm, use the standalone executable: one file that h
 | Linux, x64 | `turno-browser-linux-x64.zip` |
 | Windows, x64 (experimental) | `turno-browser-win-x64.zip` |
 
-Windows is experimental: turno-browser does not support Windows yet, so that executable is published for testing and may not work.
+The Windows executable is experimental: the npm install is what CI tests on Windows (see [On Windows](#on-windows)), while the release workflow only checks that this executable starts and answers an MCP request.
 
 Each archive holds the executable (`turno-browser`, or `turno-browser.exe`) and its license files. The one executable is both programs: `turno-browser <command>` is the CLI, and `turno-browser mcp` is the MCP server that `turno-browser-mcp` is in the npm package.
 

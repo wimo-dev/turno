@@ -396,19 +396,19 @@ describe("running an agent's command on Windows", () => {
 describe("how an agent starts turno-browser-mcp", () => {
   it("by name when it is on the PATH, through cmd /c on Windows; else by its full path, run by Node on Windows", () => {
     const empty = { PATH: "" };
-    expect(mcpCommand(empty, "linux")).toMatchObject({ prefix: [], onPath: false });
+    expect(mcpCommand(empty, "linux")).toMatchObject({ args: [], onPath: false });
     expect(mcpCommand(empty, "linux").command).toMatch(/[\\/]bin[\\/]mcp\.js$/);
     const win = mcpCommand(empty, "win32");
     expect(win.command).toBe(process.execPath);
-    expect(win.prefix[0]).toMatch(/[\\/]bin[\\/]mcp\.js$/);
+    expect(win.args[0]).toMatch(/[\\/]bin[\\/]mcp\.js$/);
     const dir = mkdtempSync(join(tmpdir(), "turno-mcp-"));
     try {
       fakeProgram(dir, "turno-browser-mcp");
       const env = { PATH: pathWith(undefined, dir) };
       expect(mcpCommand(env)).toEqual(
         process.platform === "win32"
-          ? { command: "cmd", prefix: ["/c", "turno-browser-mcp"], onPath: true }
-          : { command: "turno-browser-mcp", prefix: [], onPath: true },
+          ? { command: "cmd", args: ["/c", "turno-browser-mcp"], onPath: true }
+          : { command: "turno-browser-mcp", args: [], onPath: true },
       );
     } finally {
       rmSync(dir, { recursive: true, force: true });
