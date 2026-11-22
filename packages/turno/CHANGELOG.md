@@ -1,5 +1,19 @@
 # turno-cli
 
+## 0.6.0
+
+### Minor Changes
+
+- 4088401: Behavior change: `turno-browser remove <id>` (and `turno browser remove`, `turno identity remove browser:<id>`) now asks before it deletes anything, showing the list of what goes. `--yes` skips the question; without a terminal and without `--yes` it refuses with exit code 2 instead of deleting. It also removes what it used to leave behind: it stops the identity's background server, a Chrome on its profile and the turno-browser-mcp processes started for it (instead of refusing while they run); it takes the identity's MCP server out of each agent that has it with the agent's own command (`claude mcp remove --scope user browser-<id>`, `codex mcp remove`, `copilot mcp remove`, `gemini mcp remove`); it deletes the `keychain:` items identity.json references (proxy, act, captcha) unless another identity or turno's mcp.toml uses them, the vault's credentials even when the vault index is broken, and the session exports it wrote. Chrome's own cookie key (`"keychain": "system"`) is shared with every Chrome profile and is kept. Afterwards it checks that nothing is left and exits 1 when something is. `--json` reports `planned`, `deleted`, `failed`, `left` (each with the step that removes it) and `kept`. `destroy` is another name for `remove`. `turno identity remove browser:<id>` passes `--yes` and `--json` on to turno-browser.
+
+### Patch Changes
+
+- fb4c2e3: An identity can run on another Chromium-based browser than Google Chrome: `turno-browser set <id> --browser chrome|edge|brave|chromium|chrome-for-testing|<path>` (also on `add`; identity.json `browser`, format 13). Every command uses it: the agent's server, `login`, `export` and `import`, the background server and `replay`. A server's own `--browser` or `--executable-path` still wins over it. When Google Chrome is not installed, `add` and `init` pick the first browser they find and write it to identity.json, so a profile never changes browser by itself. Switching the browser of a profile another browser already opened is refused unless you pass `--force`, since the new browser rewrites the profile and, with `keychain: "system"`, cannot read the old one's cookies.
+  
+  New `turno-browser install-browser`: for a machine without any Chromium-based browser and no admin password, it downloads Chrome for Testing into the user cache with the installer of the patchright-core turno-browser uses (about 190 MB, no system change). `doctor` lists every browser it finds (Chrome, Edge, Brave, Chromium, Chrome for Testing), starts the first one when Chrome is missing, says which browser each identity uses and whether it is installed, warns when a newer browser last opened a profile, and names `install-browser` when there is none. turno-cli needs turno-browser's API 1.14.
+- Updated dependencies [6bf9b12]
+  - turno-core@0.4.0
+
 ## 0.5.3
 
 ### Patch Changes
