@@ -1,10 +1,12 @@
 import { names } from "./names.js";
+import { type UiLocale, fill, uiStrings } from "./ui-strings.js";
 /**
  * The live view page: one HTML document with its style and script inline, allowed by a nonce
  * in the Content-Security-Policy. It reads the server's events (`/events`: the state and the
  * frames of the tab it shows), and posts Pause, Resume, the tab to show and, while the agent is
  * paused, the user's clicks, keys and scrolls. Text from pages (titles, URLs) only ever goes into
- * `textContent`, never into HTML.
+ * `textContent`, never into HTML. Its words come from the identity's language (`ui-strings.ts`):
+ * the script reads them from `T`.
  */
 
 const STYLE = `
@@ -31,6 +33,7 @@ footer { padding: 0 16px 16px; color: var(--muted); font-size: 13px; }
 
 const SCRIPT = `
 const $ = (id) => document.getElementById(id);
+function fill(t, v) { for (const k in v) t = t.split("{" + k + "}").join(String(v[k])); return t; }
 const frame = $("frame");
 let state = null;
 let size = { w: 0, h: 0 };
@@ -48,35 +51,36 @@ function render(s) {
   $("id").textContent = s.identity;
   const status = $("status");
   status.className = s.paused ? "paused" : "";
+  const by = s.paused ? ({ "the live view": T.byView, browser_request_human: T.byStep })[s.paused.by] || s.paused.by : "";
   status.textContent = s.paused
-    ? "Paused (" + s.paused.by + "). " + (s.waiting ? s.waiting + " agent call" + (s.waiting === 1 ? " is" : "s are") + " waiting. " : "") + (s.busy ? "A call that started before the pause is still running." : "You have the controls.")
-    : (s.busy ? "The agent is working." : "The agent is idle.") + (s.browser ? "" : " The browser is not running.");
+    ? fill(T.paused, { by }) + (s.waiting ? (s.waiting === 1 ? T.waitingOne : fill(T.waitingMany, { n: s.waiting })) : "") + (s.busy ? T.stillRunning : T.yourControls)
+    : (s.busy ? T.working : T.idle) + (s.browser ? "" : T.noBrowser);
   $("pause").disabled = !!s.paused;
   $("resume").disabled = !s.paused;
   const tabs = $("tabs");
   tabs.replaceChildren();
   const follow = document.createElement("button");
-  follow.textContent = "Follow the agent";
+  follow.textContent = T.follow;
   follow.className = s.pinned ? "" : "on";
   follow.onclick = () => post("/follow", { tab: null });
   tabs.append(follow);
   for (const t of s.tabs) {
     const b = document.createElement("button");
-    b.textContent = (t.session ? "[" + t.session + "] " : "") + (t.title || t.url || "(blank)");
+    b.textContent = (t.session ? "[" + t.session + "] " : "") + (t.title || t.url || T.blank);
     b.title = t.url;
     b.className = t.id === s.showing ? "on" : "";
     b.onclick = () => post("/follow", { tab: t.id });
     tabs.append(b);
   }
   let why = "";
-  if (!s.view.available) why = s.view.reason;
-  else if (s.hidden) why = "Hidden: this page holds a vault or sensitive value. It shows again after the page navigates.";
-  else if (!s.browser) why = "Nothing to show until the agent opens the browser.";
+  if (!s.view.available) why = fill(T.noView, { reason: s.view.reason });
+  else if (s.hidden) why = T.hidden;
+  else if (!s.browser) why = T.notStarted;
   if (why) frame.removeAttribute("src");
   note(why);
   $("help").textContent = s.view.available
-    ? (s.paused ? "Click, scroll and type on the picture to act on the page. Resume when you are done; the agent is told what changed." : "Pause to take the controls: the agent's next call waits until you resume (up to " + Math.round(s.wait / 1000) + " s per call).")
-    : "Pause and resume still work: the agent's next call waits until you resume.";
+    ? (s.paused ? T.helpPaused : fill(T.helpRunning, { s: Math.round(s.wait / 1000) }))
+    : T.helpNoView;
 }
 const events = new EventSource("/events");
 events.addEventListener("state", (e) => render(JSON.parse(e.data)));
@@ -86,7 +90,7 @@ events.addEventListener("frame", (e) => {
   size = { w: f.w, h: f.h };
   frame.src = "data:image/jpeg;base64," + f.data;
 });
-events.onerror = () => { $("status").textContent = "Disconnected: the server stopped or restarted. Open the view again with turno-browser live."; };
+events.onerror = () => { $("status").textContent = T.disconnected; };
 $("pause").onclick = () => post("/pause");
 $("resume").onclick = () => post("/resume");
 function point(e) {
@@ -95,7 +99,7 @@ function point(e) {
 }
 function canAct() {
   if (state && state.paused) return true;
-  note("Pause first: your input goes to the page only while the agent waits.");
+  note(T.pauseFirst);
   return false;
 }
 frame.addEventListener("click", (e) => { frame.focus(); if (canAct()) post("/input", { type: "click", ...point(e) }); });
@@ -116,32 +120,41 @@ frame.addEventListener("keydown", (e) => {
 });
 `;
 
-/** The page, with the nonce the response's Content-Security-Policy allows. */
-export function livePage(nonce: string): string {
+function escapeHtml(text: string): string {
+  return text.replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[ch]!);
+}
+
+/** The page, with the nonce the response's Content-Security-Policy allows, in the person's language. */
+export function livePage(nonce: string, locale: UiLocale = "en"): string {
+  const t = uiStrings(locale).live;
+  // JSON in a script element: "<" escaped so no string can close the element.
+  const strings = JSON.stringify(t).replace(/</g, "\\u003c");
   return `<!doctype html>
-<html lang="en">
+<html lang="${locale}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="referrer" content="no-referrer">
-<title>turno live view</title>
+<title>${escapeHtml(t.title)}</title>
 <style nonce="${nonce}">${STYLE}</style>
 </head>
 <body>
-<header><strong>turno live</strong><span id="id"></span><span id="status">Connecting...</span><button id="pause" type="button">Pause</button><button id="resume" type="button" disabled>Resume</button></header>
-<nav id="tabs" aria-label="Tabs"></nav>
-<main><div id="notice" role="status"></div><img id="frame" alt="The agent's tab" tabindex="0"></main>
+<header><strong>${escapeHtml(t.heading)}</strong><span id="id"></span><span id="status">${escapeHtml(t.connecting)}</span><button id="pause" type="button">${escapeHtml(t.pause)}</button><button id="resume" type="button" disabled>${escapeHtml(t.resume)}</button></header>
+<nav id="tabs" aria-label="${escapeHtml(t.tabs)}"></nav>
+<main><div id="notice" role="status"></div><img id="frame" alt="${escapeHtml(t.frameAlt)}" tabindex="0"></main>
 <footer id="help"></footer>
-<script nonce="${nonce}">${SCRIPT}</script>
+<script nonce="${nonce}">const T = ${strings};${SCRIPT}</script>
 </body>
 </html>
 `;
 }
 
 /** What a browser without the view's cookie sees. */
-export function deniedPage(identity: string): string {
+export function deniedPage(identity: string, locale: UiLocale = "en"): string {
+  const t = uiStrings(locale).live;
+  const command = `<code>${escapeHtml(`${names().browser} live ${identity}`)}</code>`;
   return `<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><title>turno live view</title></head>
-<body><p>This live view needs a fresh link. Run <code>${names().browser} live ${identity}</code>: it opens one that works once.</p></body></html>
+<html lang="${locale}"><head><meta charset="utf-8"><title>${escapeHtml(t.title)}</title></head>
+<body><p>${fill(escapeHtml(t.denied), { command })}</p></body></html>
 `;
 }

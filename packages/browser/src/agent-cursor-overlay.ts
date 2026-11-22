@@ -21,8 +21,16 @@ export interface OverlayBox {
   height: number;
 }
 
+/** The badge's words, in the person's language (`ui-strings.ts`). `{name}`: the agent's name. */
+export interface OverlayText {
+  working: string;
+  workingAs: string;
+  paused: string;
+}
+
 /** One instruction for the overlay. `key` names a cursor (one per agent session). */
 export type OverlayCommand =
+  | { op: "text"; text: OverlayText }
   | { op: "actor"; key: string; label: string; name: string; color: string }
   | { op: "move"; key: string; x: number; y: number; ms: number }
   | { op: "ring"; key: string; box: OverlayBox | null }
@@ -91,6 +99,7 @@ export function cursorOverlay(commands: OverlayCommand[]): OverlayReport {
     paused: boolean;
     visible: boolean;
     reduced: boolean;
+    text: OverlayText;
   };
   const w = window as unknown as Record<string, Parts | undefined>;
   const important = (el: HTMLElement, props: Record<string, string>) => {
@@ -168,7 +177,6 @@ export function cursorOverlay(commands: OverlayCommand[]): OverlayReport {
     const dot = document.createElement("span");
     dot.className = "dot";
     const badgeText = document.createElement("span");
-    badgeText.textContent = "turno · agent at work";
     badge.append(dot, badgeText);
     const layer = document.createElement("div");
     shell.append(frame, layer, badge);
@@ -194,6 +202,8 @@ export function cursorOverlay(commands: OverlayCommand[]): OverlayReport {
       paused: false,
       visible: true,
       reduced,
+      // Every batch from the host starts with the words (`text`).
+      text: { working: "", workingAs: "", paused: "" },
     };
   };
 
@@ -266,12 +276,16 @@ export function cursorOverlay(commands: OverlayCommand[]): OverlayReport {
     const n = Math.max(parts.busy.size - 1, parts.others);
     const others = n > 0 ? ` +${n}` : "";
     parts.badgeText.textContent = parts.paused
-      ? "paused · you have the controls"
-      : `turno · ${name ? `${name} at work` : "agent at work"}${others}`;
+      ? parts.text.paused
+      : `${name ? parts.text.workingAs.split("{name}").join(name) : parts.text.working}${others}`;
   };
 
   for (const cmd of commands) {
     switch (cmd.op) {
+      case "text":
+        parts.text = cmd.text;
+        paintBadge();
+        break;
       case "actor": {
         const c = cursorFor(cmd.key);
         c.label = cmd.label;

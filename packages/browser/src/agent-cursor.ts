@@ -1,7 +1,14 @@
 import type { Locator, Page } from "patchright-core";
-import { type OverlayBox, type OverlayCommand, type OverlayReport, cursorOverlay } from "./agent-cursor-overlay.js";
+import {
+  type OverlayBox,
+  type OverlayCommand,
+  type OverlayReport,
+  type OverlayText,
+  cursorOverlay,
+} from "./agent-cursor-overlay.js";
 import { HUMANIZED_TOOLS, overlay as override } from "./human-input.js";
 import type { CursorMode } from "./settings.js";
+import { type UiLocale, uiStrings } from "./ui-strings.js";
 import type { UpstreamTool } from "./upstream.js";
 
 /**
@@ -124,6 +131,8 @@ export interface AgentCursorOptions {
   sleep?: (ms: number) => Promise<void>;
   /** The longest glide; 0 places the arrow without a glide. */
   maxGlideMs?: number;
+  /** The language of the badge (`ui-strings.ts`); English without it. */
+  locale?: UiLocale;
 }
 
 const defaultSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -144,10 +153,13 @@ export class AgentCursor {
   private readonly busy = new Set<string>();
   /** The pages the overlay has been on, so a call starting elsewhere updates their badge. */
   private readonly pages = new Set<Page>();
+  /** The badge's words, and the name of an agent that sent none. */
+  private readonly text: OverlayText & { agent: string };
 
   constructor(private readonly options: AgentCursorOptions) {
     this.sleep = options.sleep ?? defaultSleep;
     this.maxGlideMs = options.maxGlideMs ?? MAX_GLIDE_MS;
+    this.text = uiStrings(options.locale).cursor;
   }
 
   /**
@@ -165,7 +177,7 @@ export class AgentCursor {
       const same = [...this.actors.values()].filter((o) => o.base === base).length;
       name = same === 0 ? base : `${base} (${same + 1})`;
     } else name = agentName(n === 0 ? this.options.title : `${this.options.title} (${n + 1})`);
-    name = name.trim() || "Agent";
+    name = name.trim() || this.text.agent;
     a = {
       key,
       base: name.replace(/\s\(\d+\)$/, ""),
@@ -205,7 +217,11 @@ export class AgentCursor {
     if (page.isClosed()) return undefined;
     // The direct session's key is "" (`DIRECT_SESSION`): every key, that one too, is an actor.
     const a = this.actor(key);
-    const prelude: OverlayCommand[] = [{ op: "actor", key, label: a.label, name: a.name, color: a.color }];
+    const { working, workingAs, paused } = this.text;
+    const prelude: OverlayCommand[] = [
+      { op: "text", text: { working, workingAs, paused } },
+      { op: "actor", key, label: a.label, name: a.name, color: a.color },
+    ];
     const at = this.pointOf(page, key);
     if (at) prelude.push({ op: "move", key, x: at.x, y: at.y, ms: 0 });
     prelude.push({ op: "paused", on: this.paused }, { op: "others", n: this.othersThan(key) });
