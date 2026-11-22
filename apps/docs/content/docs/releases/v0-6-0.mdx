@@ -1,0 +1,70 @@
+---
+title: turno 0.6.0
+description: A policy that keeps an identity on its own sites, Brave, Edge or a browser installed without admin, passkeys handed to you, a low-memory preset, a browser in Spanish, and a remove that asks first and leaves nothing behind.
+---
+
+<ReleaseHeader date="2026-11-22" packages={["turno-cli@0.6.0", "turno-browser@0.9.0", "turno-core@0.4.0"]} />
+
+**[turno-browser](/browser)** can now be handed to people who are not developers: an identity can be limited to its own sites, run on the browser they already have, ask them for a passkey, speak Spanish, stay light on a small machine, and be set up and removed without a terminal.
+
+## Upgrade
+
+<Upgrade>
+
+**Update `turno-cli` and `turno-browser` together**, as with every release.
+
+**`remove` asks before it deletes.** `turno-browser remove <id>` (and `turno browser remove`, `turno identity remove browser:<id>`) shows what goes and asks. Scripts pass `--yes`; without a terminal and without `--yes` it refuses with exit code 2 instead of deleting.
+
+**A person step answers in pieces.** `browser_request_human` now returns after 50 seconds with a "still open" result while you work, and the agent calls it again with `{ "continue": true }`. Agents read this from the tool description; nothing to change in your setup.
+
+**`identity.json` moves to format 13** the first time you set `policy`, `resources` or `browser`. An older turno-browser refuses a format 13 file instead of ignoring the policy. Nothing to migrate otherwise.
+
+</Upgrade>
+
+## Highlights
+
+<Highlight area="Browser" title="A policy that keeps an identity on its own sites" href="/docs/browser/policy" more="Policy">
+
+An identity's `policy` lists the domains its tabs may show and the features it must not have. Every main-frame navigation of every tab is checked: the agent's own, links, forms, scripts, popups and redirects. A blocked one fails with the host and the allowed list. Listed features (captcha, act, login, TOTP, attach, evaluate, network) disappear from the agent's tools. Any policy turns `browser_run_code_unsafe` off, and no tool can write turno's own folders, so the agent cannot change its policy. Only the command line sets it, also from `turno-browser init --policy-file`.
+
+</Highlight>
+
+<Highlight area="Browser" title="Brave, Edge or a browser without admin" href="/docs/browser/identities#choosing-the-browser" more="Choosing the browser">
+
+`turno-browser set <id> --browser brave` (or `edge`, `chromium`, `chrome-for-testing`, a path) and every command uses that browser: the agent's server, `login`, `export`, `import` and replay. Without Google Chrome, `add` and `init` pick the browser that is there. On a machine with none and no admin password, `turno-browser install-browser` downloads Chrome for Testing into your user folder. Verified on macOS with Chrome, Brave and Chrome for Testing.
+
+</Highlight>
+
+<Highlight area="Browser" title="Passkeys come to you" href="/docs/browser/live-view#passkeys" more="Passkeys">
+
+When a page asks for a passkey, the browser hands itself to you with a banner, the agent waits, and it learns only whether the passkey was created, used or cancelled. Passkey autofill never stops the agent. It needs a Chrome window you can see.
+
+</Highlight>
+
+<Highlight area="Browser" title="A preset for machines short of memory" href="/docs/browser/tabs#low-resource-mode" more="Low-resource mode">
+
+`turno-browser set <id> --resources low` keeps two tabs, parks an unused one after two minutes and closes Chrome after five idle minutes. Measured on a 16 GB Mac, a five-tab session went from about 1,040 MB to about 445 MB while the agent worked and about 315 MB once idle. Tool results say when the system is short of memory.
+
+</Highlight>
+
+<Highlight area="Browser" title="In Spanish for a Spanish identity" href="/docs/browser/identities" more="Identities">
+
+With a Spanish locale (`es`, `es-MX`, `es-419`), the live view, the banner of a person step, the agent cursor's badge and the sign-in welcome page are in Spanish.
+
+</Highlight>
+
+<Highlight area="Browser" title="Set up and removed without a terminal" href="/docs/reference/turno-browser#turno-browser-remove" more="turno-browser remove">
+
+`turno-browser init --yes --json` registers the identity with the agent and reports what it did. `remove` stops what runs on the identity, takes it out of each agent, deletes its secrets and exports, and checks that nothing is left. `turno-browser status` shows each identity at a glance, and `doctor` checks the secret store and each agent's registration.
+
+</Highlight>
+
+## Fixes
+
+- **Attach mode** no longer fails with "DevToolsActivePort is not a port and a path" right after Chrome starts.
+- **`browser_request_human`** keeps a step within the tool timeout of every client, including Codex's 300 seconds.
+
+## Links
+
+- Full changelogs: [turno-cli](https://github.com/wimo-dev/turno/blob/main/packages/turno/CHANGELOG.md), [turno-browser](https://github.com/wimo-dev/turno/blob/main/packages/browser/CHANGELOG.md) and [turno-core](https://github.com/wimo-dev/turno/blob/main/packages/core/CHANGELOG.md).
+- [Policy](/docs/browser/policy), [choosing the browser](/docs/browser/identities#choosing-the-browser), [passkeys](/docs/browser/live-view#passkeys), [low-resource mode](/docs/browser/tabs#low-resource-mode) and [what leaves your machine](/docs/browser/what-leaves-your-machine).
