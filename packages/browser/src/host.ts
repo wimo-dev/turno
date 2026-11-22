@@ -33,13 +33,7 @@ import { AgentCursor, CursorInput, cursorTools, resolveCursor } from "./agent-cu
 import { HumanInput, adaptiveSites, humanizeTools } from "./human-input.js";
 import { identityStateDir } from "./ids.js";
 import { idleMs } from "./idle-timer.js";
-import {
-  DEFAULT_STEP_TIMEOUT_MS,
-  HUMAN_STEP_TOOL,
-  parseStepParams,
-  runHumanStep,
-  runStep,
-} from "./human-step.js";
+import { DEFAULT_STEP_TIMEOUT_MS, HUMAN_STEP_TOOL, parseStepParams, runHumanStep, runStep } from "./human-step.js";
 import {
   type LiveFlags,
   describeChanges,
@@ -1373,9 +1367,11 @@ class SessionBackend extends EventEmitter implements ServerBackend {
   /**
    * Passkey prompts of this browser's pages (`passkey.ts`): a modal one hands the browser to the
    * person until it settles, when they can see Chrome's own window (headed, or attach mode, where
-   * only the agent's tabs count). The live view cannot show that window, so a headless Chrome only
-   * tells the agent. Read mode and Camoufox are left out: Lightpanda has no WebAuthn, and the probe
-   * is checked on Chrome only.
+   * only the agent's tabs count). The probe goes in only when someone can see the browser, the rule
+   * of the agent cursor's `auto`: a headless Chrome with no live view could hand no step to anyone,
+   * so it gets no script at all. With the live view on, a headless Chrome still cannot show Chrome's
+   * passkey window (the view shows only the page), so it tells the agent. Read mode and Camoufox are
+   * left out: Lightpanda has no WebAuthn, and the probe is checked on Chrome only.
    */
   private async watchPasskeys(
     launched: LaunchedBrowser,
@@ -1384,6 +1380,8 @@ class SessionBackend extends EventEmitter implements ServerBackend {
   ): Promise<PasskeyWatch | undefined> {
     if (launched.engine === "lightpanda" || launched.engine === "camoufox") return undefined;
     const headless = this.host.config.browser?.launchOptions?.headless === true && !launched.userBrowser;
+    if (!resolveCursor("auto", { headless, live: this.host.live !== undefined, engine: launched.engine }))
+      return undefined;
     const agents = (page: Page) => !launched.userBrowser || governor.governs(page);
     const strings = uiStrings(locale).passkey;
     const passkeys = new PasskeyWatch({

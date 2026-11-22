@@ -121,13 +121,15 @@ that tells you to use your passkey in that window:
   created or used, you cancelled it or it timed out (pages get the same `NotAllowedError` for
   both), or it failed with the error's name. It never gets the credential or what the page asked
   for.
-- The live view shows the page, not Chrome's own windows, so a headless Chrome cannot show the
-  passkey window at all. Then no step starts, and the agent is told to ask you to run the browser
-  with a window (`turno-browser-mcp` without `--headless`). In attach mode only the agent's own
-  tabs count; a passkey you use in one of your tabs is yours.
+- Passkeys need a visible Chrome window. The live view shows the page, not Chrome's own windows,
+  so with `--headless` and the live view on no step starts, and the agent is told to ask you to
+  run the browser with a window (`turno-browser-mcp` without `--headless`). A headless Chrome
+  with the live view off does not watch for passkey requests at all. In attach mode only the
+  agent's own tabs count; a passkey you use in one of your tabs is yours.
 - To see the requests, turno adds a small script to every frame of the agent's pages that wraps
-  `navigator.credentials.create` and `get`. It reads only whether the call is for a passkey and
-  its `mediation`, and how it settled. Read mode and Camoufox do not have it.
+  `navigator.credentials.create` and `get`, only when someone can see the browser (a Chrome
+  window, or the live view on), like the agent cursor's `auto`. It reads only whether the call is
+  for a passkey and its `mediation`, and how it settled. Read mode and Camoufox do not have it.
 
 With the other settings:
 
