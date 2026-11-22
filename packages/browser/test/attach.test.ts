@@ -1,5 +1,4 @@
 import { type ChildProcess, spawn } from "node:child_process";
-import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -68,13 +67,14 @@ async function startUserChrome(): Promise<string> {
     // The sandbox HOME and XDG dirs: Chrome writes crash reports and the font cache under them.
     { stdio: "ignore", env: sandboxEnv() },
   );
-  expect(await waitFor(() => existsSync(join(dir, "DevToolsActivePort")), 20_000)).toBe(true);
+  // Chrome creates the file before it writes the port and path into it: wait for both.
+  await resolveAttachEndpoint({ kind: "dir", dir }, sandboxEnv(), process.platform, 20_000);
   return dir;
 }
 
 /** A second CDP client that watches the Chrome's tabs, as the user's own view of it. */
 async function watch(dir: string): Promise<Browser> {
-  const browser = await playwright().chromium.connectOverCDP(resolveAttachEndpoint({ kind: "dir", dir }));
+  const browser = await playwright().chromium.connectOverCDP(await resolveAttachEndpoint({ kind: "dir", dir }));
   watchers.push(browser);
   return browser;
 }

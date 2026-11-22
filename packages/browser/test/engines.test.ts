@@ -75,23 +75,39 @@ describe("attach targets", () => {
     expect(parseAttachTarget("yes")).toHaveProperty("error");
   });
 
-  it("parses DevToolsActivePort and rejects what is not a port and a path", () => {
+  it("parses DevToolsActivePort and treats an empty, one-line or non-numeric file as not written yet", () => {
     expect(parseDevToolsActivePort("9222\n/devtools/browser/abc\n")).toEqual({
       port: 9222,
       path: "/devtools/browser/abc",
     });
+    expect(parseDevToolsActivePort("")).toBeUndefined();
+    expect(parseDevToolsActivePort("9222\n")).toBeUndefined();
     expect(parseDevToolsActivePort("x\n/y")).toBeUndefined();
-    expect(parseDevToolsActivePort("9222")).toBeUndefined();
   });
 
-  it("resolves a dir through its DevToolsActivePort, and says how to turn debugging on when it is missing", () => {
+  it("resolves a dir through its DevToolsActivePort, and says how to turn debugging on when it is missing", async () => {
     const dir = join(sb.home, "chrome");
     sb.write("chrome/DevToolsActivePort", "51234\n/devtools/browser/0000\n");
-    expect(resolveAttachEndpoint({ kind: "dir", dir })).toBe("ws://127.0.0.1:51234/devtools/browser/0000");
-    expect(() => resolveAttachEndpoint({ kind: "dir", dir: join(sb.home, "none") })).toThrow(
-      /chrome:\/\/inspect\/#remote-debugging/,
+    await expect(resolveAttachEndpoint({ kind: "dir", dir })).resolves.toBe(
+      "ws://127.0.0.1:51234/devtools/browser/0000",
     );
-    expect(() => resolveAttachEndpoint({ kind: "auto" }, sb.env, "darwin")).toThrow(/no DevToolsActivePort/);
+    await expect(
+      resolveAttachEndpoint({ kind: "dir", dir: join(sb.home, "none") }, sb.env, "darwin", 0),
+    ).rejects.toThrow(/chrome:\/\/inspect\/#remote-debugging/);
+    await expect(resolveAttachEndpoint({ kind: "auto" }, sb.env, "darwin", 0)).rejects.toThrow(/no DevToolsActivePort/);
+  });
+
+  it("waits while Chrome is still writing DevToolsActivePort, and says so when the wait ends", async () => {
+    const dir = join(sb.home, "chrome");
+    sb.write("chrome/DevToolsActivePort", "");
+    const resolving = resolveAttachEndpoint({ kind: "dir", dir }, sb.env, "darwin", 5_000);
+    setTimeout(() => sb.write("chrome/DevToolsActivePort", "51234\n/devtools/browser/0000"), 100);
+    await expect(resolving).resolves.toBe("ws://127.0.0.1:51234/devtools/browser/0000");
+
+    sb.write("chrome/DevToolsActivePort", "51234\n");
+    await expect(resolveAttachEndpoint({ kind: "dir", dir }, sb.env, "darwin", 200)).rejects.toThrow(
+      /is still not a port and a path after 0.2s/,
+    );
   });
 
   it("knows the default Chrome profile of each platform", () => {

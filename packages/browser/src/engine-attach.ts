@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import type { Browser, Page } from "patchright-core";
 import { browserPaths as paths } from "turno-core/paths";
 import type { Engine, LaunchedBrowser } from "./engine.js";
@@ -91,27 +92,77 @@ export function parseDevToolsActivePort(text: string): { port: number; path: str
 const ENABLE = "open chrome://inspect/#remote-debugging in that Chrome and turn remote debugging on";
 
 /**
- * Where to connect for a target, without connecting: for `auto` and a dir, the endpoint in its
- * `DevToolsActivePort`. Throws with what the user should do when Chrome does not listen.
+ * How long `resolveAttachEndpoint` waits for `DevToolsActivePort` to hold a port and a path.
+ * Chrome creates the file and then writes it, not atomically, so a read right after Chrome starts
+ * (or right after remote debugging is turned on) can find it missing or empty.
  */
-export function resolveAttachEndpoint(
+const PORT_FILE_WAIT_MS = 5_000;
+const PORT_FILE_POLL_MS = 50;
+
+type PortFileState = { endpoint: string } | "missing" | "not ready";
+
+function readPortFile(file: string): PortFileState {
+  let text: string;
+  try {
+    text = readFileSync(file, "utf8");
+  } catch {
+    return "missing";
+  }
+  const parsed = parseDevToolsActivePort(text);
+  return parsed ? { endpoint: `ws://127.0.0.1:${parsed.port}${parsed.path}` } : "not ready";
+}
+
+function portFileOf(target: AttachTarget, env: NodeJS.ProcessEnv, platform: NodeJS.Platform) {
+  const dir = target.kind === "dir" ? target.dir : defaultChromeUserDataDir(env, platform);
+  return { dir, file: join(dir, "DevToolsActivePort") };
+}
+
+function notReady(dir: string, file: string, state: "missing" | "not ready", waitMs: number): Error {
+  if (state === "missing")
+    return new Error(
+      `attach: no Chrome with remote debugging on for ${dir} (no DevToolsActivePort). Start Chrome, then ${ENABLE}.`,
+    );
+  const waited = waitMs > 0 ? ` after ${waitMs / 1000}s` : "";
+  return new Error(
+    `attach: ${file} is still not a port and a path${waited}. If Chrome stopped while writing it, start Chrome again, then ${ENABLE}.`,
+  );
+}
+
+/**
+ * Where to connect for a target right now, without waiting or connecting: for `auto` and a dir,
+ * the endpoint in its `DevToolsActivePort`. Throws with what the user should do when it is not there.
+ */
+export function readAttachEndpoint(
   target: AttachTarget,
   env: NodeJS.ProcessEnv = process.env,
   platform: NodeJS.Platform = process.platform,
 ): string {
   if (target.kind === "endpoint") return target.url;
-  const dir = target.kind === "dir" ? target.dir : defaultChromeUserDataDir(env, platform);
-  let text: string;
-  try {
-    text = readFileSync(join(dir, "DevToolsActivePort"), "utf8");
-  } catch {
-    throw new Error(
-      `attach: no Chrome with remote debugging on for ${dir} (no DevToolsActivePort). Start Chrome, then ${ENABLE}.`,
-    );
+  const { dir, file } = portFileOf(target, env, platform);
+  const state = readPortFile(file);
+  if (typeof state === "object") return state.endpoint;
+  throw notReady(dir, file, state, 0);
+}
+
+/**
+ * Like `readAttachEndpoint`, but treats a missing, empty or partial `DevToolsActivePort` as not
+ * written yet and reads it again until `waitMs` passes. Throws with what the user should do then.
+ */
+export async function resolveAttachEndpoint(
+  target: AttachTarget,
+  env: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform,
+  waitMs: number = PORT_FILE_WAIT_MS,
+): Promise<string> {
+  if (target.kind === "endpoint") return target.url;
+  const { dir, file } = portFileOf(target, env, platform);
+  const deadline = Date.now() + waitMs;
+  for (;;) {
+    const state = readPortFile(file);
+    if (typeof state === "object") return state.endpoint;
+    if (Date.now() >= deadline) throw notReady(dir, file, state, waitMs);
+    await delay(PORT_FILE_POLL_MS);
   }
-  const parsed = parseDevToolsActivePort(text);
-  if (!parsed) throw new Error(`attach: ${join(dir, "DevToolsActivePort")} is not a port and a path`);
-  return `ws://127.0.0.1:${parsed.port}${parsed.path}`;
 }
 
 export function createAttachEngine(target: AttachTarget): Engine {
@@ -125,7 +176,7 @@ export function createAttachEngine(target: AttachTarget): Engine {
     },
     async launch({ config, identity }): Promise<LaunchedBrowser> {
       const env = identity?.env ?? process.env;
-      const endpoint = resolveAttachEndpoint(target, env);
+      const endpoint = await resolveAttachEndpoint(target, env);
       let browser: Browser;
       try {
         browser = await playwright().chromium.connectOverCDP(endpoint, { timeout: CONNECT_TIMEOUT_MS });
