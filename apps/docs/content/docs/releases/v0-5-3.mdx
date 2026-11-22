@@ -1,0 +1,50 @@
+---
+title: turno 0.5.3
+description: Passwords and one-time codes stay out of every result whoever typed them, the agent can ask you for a step only you may do, and an agent cursor that follows each agent.
+---
+
+<ReleaseHeader date="2026-11-22" packages={["turno-cli@0.5.3", "turno-browser@0.8.0"]} />
+
+**[turno-browser](/browser)** now keeps every password and one-time code away from the agent, not only the ones the vault fills, and the agent can hand you the steps that are yours: a password, a captcha, an emailed code, a second factor or accepting terms.
+
+## Upgrade
+
+<Upgrade>
+
+**Update `turno-cli` and `turno-browser` together**, as with every release.
+
+**Typing into a password field is now refused.** An agent that used `browser_type` or `browser_fill_form` on a password or one-time code field gets an error that tells it to ask you with `browser_request_human`, or to sign in with `browser_login` and a vault entry. A saved flow replays such a field only from the secret store (`keychain:<item>`) or from the hidden prompt of `turno-browser replay`.
+
+**Nothing to migrate.** Identities, `identity.json` and `mcp.toml` stay as they are.
+
+</Upgrade>
+
+## Highlights
+
+<Highlight area="Browser" title="Passwords and codes stay out of every result" href="/docs/browser/vault#password-fields-and-credentials" more="Password fields and credentials">
+
+Before, the vault kept the values it filled out of results, but a password you typed yourself in Chrome or the live view could show up in the next page snapshot. Now every snapshot shows a password or one-time code field as `[sensitive field]`, whoever typed it, and its value is hidden from every later result, file and log. Network results keep the names of credentials (the Authorization and Cookie headers, token, code, session and password fields) and show `[redacted]` for their values. When a page turns out to be a captcha, a "verify it's you" page or a block, the result says so.
+
+</Highlight>
+
+<Highlight area="Browser" title="The agent asks you for your step" href="/docs/browser/live-view#when-the-agent-asks-for-you" more="When the agent asks for you">
+
+A new tool, `browser_request_human`, hands you the browser for a step only you may do. The tab comes to the front with a banner that says what to do and a Done button, with a ring around the field. Every call of every agent session waits until the step ends: the page moves on, an element appears, you press Done, or time runs out (5 minutes by default). The agent learns what changed, never what you typed. It needs a Chrome window, or the live view open when Chrome runs without one.
+
+</Highlight>
+
+<Highlight area="Browser" title="A cursor for each agent" href="/docs/browser/agent-cursor" more="The agent cursor">
+
+Each agent session's cursor is named after its own agent ("Claude Code", "Codex", "Cursor"), the badge counts the other sessions at work, and with humanize on the arrow follows the real pointer path.
+
+</Highlight>
+
+## Fixes
+
+- **`turno-browser init --agent json`** ends with "start a new session of your MCP client".
+- **`turno-browser set --help`** describes `--engine camoufox` by what it needs and what it lacks.
+
+## Links
+
+- Full changelogs: [turno-cli](https://github.com/wimo-dev/turno/blob/main/packages/turno/CHANGELOG.md) and [turno-browser](https://github.com/wimo-dev/turno/blob/main/packages/browser/CHANGELOG.md).
+- [Password fields and credentials](/docs/browser/vault#password-fields-and-credentials), [When the agent asks for you](/docs/browser/live-view#when-the-agent-asks-for-you) and [the agent cursor](/docs/browser/agent-cursor).
