@@ -233,7 +233,7 @@ export function dpapiScript(op: DpapiOp): string {
   return [
     "$ErrorActionPreference = 'Stop'",
     "try {",
-    "  Add-Type -AssemblyName System.Security",
+    `  ${loadAssembly("System.Security")}`,
     "  $ms = [IO.MemoryStream]::new()",
     "  [Console]::OpenStandardInput().CopyTo($ms)",
     "  $all = $ms.ToArray()",
@@ -272,15 +272,20 @@ export function dpapiInput(service: string, data: Buffer): Buffer {
 export type DpapiRunner = (op: DpapiOp, input: Buffer) => Promise<ExecResult>;
 
 /**
- * The environment Windows PowerShell gets: the caller's, with what it needs when the caller
- * trimmed it (an agent hands its MCP servers a few variables). SystemRoot it cannot start
- * without; without PSModulePath it searches for its modules for 20 seconds and more
- * (measured on windows-latest), so it gets the folder of the modules that come with Windows.
+ * The environment Windows PowerShell gets: the caller's, with SystemRoot, which it cannot start
+ * without, even when the caller trimmed it (an agent hands its MCP servers a few variables).
  */
 export function windowsPowerShellEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-  const root = env.SystemRoot || env.SYSTEMROOT || process.env.SystemRoot || "C:\\Windows";
-  const modules = env.PSModulePath || env.PSMODULEPATH || `${root}\\System32\\WindowsPowerShell\\v1.0\\Modules`;
-  return { ...env, SystemRoot: root, PSModulePath: modules };
+  return { ...env, SystemRoot: env.SystemRoot || env.SYSTEMROOT || process.env.SystemRoot || "C:\\Windows" };
+}
+
+/**
+ * Loads a .NET Framework assembly by its full name. The scripts here call .NET only, never a
+ * cmdlet such as Add-Type: with the trimmed environment an agent gives its servers, the first
+ * cmdlet that PowerShell loads from a module takes 20 seconds (measured on windows-latest).
+ */
+export function loadAssembly(name: "System.Security" | "System.Management"): string {
+  return `$null = [Reflection.Assembly]::Load('${name}, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a')`;
 }
 
 function powershellRunner(env: NodeJS.ProcessEnv): DpapiRunner {

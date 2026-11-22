@@ -46,8 +46,9 @@ describe("process helpers", () => {
 
   it("reads this process from the real process table", () => {
     const t = readProcTable();
-    if (!t) return; // no ps here
-    expect(t.get(process.pid)?.ppid).toBe(process.ppid);
+    if (!t && process.platform !== "win32") return; // no ps here; Windows always has PowerShell
+    expect(t?.get(process.pid)?.ppid).toBe(process.ppid);
+    expect(t?.get(process.pid)?.command).toMatch(/node/i);
   });
 
   it("tells a live process from a gone one, and signals without throwing", async () => {
@@ -63,12 +64,8 @@ describe("process helpers", () => {
 });
 
 describe("Windows PowerShell's environment", () => {
-  it("fills in SystemRoot and the modules folder a trimmed environment leaves out, and keeps the caller's", () => {
-    expect(windowsPowerShellEnv({ SystemRoot: "D:\\Win", PATH: "x" })).toEqual({
-      SystemRoot: "D:\\Win",
-      PSModulePath: "D:\\Win\\System32\\WindowsPowerShell\\v1.0\\Modules",
-      PATH: "x",
-    });
-    expect(windowsPowerShellEnv({ SystemRoot: "D:\\Win", PSModulePath: "E:\\m" }).PSModulePath).toBe("E:\\m");
+  it("fills in SystemRoot that a trimmed environment leaves out, and keeps the caller's", () => {
+    expect(windowsPowerShellEnv({ SystemRoot: "D:\\Win", PATH: "x" })).toEqual({ SystemRoot: "D:\\Win", PATH: "x" });
+    expect(windowsPowerShellEnv({ SYSTEMROOT: "E:\\W" }).SystemRoot).toBe("E:\\W");
   });
 });

@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { windowsPowerShell, windowsPowerShellEnv } from "./secrets.js";
+import { loadAssembly, windowsPowerShell, windowsPowerShellEnv } from "./secrets.js";
 
 /**
  * Process helpers shared by turno-cli and turno-browser: whether a PID lives, a signal that
@@ -65,10 +65,18 @@ export function parseWindowsProcTable(stdout: string): ProcTable {
   return t;
 }
 
-/** Lists every process as `parseWindowsProcTable` reads it, in UTF-8 whatever the console code page. */
-const WINDOWS_PROC_SCRIPT =
-  "[Console]::OutputEncoding = [Text.Encoding]::UTF8; " +
-  "Get-CimInstance Win32_Process | ForEach-Object { ($_.ProcessId, $_.ParentProcessId, $_.CommandLine) -join [char]9 }";
+/**
+ * Lists every process as `parseWindowsProcTable` reads it, in UTF-8 whatever the console code
+ * page, through WMI's .NET classes rather than Get-CimInstance (see loadAssembly).
+ */
+const WINDOWS_PROC_SCRIPT = [
+  "[Console]::OutputEncoding = [Text.Encoding]::UTF8",
+  loadAssembly("System.Management"),
+  "$s = [Management.ManagementObjectSearcher]::new('SELECT ProcessId, ParentProcessId, CommandLine FROM Win32_Process')",
+  "$b = [Text.StringBuilder]::new()",
+  "foreach ($p in $s.Get()) { $null = $b.Append([string]$p['ProcessId']).Append([char]9).Append([string]$p['ParentProcessId']).Append([char]9).Append([string]$p['CommandLine']).Append([char]10) }",
+  "[Console]::Out.Write($b.ToString())",
+].join("; ");
 
 /**
  * Every process with its full command line, or undefined when the table cannot be read (no
