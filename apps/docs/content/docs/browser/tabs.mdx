@@ -50,3 +50,67 @@ Chrome; `"backgroundThrottling": true` (`turno-browser set school
 --background-throttling true`, or the server's `--background-throttling`) lets Chrome slow them down
 and brings the agent's tab to the front before each call. It suits a headless browser or a window
 left in view: a covered headed window stops rendering.
+
+## Low-resource mode
+
+On a laptop with little memory, every Chrome an identity opens, and every tab in it, adds up
+until the system starts swapping or restarts. `"resources": "low"` turns on a preset for such a
+machine:
+
+```sh
+turno-browser set school --resources low
+turno-browser-mcp --identity school --resources low   # the flag wins over identity.json
+```
+
+| What | Default | With `"resources": "low"` |
+|---|---|---|
+| Pages open at once (`tabs.max`) | 8 | 2 |
+| An unused page is parked (`tabs.park`) | after 5 minutes | after 2 minutes |
+| Chrome closes without a tool call | after 15 minutes | after 5 minutes |
+| The background server exits without a request | after 15 minutes | after 5 minutes |
+| Chrome's back/forward cache | on | off, so a parked page frees its memory at once |
+| A note in tool results while memory is low | no | yes |
+
+A key set on its own still wins over the preset: `--tabs-max 3` with `--resources low` keeps 3
+tabs, and `TURNO_BROWSER_IDLE`, `--idle-timeout`, `--background-idle` and
+`TURNO_BROWSER_BACKGROUND_IDLE` keep the limits you set. `--resources normal` (or an empty
+value, which removes the key) goes back to the defaults.
+
+While the system reports memory pressure (the same reading mcpd uses to stop idle servers
+sooner: the kernel's level on macOS, pressure stall information on Linux), the preset adds a
+short line under `### Memory` at the end of a tool result (`turno.memory` in JSON) when the level
+rises, and again every 5 minutes while it stays up, so the agent can finish and close tabs. It
+only warns: nothing closes a session that is working. `turno-browser doctor` shows the pressure
+too, on every machine.
+
+### What it saves
+
+Measured with Chrome 157 on a 16 GB Mac: one identity's Chrome, with five local pages a session
+might open (a news page with images and a cross-site ad frame, a dashboard with a large table,
+a mail page with three cross-site frames, a canvas animation, a docs page). Memory is the
+footprint of Chrome's whole process group (what macOS counts against the machine, compressed
+memory included), the middle of two or three runs:
+
+| Session | Chrome's memory |
+|---|---|
+| Defaults, 5 tabs open | about 1,040 MB |
+| Defaults, 5 tabs, 3 of them parked | about 1,000 MB: the back/forward cache keeps parked pages alive |
+| Defaults, 5 tabs, 3 parked, back/forward cache off | about 800 MB |
+| Low, while the agent works (2 tabs) | about 445 MB |
+| Low, 2 minutes later (the other tab parked) | about 315 MB |
+| Low, 5 minutes without a call | Chrome closed: 0 MB until the next call |
+
+What was measured and left out, because it saved little or broke something:
+
+- Background throttling (`backgroundThrottling`) saved about 120 MB with 2 tabs, but a
+  minimized or covered window then stops rendering the agent's own tab: its scripts stop and
+  the live view gets no frames. It stays opt-in.
+- `--enable-low-end-device-mode` and turning off Chrome's spare renderer each saved 10 to 20 MB
+  on top of the preset, inside the run-to-run spread.
+- `--renderer-process-limit=2` saved under 5 % and `--process-per-site` about 8 % with 5 tabs
+  (it runs every tab of a site in one process, so one busy tab slows the others); with 2 tabs
+  there is little left to share. Disabling the optimization guide, component updates and
+  similar services saved nothing: Playwright's launch already turns Chrome's background
+  networking off.
+- `--disable-gpu` used about 300 MB more; turning site isolation off saved about 110 MB but
+  weakens the isolation between sites, so it is not an option.

@@ -83,6 +83,8 @@ export interface BackgroundFlags {
   background: boolean;
   /** `--background-idle <duration>` or TURNO_BROWSER_BACKGROUND_IDLE, in ms; 0 never. */
   idleMs: number;
+  /** True when the flag or the variable set `idleMs`: the low-resource preset keeps it. */
+  idleSet: boolean;
   rest: string[];
 }
 
@@ -119,7 +121,7 @@ export function extractBackground(args: string[], env: NodeJS.ProcessEnv = proce
     const http = rest.find((a) => ["--port", "--host"].some((f) => a === f || a.startsWith(`${f}=`)));
     if (http) throw new Error(`${BACKGROUND_FLAG} picks its own address: drop ${http.split("=")[0]}`);
   }
-  return { background, idleMs, rest };
+  return { background, idleMs, idleSet: source !== undefined && source !== "", rest };
 }
 
 export interface BackgroundOptions {

@@ -57,6 +57,7 @@
     "---turno browser doctor---",
     "browser-ssh-session",
     "browser-no-display",
+    "browser-memory-pressure",
     "browser-identity-json-invalid",
     "browser-orphan-chrome",
     "browser-foreign-chrome",

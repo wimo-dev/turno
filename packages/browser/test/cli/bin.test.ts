@@ -110,6 +110,11 @@ describe("turno-browser", () => {
       'turno-browser: identity "nobody" does not exist (turno-browser add nobody)\n',
     );
     expect(run(["set", "--help"]).out).toContain("(turno-browser doctor says how)");
+    expect(run(["set", "school", "--resources", "low"]).code).toBe(0);
+    expect(run(["show", "school"]).out).toMatch(/^ *resources +low: at most 2 tabs/m);
+    expect(run(["set", "school", "--resources", "tiny"]).err).toContain(
+      '--resources must be "normal" (the default) or "low"',
+    );
   });
 
   it("lists a vault without its values", () => {

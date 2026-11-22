@@ -58,6 +58,9 @@ import { parseDuration, parseSize } from "./units.js";
  * - `cursor` (format 12): the agent cursor (`agent-cursor.ts`): `"auto"` (the default) draws it
  *   when someone can see the browser (a Chrome window, or the live view), `"on"` always, `"off"`
  *   never.
+ * - `resources` (format 13): `"low"` applies the low-resource preset (`tuning.ts`) for a
+ *   machine short of memory; `"normal"` (the default) keeps the defaults. A key set on its own
+ *   (`tabs`, `backgroundThrottling`) still wins over the preset.
  *
  * A missing file means Chrome's own defaults, as before identity.json existed.
  */
@@ -69,7 +72,7 @@ import { parseDuration, parseSize } from "./units.js";
  * only when it uses one of them, so an older turno-browser keeps reading every other file and
  * refuses one it would misread with "update turno-browser".
  */
-export const IDENTITY_FORMAT_VERSION = 12;
+export const IDENTITY_FORMAT_VERSION = 13;
 
 /** The keys format 2 added. */
 const FORMAT_2_KEYS = ["tabs", "backgroundThrottling", "settle", "block", "cache"] as const;
@@ -126,6 +129,13 @@ const FORMAT_11_KEYS = ["userAgent", "proxy"] as const;
 
 /** The keys format 12 added. */
 const FORMAT_12_KEYS = ["cursor"] as const;
+
+/** The keys format 13 added. */
+const FORMAT_13_KEYS = ["resources"] as const;
+
+/** The values of `resources`: the defaults, or the low-resource preset (`tuning.ts`). */
+export const RESOURCE_MODES = ["normal", "low"] as const;
+export type ResourceMode = (typeof RESOURCE_MODES)[number];
 
 /** The values of `cursor` (the agent cursor, `agent-cursor.ts`). */
 export const CURSOR_MODES = ["auto", "on", "off"] as const;
@@ -243,6 +253,8 @@ export interface IdentitySettings {
   proxy?: ProxySettings;
   /** The agent cursor: `"auto"` (the default, when the browser can be seen), `"on"` or `"off"`. */
   cursor?: CursorMode;
+  /** `"low"`: the low-resource preset (fewer tabs, Chrome closed sooner); default `"normal"`. */
+  resources?: ResourceMode;
   /** ISO dates. */
   created: string;
   updated: string;
@@ -266,7 +278,8 @@ export type SettingsPatch = {
     | (typeof FORMAT_9_KEYS)[number]
     | (typeof FORMAT_10_KEYS)[number]
     | (typeof FORMAT_11_KEYS)[number]
-    | (typeof FORMAT_12_KEYS)[number]]?: IdentitySettings[K] | null;
+    | (typeof FORMAT_12_KEYS)[number]
+    | (typeof FORMAT_13_KEYS)[number]]?: IdentitySettings[K] | null;
 };
 
 const KEYS = new Set([
@@ -287,6 +300,7 @@ const KEYS = new Set([
   ...FORMAT_10_KEYS,
   ...FORMAT_11_KEYS,
   ...FORMAT_12_KEYS,
+  ...FORMAT_13_KEYS,
   "created",
   "updated",
 ]);
@@ -369,6 +383,8 @@ function browserProblems(v: Record<string, unknown>, out: string[]): void {
     out.push('sharing must be "session" (the default, one agent session at a time) or "tabs"');
   if (v.cursor !== undefined && !(CURSOR_MODES as readonly unknown[]).includes(v.cursor))
     out.push('cursor must be "auto" (the default, when the browser can be seen), "on" or "off"');
+  if (v.resources !== undefined && !(RESOURCE_MODES as readonly unknown[]).includes(v.resources))
+    out.push('resources must be "normal" (the default) or "low" (the low-resource preset)');
   engineProblems(v, out);
   recordProblems(v, out);
   actProblems(v.act, out);
@@ -647,6 +663,7 @@ export function writeIdentitySettings(
     else next[key] = value;
   }
   const formats = [
+    FORMAT_13_KEYS,
     FORMAT_12_KEYS,
     FORMAT_11_KEYS,
     FORMAT_10_KEYS,
@@ -661,7 +678,8 @@ export function writeIdentitySettings(
   ];
   // Camoufox is an engine value, not a key: it writes format 11, so an older turno-browser refuses it.
   const found = formats.findIndex((keys) => keys.some((k) => next[k] !== undefined));
-  const newest = next.engine === "camoufox" && (found < 0 || found > 1) ? 1 : found;
+  const camoufox = formats.indexOf(FORMAT_11_KEYS);
+  const newest = next.engine === "camoufox" && (found < 0 || found > camoufox) ? camoufox : found;
   next.version = newest < 0 ? 1 : IDENTITY_FORMAT_VERSION - newest;
   if (typeof next.locale === "string") next.locale = canonicalLocale(next.locale) ?? next.locale;
   if (Array.isArray(next.languages)) next.languages = (next.languages as string[]).map((l) => canonicalLocale(l) ?? l);

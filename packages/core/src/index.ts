@@ -1,7 +1,7 @@
 /**
  * turno-core: what turno-cli and turno-browser share. Each part is also its own
- * entry point (`turno-core/paths`, `turno-core/secrets`, `turno-core/process`), so a command
- * that needs one loads only that module.
+ * entry point (`turno-core/paths`, `turno-core/secrets`, `turno-core/process`,
+ * `turno-core/memory`), so a command that needs one loads only that module.
  */
 export {
   type BrowserPaths,
@@ -35,3 +35,11 @@ export {
   readProcTable,
   signalProcess,
 } from "./process.js";
+export {
+  type PressureLevel,
+  type PressureProbe,
+  darwinLevel,
+  freeMemLevel,
+  memoryPressureProbe,
+  parsePsi,
+} from "./memory.js";

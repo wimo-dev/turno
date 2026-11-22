@@ -165,14 +165,19 @@ describe("--background flags", () => {
     expect(extractBackground(["--identity", "w", "--headless"], {})).toEqual({
       background: false,
       idleMs: DEFAULT_BACKGROUND_IDLE_MS,
+      idleSet: false,
       rest: ["--identity", "w", "--headless"],
     });
     expect(extractBackground(["--background", "--background-idle", "30m", "--identity", "w"], {})).toMatchObject({
       background: true,
       idleMs: 30 * 60_000,
+      idleSet: true,
       rest: ["--identity", "w"],
     });
-    expect(extractBackground(["--background"], { TURNO_BROWSER_BACKGROUND_IDLE: "0" }).idleMs).toBe(0);
+    expect(extractBackground(["--background"], { TURNO_BROWSER_BACKGROUND_IDLE: "0" })).toMatchObject({
+      idleMs: 0,
+      idleSet: true,
+    });
     expect(
       extractBackground(["--background", "--background-idle=90s"], { TURNO_BROWSER_BACKGROUND_IDLE: "1h" }).idleMs,
     ).toBe(90_000);

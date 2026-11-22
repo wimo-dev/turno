@@ -300,6 +300,18 @@ describe("reading and checking", () => {
   });
 });
 
+describe("resources (format 13)", () => {
+  it("takes normal or low, writes format 13 only while it is set, and keeps an older format otherwise", () => {
+    expect(writeIdentitySettings("school", { resources: "low" }, sb.env).version).toBe(13);
+    expect(readIdentitySettings("school", sb.env)?.resources).toBe("low");
+    expect(() => writeIdentitySettings("school", { resources: "tiny" as "low" }, sb.env)).toThrow(
+      'resources must be "normal" (the default) or "low" (the low-resource preset)',
+    );
+    expect(writeIdentitySettings("school", { resources: null, tabs: { max: 2 } }, sb.env).version).toBe(2);
+    expect(writeIdentitySettings("fox", { engine: "camoufox" }, sb.env).version).toBe(11);
+  });
+});
+
 describe("tabLocks (format 9)", () => {
   it("checks the wait and the release, writes format 9 only while it is set", () => {
     expect(() =>

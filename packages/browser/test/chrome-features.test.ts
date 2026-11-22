@@ -40,6 +40,13 @@ describe("storage partitioning", () => {
       installedList().filter((f) => f !== KEPT_FEATURE),
     );
   });
+
+  it("adds the low-resource preset's features to the same list, since Chrome reads only the last one", () => {
+    const { args } = storagePartitioningArgs(["BackForwardCache"]);
+    expect(args).toHaveLength(1);
+    expect(args[0]!.split(",").at(-1)).toBe("BackForwardCache");
+    expect(args[0]).not.toContain(KEPT_FEATURE);
+  });
 });
 
 let sb: Sandbox | undefined;

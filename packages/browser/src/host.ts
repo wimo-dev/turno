@@ -44,6 +44,7 @@ import {
   viewRefusal,
 } from "./live.js";
 import { LiveServer } from "./live-server.js";
+import { MemoryWatch } from "./memory.js";
 import { names } from "./names.js";
 import { NETWORK_TOOLS, redactNetworkText } from "./network-redact.js";
 import { FlowRecorder, type PendingStep } from "./recorder.js";
@@ -204,7 +205,8 @@ export function mergeTextParts(result: ToolResult): ToolResult {
 
 /**
  * Adds what the tab governor did to a stock tool's result: parked tabs are marked in a tab list,
- * and closed or parked tabs are listed in a last section (under `turno.tabs` in JSON).
+ * and closed or parked tabs are listed in a last section (under `turno.tabs` in JSON). With the
+ * low-resource preset, a note when memory runs low follows (under `turno.memory`).
  */
 function withGovernor(
   result: ToolResult,
@@ -212,20 +214,25 @@ function withGovernor(
   json: boolean,
   owner?: string,
   view?: TabView,
+  memory?: string,
 ): ToolResult {
   const notes = governor.takeNotes(owner);
   const first = result.content[0];
   if (!first || first.type !== "text") return result;
   let text = governor.annotateTabs((first as { text: string }).text, view);
-  if (notes.length) {
+  if (notes.length || memory) {
     if (json) {
       try {
         const payload = JSON.parse(text) as Record<string, unknown>;
-        text = JSON.stringify({ ...payload, turno: { tabs: notes } }, null, 2);
+        const turno = { ...(notes.length ? { tabs: notes } : {}), ...(memory ? { memory } : {}) };
+        text = JSON.stringify({ ...payload, turno }, null, 2);
       } catch {
         /* not JSON after all: leave it */
       }
-    } else text += `\n### Tab governor\n${notes.map((n) => `- ${n}`).join("\n")}`;
+    } else {
+      if (notes.length) text += `\n### Tab governor\n${notes.map((n) => `- ${n}`).join("\n")}`;
+      if (memory) text += `\n### Memory\n- ${memory}`;
+    }
   }
   return { ...result, content: [{ ...first, text }, ...result.content.slice(1)] };
 }
@@ -361,6 +368,8 @@ interface Running {
   launched: LaunchedBrowser;
   governor: TabGovernor;
   tuning: Tuning;
+  /** With the low-resource preset: the note for tool results when memory runs low. */
+  memory?: MemoryWatch;
   /** The idle limit, held by every call in flight. */
   idle?: CallIdleTimer;
   /** `"sharing": "tabs"`: each session's backend and its tab locks. */
@@ -459,7 +468,7 @@ class SessionBackend extends EventEmitter implements ServerBackend {
     }
     if (this.current) return this.current;
     const clientInfo = this.info();
-    const { config, cliOptions, stock, engine, identity } = this.host;
+    const { config: hostConfig, cliOptions, stock, engine, identity } = this.host;
     const promise = (async (): Promise<Running> => {
       if (identity) {
         // While the identity's background server runs, it alone launches its browser.
@@ -469,6 +478,11 @@ class SessionBackend extends EventEmitter implements ServerBackend {
       const settings = identity ? readIdentitySettings(identity.id, identity.env) : undefined;
       const tuning = resolveTuning(settings, this.host.tuning);
       const locale = uiLocale(settings);
+      // The low-resource preset's idle limit, unless the user set one (`resolveTuning`).
+      const config =
+        tuning.browserIdleMs === undefined
+          ? hostConfig
+          : { ...hostConfig, timeouts: { ...hostConfig.timeouts, idle: tuning.browserIdleMs } };
       this.recordSettings = settings?.record;
       const noTraces = config.capabilities?.includes("devtools")
         ? "the devtools capability records traces of its own"
@@ -685,6 +699,7 @@ class SessionBackend extends EventEmitter implements ServerBackend {
         launched,
         governor,
         tuning,
+        ...(tuning.lowResources ? { memory: new MemoryWatch() } : {}),
         ...(idle ? { idle } : {}),
         ...(sharing ? { sharing } : {}),
         ...(recording ? { recording } : {}),
@@ -1079,7 +1094,7 @@ class SessionBackend extends EventEmitter implements ServerBackend {
       governor.endCall();
       if (options.snapshot === false) config.snapshot = { ...snapshot, ...(mode === undefined ? {} : { mode }) };
     }
-    return withGovernor(result, governor, json);
+    return withGovernor(result, governor, json, undefined, undefined, running.memory?.take());
   }
 
   /**
@@ -1160,7 +1175,7 @@ class SessionBackend extends EventEmitter implements ServerBackend {
     }
     if (!view || name === "browser_close") return result;
     const tabs = sharing.tabView(view);
-    const annotated = withGovernor(result, governor, json, key, tabs);
+    const annotated = withGovernor(result, governor, json, key, tabs, running.memory?.take());
     const first = annotated.content[0];
     if (!first || first.type !== "text") return annotated;
     const text = sharing.annotate((first as { text: string }).text, key, view);

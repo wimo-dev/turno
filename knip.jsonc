@@ -17,7 +17,7 @@
       "ignoreDependencies": ["playwright-core"]
     },
     "packages/core": {
-      "entry": ["src/index.ts", "src/paths.ts", "src/secrets.ts", "src/process.ts", "src/cli/*.ts", "test/**/*.test.ts"],
+      "entry": ["src/index.ts", "src/paths.ts", "src/secrets.ts", "src/process.ts", "src/memory.ts", "src/cli/*.ts", "test/**/*.test.ts"],
       "project": ["src/**/*.ts", "test/**/*.ts"]
     },
     "packages/fonts": {}

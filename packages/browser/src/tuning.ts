@@ -1,6 +1,6 @@
 import type { HumanizeLevel, HumanizeSettings } from "./humanize.js";
 import { DEFAULT_CACHE_BYTES, type ResourcePolicy } from "./resources.js";
-import type { CursorMode, IdentitySettings } from "./settings.js";
+import type { CursorMode, IdentitySettings, ResourceMode } from "./settings.js";
 import type { SharingMode } from "./sharing.js";
 import type { TabLockPolicy } from "./tab-locks.js";
 import { parseDuration, parseSize } from "./units.js";
@@ -8,8 +8,8 @@ import { parseDuration, parseSize } from "./units.js";
 /**
  * How the host runs one session's Chrome: the tab governor, background tab
  * throttling, the wait after each action, and resource blocking and caching. Each value comes from, in order of precedence, a `turno-browser-mcp` flag, the
- * identity's identity.json, then the defaults below. identity.json is read at every launch,
- * like the rest of it.
+ * identity's identity.json, the low-resource preset when it is on (`LOW_RESOURCES`), then the
+ * defaults below. identity.json is read at every launch, like the rest of it.
  */
 
 export interface TabPolicy {
@@ -49,6 +49,15 @@ export interface Tuning {
   tabLocks: Partial<TabLockPolicy>;
   /** The agent cursor (`agent-cursor.ts`), from `--cursor` or identity.json `cursor`; `"auto"` by default. */
   cursor: CursorMode;
+  /** True with the low-resource preset (`--resources low` or identity.json `resources`). */
+  lowResources?: true;
+  /**
+   * Chrome's idle limit from the preset, which the host applies; undefined keeps the config's
+   * (TURNO_BROWSER_IDLE, 15 minutes by default, or the user's own limit).
+   */
+  browserIdleMs?: number;
+  /** Chrome features the preset turns off, added to the `--disable-features` list turno passes. */
+  disabledFeatures?: readonly string[];
 }
 
 /** The defaults, documented on the browser identities page. */
@@ -57,6 +66,26 @@ export const DEFAULT_TABS: Readonly<TabPolicy> = Object.freeze({
   popups: "close",
   parkMs: 5 * 60_000,
   closeMs: 15 * 60_000,
+});
+
+/**
+ * The low-resource preset, `"resources": "low"`: for a machine that runs short of memory. Each
+ * part was measured on a real Chrome (see the tabs page of the browser docs); what saved no
+ * memory, or broke pages or the live view, was left out. A key set on its own in identity.json
+ * or by a flag wins over the preset's value.
+ */
+export const LOW_RESOURCES = Object.freeze({
+  tabs: Object.freeze({ max: 2, parkMs: 2 * 60_000 }),
+  /** Chrome closes after this long without a tool call, unless the user set the idle limit. */
+  browserIdleMs: 5 * 60_000,
+  /** The background server exits after this long without a request, unless the user set it. */
+  backgroundIdleMs: 5 * 60_000,
+  /**
+   * Chrome's back/forward cache keeps a page it navigated away from alive for minutes, so a
+   * parked tab (sent to about:blank) kept its renderer and its memory; without it, parking
+   * frees the page at once. The only cost is that going back reloads the page.
+   */
+  disabledFeatures: Object.freeze(["BackForwardCache"]),
 });
 
 /** What `turno-browser-mcp` flags set; each wins over identity.json. */
@@ -69,19 +98,41 @@ export interface TuningFlags {
   humanize?: HumanizeLevel;
   sharing?: SharingMode;
   cursor?: CursorMode;
+  resources?: ResourceMode;
+  /**
+   * The user set Chrome's idle limit (TURNO_BROWSER_IDLE, `--idle-timeout`,
+   * PLAYWRIGHT_MCP_IDLE_TIMEOUT or a config of their own): the preset keeps it.
+   */
+  idleSet?: boolean;
 }
 
-/** The tuning of a session: flags, then identity.json, then the defaults. */
+/** True when the low-resource preset is on: the flag, else identity.json. */
+function lowResources(settings: Pick<IdentitySettings, "resources"> | undefined, flags: TuningFlags = {}): boolean {
+  return (flags.resources ?? settings?.resources) === "low";
+}
+
+/** The background server's idle limit: the user's, else the preset's, else `fallback`. */
+export function backgroundIdleMs(
+  settings: Pick<IdentitySettings, "resources"> | undefined,
+  flags: TuningFlags | undefined,
+  user: number | undefined,
+  fallback: number,
+): number {
+  return user ?? (lowResources(settings, flags ?? {}) ? LOW_RESOURCES.backgroundIdleMs : fallback);
+}
+
+/** The tuning of a session: flags, then identity.json, then the preset, then the defaults. */
 export function resolveTuning(settings: IdentitySettings | undefined, flags: TuningFlags = {}): Tuning {
   const t = settings?.tabs;
   const ms = (v: string | undefined) => (v === undefined ? undefined : parseDuration(v));
   // No flag of turno's: Playwright's --timeout-settle is the flag, and it wins (configForSession).
   const settle = ms(settings?.settle);
+  const low = lowResources(settings, flags) ? LOW_RESOURCES : undefined;
   return {
     tabs: {
-      max: flags.maxTabs ?? t?.max ?? DEFAULT_TABS.max,
+      max: flags.maxTabs ?? t?.max ?? low?.tabs.max ?? DEFAULT_TABS.max,
       popups: flags.popups ?? t?.popups ?? DEFAULT_TABS.popups,
-      parkMs: flags.parkAfterMs ?? ms(t?.park) ?? DEFAULT_TABS.parkMs,
+      parkMs: flags.parkAfterMs ?? ms(t?.park) ?? low?.tabs.parkMs ?? DEFAULT_TABS.parkMs,
       closeMs: flags.closeAfterMs ?? ms(t?.close) ?? DEFAULT_TABS.closeMs,
     },
     backgroundThrottling: flags.backgroundThrottling ?? settings?.backgroundThrottling ?? false,
@@ -97,6 +148,13 @@ export function resolveTuning(settings: IdentitySettings | undefined, flags: Tun
       ...(settings?.tabLocks?.wait === undefined ? {} : { waitMs: ms(settings.tabLocks.wait)! }),
       ...(settings?.tabLocks?.release === undefined ? {} : { releaseMs: ms(settings.tabLocks.release)! }),
     },
+    ...(low
+      ? {
+          lowResources: true as const,
+          ...(flags.idleSet ? {} : { browserIdleMs: low.browserIdleMs }),
+          disabledFeatures: low.disabledFeatures,
+        }
+      : {}),
   };
 }
 

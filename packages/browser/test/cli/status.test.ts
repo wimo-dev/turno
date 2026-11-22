@@ -22,7 +22,7 @@ function school(): void {
   api.addIdentity("school", sb.env);
   api.writeIdentitySettings(
     "school",
-    { timezone: "America/Monterrey", languages: ["es-MX", "en"], humanize: { level: "light" } },
+    { timezone: "America/Monterrey", languages: ["es-MX", "en"], humanize: { level: "light" }, resources: "low" },
     sb.env,
   );
   mkdirSync(identityStateDir("school", sb.env), { recursive: true });
@@ -62,7 +62,13 @@ describe("turno-browser status", () => {
     expect(r.identities[0]).toMatchObject({
       id: "school",
       profile: "~/" + identityDir("school", sb.env).slice(sb.home.length + 1),
-      settings: { timezone: "America/Monterrey", languages: ["es-MX", "en"], humanize: "light", sharing: "session" },
+      settings: {
+        timezone: "America/Monterrey",
+        languages: ["es-MX", "en"],
+        humanize: "light",
+        sharing: "session",
+        resources: "low",
+      },
       inUse: false,
       holder: null,
       vault: { sites: [], submit: "confirm" },
@@ -71,12 +77,15 @@ describe("turno-browser status", () => {
       lastUsed: "2026-11-20T18:00:00.000Z",
       agents: [{ agent: "claude-code", server: "browser-school", file: "~/.claude.json" }],
     });
+    expect(r.identities[1].settings.resources).toBe("normal");
     expect(r.identities[1]).toMatchObject({ id: "work", signedIn: null, cookieHosts: [], lastUsed: null, agents: [] });
 
     const one = fakeIo(sb.env);
     expect(await cli(api).run("status", ["school", "--json"], one)).toBe(0);
     expect(JSON.parse(one.lines.join("\n")).identities.map((i: { id: string }) => i.id)).toEqual(["school"]);
-    expect(await cli(api).run("status", ["school"], fakeIo(sb.env))).toBe(0);
+    const human = fakeIo(sb.env);
+    expect(await cli(api).run("status", ["school"], human)).toBe(0);
+    expect(human.lines.join("\n")).toContain("low-resource preset");
     await expect(cli(api).run("status", ["nobody"], fakeIo(sb.env))).rejects.toThrow(/does not exist/);
   });
 });

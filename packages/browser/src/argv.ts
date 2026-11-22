@@ -6,7 +6,14 @@ import { HUMANIZE_LEVELS, type HumanizeLevel } from "./humanize.js";
 import { assertIdentityId, identityDir } from "./identities.js";
 import type { EngineFlags } from "./engine.js";
 import type { LiveFlags } from "./live.js";
-import { CURSOR_MODES, type CursorMode, MAX_LIVE_WAIT_MS, MIN_LIVE_WAIT_MS } from "./settings.js";
+import {
+  CURSOR_MODES,
+  type CursorMode,
+  MAX_LIVE_WAIT_MS,
+  MIN_LIVE_WAIT_MS,
+  RESOURCE_MODES,
+  type ResourceMode,
+} from "./settings.js";
 import { parseAttachTarget } from "./engine-attach.js";
 import type { TuningFlags } from "./tuning.js";
 import { parseDuration } from "./units.js";
@@ -139,6 +146,7 @@ export const TUNING_FLAGS = {
   "--humanize": "<off|light|full|adaptive>",
   "--sharing": "<session|tabs>",
   "--cursor": "<auto|on|off>",
+  "--resources": "<normal|low>",
 } as const;
 
 function tuningValue(flag: keyof typeof TUNING_FLAGS, value: string, out: TuningFlags): void {
@@ -161,6 +169,10 @@ function tuningValue(flag: keyof typeof TUNING_FLAGS, value: string, out: Tuning
     if (!(CURSOR_MODES as readonly string[]).includes(value))
       throw new Error(`--cursor must be "auto" (when the browser can be seen), "on" or "off", not "${value}"`);
     out.cursor = value as CursorMode;
+  } else if (flag === "--resources") {
+    if (!(RESOURCE_MODES as readonly string[]).includes(value))
+      throw new Error(`--resources must be "normal" or "low" (the low-resource preset), not "${value}"`);
+    out.resources = value as ResourceMode;
   } else {
     const ms = parseDuration(value);
     if (ms === undefined) throw new Error(`${flag} must be a duration like "5m", "90s" or "0" (off), not "${value}"`);
@@ -340,5 +352,13 @@ export function buildArgv(rawArgs: string[], options: BuildOptions = {}): BuiltA
     out.config = { path, data: { timeouts: { idle } } };
     args.push("--config", path);
   }
+  // Chrome's idle limit is the user's: the low-resource preset keeps it (`resolveTuning`).
+  if (
+    !out.config ||
+    env.TURNO_BROWSER_IDLE !== undefined ||
+    env.PLAYWRIGHT_MCP_IDLE_TIMEOUT !== undefined ||
+    hasFlag(args, "--idle-timeout")
+  )
+    out.tuning = { ...out.tuning, idleSet: true };
   return out;
 }

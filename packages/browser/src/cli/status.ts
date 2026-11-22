@@ -35,6 +35,7 @@ function settingsSummary(s: Settings | undefined) {
     sharing: s?.sharing ?? "session",
     humanize: s?.humanize?.level ?? "off",
     cursor: s?.cursor ?? "auto",
+    resources: s?.resources ?? "normal",
     keychain: s?.keychain ?? "mock",
     live: Boolean(s?.live?.enabled),
     record: {
@@ -56,6 +57,7 @@ function settingsLine(s: ReturnType<typeof settingsSummary>): string {
     s.languages ? `languages ${s.languages.join(", ")}` : "",
     s.engine === "chrome" ? "" : `engine ${s.engine}`,
     s.sharing === "tabs" ? "every session at once, in its own tabs" : "one session at a time",
+    s.resources === "low" ? "low-resource preset" : "",
     s.humanize === "off" ? "" : `humanize ${s.humanize}`,
     s.keychain === "system" ? "cookie key in the system keychain" : "",
     s.live ? "live view on" : "",
