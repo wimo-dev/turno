@@ -23,7 +23,8 @@ const keyOf = (name, version) => `${name}@${version}`;
 export function lockIntegrity(text) {
   const out = new Map();
   const re = /^ {2}'?((?:@[^@'\s/]+\/)?[^@'\s/]+@[^'\s:]+)'?:\n {4}resolution: \{integrity: ([^,}\s]+)/gm;
-  for (const m of text.matchAll(re)) out.set(m[1], m[2]);
+  // A Windows checkout can turn the lockfile's line endings into CRLF.
+  for (const m of text.replaceAll("\r\n", "\n").matchAll(re)) out.set(m[1], m[2]);
   return out;
 }
 

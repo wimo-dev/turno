@@ -74,21 +74,23 @@ jobs:
         continue-on-error: true
         shell: pwsh
         run: |
-          $q = "Get-CimInstance Win32_Process | Out-Null"
-          foreach ($i in 1..2) { "normal: " + (Measure-Command { powershell.exe -NoProfile -NonInteractive -Command $q }).TotalSeconds }
-          $fresh = Join-Path $env:RUNNER_TEMP "fresh"
-          New-Item -ItemType Directory -Force $fresh | Out-Null
-          $old = $env:LOCALAPPDATA
-          $env:LOCALAPPDATA = $fresh
-          foreach ($i in 1..2) { "fresh LOCALAPPDATA: " + (Measure-Command { powershell.exe -NoProfile -NonInteractive -Command $q }).TotalSeconds }
-          $env:LOCALAPPDATA = $old
           Set-Location packages/browser
-          $probe = "const { chromium } = require(process.argv[1]); chromium.launch({ channel: 'chrome', headless: true, timeout: 30000 }).then((b) => { console.log('started', b.version()); return b.close(); }).catch((e) => { console.error(e.message); process.exit(1); });"
-          "probe, normal env:"; node -e $probe (Resolve-Path node_modules/patchright-core)
+          $core = Resolve-Path node_modules/patchright-core
+          $probe = "const { chromium } = require(process.argv[1]); chromium.launch({ channel: 'chrome', headless: true, timeout: 30000 }).then((b) => { console.log('started'); return b.close(); }).catch((e) => { console.error(e.message.split('\n')[0]); process.exit(1); });"
           $home2 = Join-Path $env:RUNNER_TEMP "home2"
           New-Item -ItemType Directory -Force $home2 | Out-Null
-          $env:USERPROFILE = $home2; $env:LOCALAPPDATA = $home2; $env:APPDATA = $home2; $env:HOME = $home2
-          "probe, redirected home:"; node -e $probe (Resolve-Path node_modules/patchright-core)
+          foreach ($v in "USERPROFILE", "LOCALAPPDATA", "APPDATA", "HOME") {
+            $old = [Environment]::GetEnvironmentVariable($v)
+            [Environment]::SetEnvironmentVariable($v, $home2)
+            "probe with only $v redirected:"; node -e $probe $core
+            [Environment]::SetEnvironmentVariable($v, $old)
+          }
+          $env:TURNO_CONFIG_DIR = Join-Path $env:RUNNER_TEMP "t\c"; $env:TURNO_STATE_DIR = Join-Path $env:RUNNER_TEMP "t\s"; $env:TURNO_DATA_DIR = Join-Path $env:RUNNER_TEMP "t\d"
+          $env:TURNO_NO_INPUT = "1"
+          "add: " + (Measure-Command { node dist/cli/main.js add school | Out-Host }).TotalSeconds
+          "do session: " + (Measure-Command { node dist/cli/main.js do school session | Out-Host }).TotalSeconds
+          "do end: " + (Measure-Command { node dist/cli/main.js do school end | Out-Host }).TotalSeconds
+          "remove: " + (Measure-Command { node dist/cli/main.js remove school --yes --json | Out-Host }).TotalSeconds
       # The secret store tests drive POSIX shell stand-ins for security and secret-tool; the
       # Windows secret store comes with its own tests.
       - run: pnpm --filter turno-core exec vitest run --exclude test/secrets.test.ts
