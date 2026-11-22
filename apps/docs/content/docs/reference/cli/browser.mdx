@@ -80,9 +80,9 @@ Usage:
   turno browser import <file> [--as <id>] [--yes] [--dry-run]
                                       replace an identity's session with an
                                       export (asks first), or create it
-  turno browser remove <id> [--dry-run]
-                                      delete an identity, its saved logins and
-                                      its vault
+  turno browser remove <id> [--yes] [--dry-run] [--json]
+                                      delete an identity and everything it left
+                                      on this machine (asks first)
   turno browser login <id> [--url <url>]
                                       open the identity's Chrome to sign in by
                                       hand once
@@ -128,6 +128,7 @@ Examples:
   $ turno browser export school --out school.session --expires 2d
   $ turno browser import school.session --as school-laptop
   $ turno browser remove school --dry-run
+  $ turno browser remove school --yes --json
   $ turno browser bench --only-urls --url https://example.com --yes
   $ turno browser do school open https://example.com
   $ turno browser do school snapshot
@@ -500,11 +501,26 @@ Examples:
 
 ```text
 Usage:
-  turno browser remove <id> [--dry-run]
-    delete an identity, its saved logins and its vault
+  turno browser remove <id> [--yes] [--dry-run] [--json]
+    delete an identity and everything it left on this machine (asks first)
+
+Deletes everything turno-browser keeps for the identity, after it shows the list and asks:
+  - it stops the identity's background server, a Chrome on its profile and the
+    turno-browser-mcp processes started for it (nothing is deleted while one still runs)
+  - it takes the identity's MCP server out of each agent that has it, with the agent's own
+    command (claude mcp remove --scope user browser-<id>, codex mcp remove ...)
+  - it deletes the vault's credentials and the keychain: items identity.json references from
+    the secret store, unless another identity or turno's mcp.toml uses them too
+  - it deletes the profile, identity.json, the vault index, the state folder, saved flows and
+    the session exports it wrote
+
+--yes deletes without asking; without a terminal it is required. --dry-run shows the list.
+Afterwards it checks that nothing is left. Exit codes: 0 all gone, 1 something is left (--json
+lists it under left, with the step that removes it), 2 no terminal and no --yes.
 
 Examples:
   $ turno browser remove school --dry-run
+  $ turno browser remove school --yes --json
 ```
 
 ### turno browser login

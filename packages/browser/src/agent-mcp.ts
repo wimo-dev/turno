@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { browserPaths, findOnPath } from "turno-core/paths";
 import { identityStateDir } from "./ids.js";
 
@@ -26,6 +26,8 @@ interface AgentInfo {
   /** The user-wide config file the agent keeps its MCP servers in. */
   file(env: NodeJS.ProcessEnv): string;
   format: "json" | "toml";
+  /** The variable that moves the agent's config folder (and so `file`), when it has one. */
+  homeEnv?: string;
   /** The command that adds a stdio server, as words. */
   add?(server: string, command: string, args: readonly string[]): string[];
   /** The command that removes it, as words. */
@@ -41,6 +43,7 @@ export const AGENTS: Readonly<Record<McpAgent, AgentInfo>> = {
     // User scope lives in .claude.json, in CLAUDE_CONFIG_DIR when a launcher sets one.
     file: (env) => join(env.CLAUDE_CONFIG_DIR || home(env), ".claude.json"),
     format: "json",
+    homeEnv: "CLAUDE_CONFIG_DIR",
     add: (server, command, args) => ["claude", "mcp", "add", "--scope", "user", server, "--", command, ...args],
     remove: (server) => ["claude", "mcp", "remove", "--scope", "user", server],
   },
@@ -49,6 +52,7 @@ export const AGENTS: Readonly<Record<McpAgent, AgentInfo>> = {
     program: "codex",
     file: (env) => join(env.CODEX_HOME || join(home(env), ".codex"), "config.toml"),
     format: "toml",
+    homeEnv: "CODEX_HOME",
     add: (server, command, args) => ["codex", "mcp", "add", server, "--", command, ...args],
     remove: (server) => ["codex", "mcp", "remove", server],
   },
@@ -78,6 +82,20 @@ export const AGENTS: Readonly<Record<McpAgent, AgentInfo>> = {
 /** The name of an identity's server in every agent's config. */
 export function serverName(id: string): string {
   return `browser-${id}`;
+}
+
+/**
+ * The environment the agent's commands need to change `file`: the same one, or with the
+ * agent's home variable pointing at the folder of `file` when it is not where `env` puts it
+ * (a registration made under a launcher that set CLAUDE_CONFIG_DIR). Undefined when no
+ * variable can point the agent there.
+ */
+export function envForFile(agent: McpAgent, file: string, env: NodeJS.ProcessEnv): NodeJS.ProcessEnv | undefined {
+  const info = AGENTS[agent];
+  if (info.file(env) === file) return env;
+  if (!info.homeEnv) return undefined;
+  const moved = { ...env, [info.homeEnv]: dirname(file) };
+  return info.file(moved) === file ? moved : undefined;
 }
 
 /** True when the agent's program is on the PATH, so its own commands can run. */
@@ -234,7 +252,7 @@ export interface Registration {
 }
 
 /** `<state>/browser/identities/<id>/agents.json`. */
-export function registrationsPath(id: string, env: NodeJS.ProcessEnv): string {
+function registrationsPath(id: string, env: NodeJS.ProcessEnv): string {
   return join(identityStateDir(id, env), "agents.json");
 }
 
@@ -267,7 +285,7 @@ export function recordRegistration(id: string, env: NodeJS.ProcessEnv, reg: Regi
 }
 
 /** What an agent's own command printed and how it ended. */
-export interface ExecResult {
+interface ExecResult {
   code: number;
   /** Its stdout and stderr, at most the last 4000 characters. */
   output: string;

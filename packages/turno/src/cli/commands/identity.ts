@@ -1,7 +1,7 @@
 import { effectivePolicy } from "../../accounts/policy.js";
 import { loadRegistry } from "../../accounts/registry.js";
 import { tildify } from "../../core/paths.js";
-import { DRY_RUN, JSON_FLAG, bool, flagsOf, parseFlags, str } from "../args.js";
+import { JSON_FLAG, bool, flagsOf, parseFlags, str } from "../args.js";
 import { emit, jsonOutput } from "../output.js";
 import { type Sub, group } from "../group.js";
 import { launcherExists } from "../../accounts/delegate.js";
@@ -145,15 +145,10 @@ async function browserOnly(sub: "show" | "set", args: string[], io: Io): Promise
   return dispatch(await browserModule(io), sub, bareId(args), io, deps);
 }
 
+/** A browser identity's removal is turno-browser's own: its flags (--yes, --dry-run, --json) pass on. */
 async function remove(args: string[], io: Io): Promise<number> {
   if (!firstId(args)?.startsWith(BROWSER)) return accounts.remove(args, io);
-  const p = parseFlags(args, DRY_RUN, 1);
-  const id = p.positionals[0]!.slice(BROWSER.length);
-  if (bool(p, "dry-run")) {
-    io.out(`(dry run) would delete browser identity "${id}" and its saved logins`);
-    return 0;
-  }
-  return dispatch(await browserModule(io), "remove", [id], io, deps);
+  return dispatch(await browserModule(io), "remove", bareId(args), io, deps);
 }
 
 async function login(args: string[], io: Io): Promise<number> {
@@ -232,10 +227,12 @@ export function identityCommand(browser?: Record<string, Sub>): Command {
         run: (a, io) => browserOnly("set", a, io),
       },
       remove: {
-        summary: "remove a service account, or delete a browser identity and its logins",
-        synopsis: "<id> [--dry-run]",
+        summary: "remove a service account, or delete a browser identity and everything it left (asks first)",
+        synopsis: "<id> [--dry-run] | browser:<id> [--yes] [--dry-run] [--json]",
         args: ["identity"],
-        flags: ["--dry-run"],
+        // --yes and --json are turno-browser's (a service account's remove has --dry-run only).
+        flags: browser?.remove?.json ? ["--dry-run", "--yes", "--json"] : ["--dry-run"],
+        ...(browser?.remove?.json ? { json: browser.remove.json } : {}),
         run: remove,
       },
       login: {

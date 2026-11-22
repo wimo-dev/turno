@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { BrowserContext } from "patchright-core";
 import { clearHealth } from "./health.js";
@@ -11,9 +11,10 @@ import {
   inUseBy,
   isInUse,
 } from "./identities.js";
+import { identityStateDir } from "./ids.js";
 import { readLockPid } from "./lifecycle.js";
 import { acquireRuntimeLock } from "./runtime-lock.js";
-import { SealError, seal, unseal } from "./sealed.js";
+import { SEALED_FORMAT, SealError, seal, unseal } from "./sealed.js";
 import { chromeEnv, keychainArgs, launchSettings, readIdentitySettings, systemTimezone } from "./settings.js";
 
 /**
@@ -255,4 +256,43 @@ export async function importSession(
   await withProfile(id, env, "import", (ctx) => ctx.setStorageState(payload.storageState));
   clearHealth(id, env);
   return { ...s, identity: id, created };
+}
+
+/** `<state>/browser/identities/<id>/exports.json`: the files `export` wrote, for `remove`. */
+function exportsRecordPath(id: string, env: NodeJS.ProcessEnv): string {
+  return join(identityStateDir(id, env), "exports.json");
+}
+
+function recordedExports(id: string, env: NodeJS.ProcessEnv): string[] {
+  try {
+    const v = JSON.parse(readFileSync(exportsRecordPath(id, env), "utf8")) as { files?: unknown };
+    return Array.isArray(v.files) ? v.files.filter((f): f is string => typeof f === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Remember a file `export` wrote for the identity (an absolute path), so `remove` can delete it. */
+export function recordExportFile(id: string, file: string, env: NodeJS.ProcessEnv = process.env): void {
+  const files = [...new Set([...recordedExports(id, env), file])];
+  const record = exportsRecordPath(id, env);
+  mkdirSync(identityStateDir(id, env), { recursive: true, mode: 0o700 });
+  const tmp = `${record}.${process.pid}.tmp`;
+  writeFileSync(tmp, `${JSON.stringify({ version: 1, files }, null, 2)}\n`, { mode: 0o600 });
+  renameSync(tmp, record);
+}
+
+/**
+ * The exports of the identity that are still where `export` wrote them and still hold a sealed
+ * session: a file replaced by something else since is not one of them.
+ */
+export function exportFiles(id: string, env: NodeJS.ProcessEnv = process.env): string[] {
+  return recordedExports(id, env).filter((file) => {
+    if (!existsSync(file)) return false;
+    try {
+      return (JSON.parse(readFileSync(file, "utf8")) as { format?: unknown }).format === SEALED_FORMAT;
+    } catch {
+      return false;
+    }
+  });
 }

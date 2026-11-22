@@ -196,6 +196,20 @@ describe("turno identity with browser identities", () => {
     setBrowserDeps(prev);
   });
 
+  it("passes --yes and --json of a browser identity's remove on to turno-browser", async () => {
+    const { deps } = setup({ load: async () => browserPackage });
+    prev = setBrowserDeps(deps);
+    expect(await identity.run(["add", "browser:school"], fakeIo(sb.env))).toBe(0);
+    await expect(identity.run(["remove", "browser:school"], fakeIo(sb.env))).rejects.toThrow(/pass --yes/);
+    const dry = fakeIo(sb.env);
+    expect(await identity.run(["remove", "browser:school", "--dry-run"], dry)).toBe(0);
+    expect(dry.lines.join("\n")).toContain('(dry run) This deletes browser identity "school"');
+    const io = fakeIo(sb.env);
+    expect(await identity.run(["remove", "browser:school", "--yes", "--json"], io)).toBe(0);
+    expect(JSON.parse(io.lines.join("\n"))).toMatchObject({ identity: "school", complete: true });
+    expect(browserPackage.identityExists("school", sb.env)).toBe(false);
+  });
+
   it("suggests turno identity add in the empty state", async () => {
     const { deps } = setup();
     prev = setBrowserDeps(deps);

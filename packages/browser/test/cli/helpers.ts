@@ -50,14 +50,15 @@ export async function real(): Promise<BrowserFunctions> {
  */
 export function fakeAgentCli(env: NodeJS.ProcessEnv, over: { code?: number; output?: string } = {}) {
   const calls: string[][] = [];
-  const claudeJson = join(env.HOME!, ".claude.json");
-  const read = (): { mcpServers: Record<string, { command: string; args: string[] }> } =>
+  const fileOf = (e: NodeJS.ProcessEnv) => join(e.CLAUDE_CONFIG_DIR || e.HOME!, ".claude.json");
+  const read = (claudeJson = fileOf(env)): { mcpServers: Record<string, { command: string; args: string[] }> } =>
     existsSync(claudeJson) ? JSON.parse(readFileSync(claudeJson, "utf8")) : { mcpServers: {} };
-  const exec: ExecCommand = async (command, args) => {
+  const exec: ExecCommand = async (command, args, runEnv) => {
     calls.push([command, ...args]);
     if (over.code !== undefined) return { code: over.code, output: over.output ?? "" };
     if (command !== "claude" || args[0] !== "mcp") return { code: 0, output: "" };
-    const config = read();
+    const claudeJson = fileOf(runEnv);
+    const config = read(claudeJson);
     if (args[1] === "add") {
       const name = args[4]!;
       if (config.mcpServers[name]) return { code: 1, output: `MCP server ${name} already exists in user config` };
@@ -71,5 +72,5 @@ export function fakeAgentCli(env: NodeJS.ProcessEnv, over: { code?: number; outp
     writeFileSync(claudeJson, JSON.stringify(config));
     return { code: 0, output: `${args[1]} ${args[4]}` };
   };
-  return { calls, exec, config: read };
+  return { calls, exec, config: () => read() };
 }
