@@ -105,16 +105,13 @@ interface RunContext {
   depth: number;
 }
 
-/** Whether a step puts a sensitive value into the page. */
-function typesSecret(step: FlowStep, secret: ReadonlySet<string>): boolean {
-  return paramRefs(step.args).some((name) => secret.has(name));
-}
-
 async function runStep(
   run: RunContext,
   step: FlowStep,
   values: Record<string, string>,
   secret: ReadonlySet<string>,
+  /** The sensitive parameters the agent did not pass: read from the secret store, or typed by the person. */
+  trusted: ReadonlySet<string>,
 ): Promise<{ ok: true; note?: string } | { ok: false; message: string }> {
   const { ctx, stock } = run;
   if (step.tool === "browser_login") {
@@ -138,7 +135,14 @@ async function runStep(
     const given = fillParams(step.args.params ?? {}, values) as Record<string, string>;
     const prepared = await prepareParams(ctx, inner, given);
     if ("error" in prepared) return { ok: false, message: prepared.error };
-    const state = await runSteps({ ...run, depth: run.depth + 1 }, inner, prepared.values, prepared.secret, 1);
+    const state = await runSteps(
+      { ...run, depth: run.depth + 1 },
+      inner,
+      prepared.values,
+      prepared.secret,
+      prepared.trusted,
+      1,
+    );
     if (state.failure)
       return {
         ok: false,
@@ -173,8 +177,14 @@ async function runStep(
   if (!schema) return { ok: false, message: `this server does not offer ${step.tool} (its capability is off)` };
   const parsed = schema.safeParse(args);
   if (!parsed.success) return { ok: false, message: `invalid arguments: ${stock.formatError(parsed.error)}` };
-  if (typesSecret(step, secret)) await ctx.recording?.pauseForSecret(stock.currentPage());
-  const result = await stock.call(step.tool, args, { snapshot: false });
+  const secrets = paramRefs(step.args).filter((name) => secret.has(name));
+  if (secrets.length) await ctx.recording?.pauseForSecret(stock.currentPage());
+  // A password or one-time code field takes only a value the agent did not pass.
+  const fromSecretStore = secrets.length > 0 && secrets.every((name) => trusted.has(name));
+  const result = await stock.call(step.tool, args, {
+    snapshot: false,
+    ...(fromSecretStore ? { fromSecretStore } : {}),
+  });
   if (result.isError) return { ok: false, message: sections(textOf(result)).get("Error") ?? textOf(result) };
   return { ok: true, ...(used.length ? { note: `found by ${used.join(", ")}` } : {}) };
 }
@@ -184,13 +194,14 @@ async function runSteps(
   flow: Flow,
   values: Record<string, string>,
   secret: ReadonlySet<string>,
+  trusted: ReadonlySet<string>,
   from: number,
 ): Promise<RunState> {
   const state: RunState = { lines: [] };
   const total = flow.steps.length;
   for (let i = from - 1; i < total; i++) {
     const step = flow.steps[i]!;
-    const done = await runStep(run, step, values, secret);
+    const done = await runStep(run, step, values, secret, trusted);
     if (!done.ok) {
       state.lines.push(`${i + 1}. ${describeStep(step)}: failed`);
       state.failure = { n: i + 1, total, step, message: done.message };
@@ -209,7 +220,9 @@ async function prepareParams(
   ctx: Parameters<TurnoTool["handle"]>[0],
   flow: Flow,
   given: Record<string, string>,
-): Promise<{ values: Record<string, string>; secret: Set<string>; refs: Set<string> } | { error: string }> {
+): Promise<
+  { values: Record<string, string>; secret: Set<string>; refs: Set<string>; trusted: Set<string> } | { error: string }
+> {
   const vault = ctx.vault!;
   const { values, missing, unknown } = resolveParams(flow, given);
   if (unknown.length)
@@ -222,6 +235,9 @@ async function prepareParams(
     };
   const secret = new Set<string>();
   const refs = new Set<string>();
+  // Sensitive values the person typed at the hidden prompt of `turno-browser replay`.
+  const prompted = new Set((vault.identity.env[PROMPTED_ENV] ?? "").split(",").filter(Boolean));
+  const trusted = new Set<string>();
   for (const p of flow.params) {
     let v = values[p.name]!;
     if (v.startsWith("keychain:")) {
@@ -236,11 +252,15 @@ async function prepareParams(
       v = read;
       values[p.name] = v;
       refs.add(p.name);
+      trusted.add(p.name);
       secret.add(p.name);
-    } else if (p.sensitive) secret.add(p.name);
+    } else if (p.sensitive) {
+      secret.add(p.name);
+      if (prompted.has(p.name)) trusted.add(p.name);
+    }
     if (secret.has(p.name)) vault.redactor.add(v, `sensitive parameter ${p.name}`);
   }
-  return { values, secret, refs };
+  return { values, secret, refs, trusted };
 }
 
 function replaySchema(): ToolSchema {
@@ -308,7 +328,7 @@ export function replayTool(): TurnoTool {
       if ("error" in prepared)
         return { content: [{ type: "text", text: `### Error\nNothing ran: ${prepared.error}` }], isError: true };
       const run: RunContext = { ctx, stock, waitMs: wait * 1000, depth: 0 };
-      const exec = () => runSteps(run, flow, prepared.values, prepared.secret, from);
+      const exec = () => runSteps(run, flow, prepared.values, prepared.secret, prepared.trusted, from);
       const state = ctx.recorder ? await ctx.recorder.suspend(exec) : await exec();
       const out: string[] = [];
       if (state.failure) {
@@ -410,10 +430,18 @@ export function flowsTool(): TurnoTool {
 
 export interface ReplayOptions {
   params?: Record<string, string>;
+  /** The sensitive parameters the person typed at a hidden prompt, so they may go into a password field. */
+  prompted?: readonly string[];
   from?: number;
   headless?: boolean;
   env?: NodeJS.ProcessEnv;
 }
+
+/**
+ * Names the parameters of `ReplayOptions.prompted` for the server `replayFlow` starts. Only
+ * that server, which serves this one replay and no agent, reads it.
+ */
+const PROMPTED_ENV = "TURNO_BROWSER_PROMPTED_PARAMS";
 
 /**
  * Replays a flow outside an agent (`turno browser replay`): starts this package's MCP server
@@ -432,7 +460,12 @@ export async function replayFlow(
   const transport = new StdioClientTransport({
     command: process.execPath,
     args: [bin, "--identity", id, ...(options.headless ? ["--headless"] : [])],
-    env: Object.fromEntries(Object.entries(env).filter((e): e is [string, string] => e[1] !== undefined)),
+    env: {
+      ...Object.fromEntries(
+        Object.entries(env).filter((e): e is [string, string] => e[1] !== undefined && e[0] !== PROMPTED_ENV),
+      ),
+      ...(options.prompted?.length ? { [PROMPTED_ENV]: options.prompted.join(",") } : {}),
+    },
     stderr: "pipe",
   });
   const client = new Client({ name: `${names().browser} replay`, version: "1" });

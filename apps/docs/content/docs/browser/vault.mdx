@@ -12,6 +12,14 @@ turno-browser vault list school
 
 The password and the TOTP secret are asked with hidden prompts (or read from stdin). An agent then calls `browser_login` with the site name on that sign-in page: the tool fills the username, the password and the current one-time code without the agent seeing them, only on the origins given with `--url`, and hides the values from every later result. It does not submit the form unless you run `turno-browser vault submit school auto`. See the threat model in [SECURITY.md](https://github.com/wimo-dev/turno/blob/main/SECURITY.md#the-credential-vault).
 
+## Password fields and credentials
+
+A password or a one-time code never comes back to the agent, whoever typed it. A sensitive field is an input of type `password`, one whose `autocomplete` is `current-password`, `new-password` or `one-time-code`, or one named like a password or a code (`password`, `passcode`, `otp`, `totp`, `2fa`, `mfa`). Every page snapshot shows its value as `[sensitive field]`, the snapshot files an action writes to the workspace too, and the value is hidden from every later result, such as a script that reads it or the request that sends it. The agent cannot type into one: `browser_type`, `browser_fill_form` and key presses into a sensitive field are refused, and the error tells it to ask the person (with `browser_request_human`) or to sign in with `browser_login`. A [flow replay](/docs/browser/flows) types one only when its parameter is read from the secret store (`keychain:<item>`).
+
+`browser_network_requests` and `browser_network_request` keep the names of credentials and show `[redacted]` for their values: the `Authorization`, `Proxy-Authorization`, `Cookie` and `Set-Cookie` headers (the scheme and the cookie names stay), and query parameters, form fields and JSON fields named like a token, a code, a session, a key, a secret or a password (`access_token`, `code`, `sid`, `api_key`, `client_secret`). A request saved to a file with `filename` is redacted the same way.
+
+Values are matched as typed and in the usual encodings; one shorter than four characters is masked in snapshots only. A value the page hashes or encodes some other way, and what a screenshot shows, are not covered.
+
 ## Secrets
 
 An `identity.json` never holds a secret. It names one as `keychain:<item>` (`proxy.password`, `act.key`, `captcha.key`), and so does a replay parameter (`--param password=keychain:<item>`). The value lives in the login Keychain on macOS or the Secret Service on Linux:

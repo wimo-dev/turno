@@ -40,8 +40,14 @@ export interface StockAccess {
   /**
    * Runs a stock tool the way a call of its own runs (tab governor, click diagnosis); with
    * `snapshot: false` the result leaves out the page snapshot an action would add.
+   * `fromSecretStore` says the text typed was read from the secret store (a flow replay's
+   * `keychain:` parameter), so it may go into a password or one-time code field.
    */
-  call(name: string, args: Record<string, unknown>, options: { snapshot: boolean }): Promise<ToolResult>;
+  call(
+    name: string,
+    args: Record<string, unknown>,
+    options: { snapshot: boolean; fromSecretStore?: boolean },
+  ): Promise<ToolResult>;
   /** URL and title of the current tab, when there is one. */
   page(): Promise<{ url: string; title: string } | undefined>;
   /** The current tab itself (`browser_login` fills it). */

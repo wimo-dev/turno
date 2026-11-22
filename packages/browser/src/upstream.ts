@@ -107,6 +107,11 @@ export interface UpstreamContext {
   newTab(): Promise<UpstreamTab>;
   /** Points the stock tools at a tab without bringing it to the front (`"sharing": "tabs"`). */
   _setCurrentTab(tab: UpstreamTab | undefined): void;
+  /**
+   * What upstream passes every text result, written file and session log line through (its own
+   * `secrets` config). The host chains its redactor here, so a file a tool writes is redacted too.
+   */
+  redactSecrets(text: string): string;
 }
 
 /**

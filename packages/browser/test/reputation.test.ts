@@ -194,6 +194,20 @@ describe("watchChallenges", () => {
     expect(seen).toHaveLength(2);
   });
 
+  it("hands each check to onCheck, also one the log counts once, with what it found", async () => {
+    const page = new FakePage("about:blank", "");
+    const ctx = new FakeContext([page]);
+    const seen: unknown[] = [];
+    const checks: Promise<unknown>[] = [];
+    watchChallenges(ctx, (c) => seen.push(c), { onCheck: (p, found) => p === page && checks.push(found) });
+    page.load("https://shop.example.com/", CHALLENGE);
+    page.load("https://shop.example.com/", CHALLENGE);
+    page.load("https://shop.example.com/", "<title>Cart</title><body>Your cart</body>");
+    const found = await Promise.all(checks);
+    expect(found.map((f) => (f as { kind?: string } | undefined)?.kind)).toEqual(["captcha", "captcha", undefined]);
+    expect(seen).toHaveLength(1);
+  });
+
   it("stops watching when asked, and survives a page that cannot be read", async () => {
     const page = new FakePage("about:blank", "");
     page.content = async () => {

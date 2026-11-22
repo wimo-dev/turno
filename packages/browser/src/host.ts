@@ -35,11 +35,22 @@ import { identityStateDir } from "./ids.js";
 import { idleMs } from "./idle-timer.js";
 import { type LiveFlags, describeChanges, resolveLive, resumeNote, timeoutMessage, viewRefusal } from "./live.js";
 import { LiveServer } from "./live-server.js";
-import { FlowRecorder, type PendingStep, secretValues } from "./recorder.js";
+import { NETWORK_TOOLS, redactNetworkText } from "./network-redact.js";
+import { FlowRecorder, type PendingStep } from "./recorder.js";
 import { Recording, tracesTmpDir } from "./recordings.js";
 import { Redactor, SCRIPT_TOOLS, VaultGuard } from "./redact.js";
 import { type ChallengeEvent, recordChallenge, watchChallenges } from "./reputation.js";
 import { installResources } from "./resources.js";
+import {
+  type PageField,
+  SENSITIVE_MARK,
+  TYPING_TOOLS,
+  maskSnapshots,
+  secretValues,
+  sensitiveFields,
+  sensitiveRefusal,
+  typesIntoSensitive,
+} from "./sensitive.js";
 import {
   SESSION_CAPABILITY,
   SESSION_ENDED_METHOD,
@@ -103,7 +114,11 @@ import {
  *   identity.json turns them on when the server starts, and hands those tools MCP sampling,
  *   routed to the calling session, when the client offers it;
  * - with the live view on (identity.json `live`, `--live`), holds every browser call while the
- *   user has paused the agent, and tells the held call what changed (`live.ts`, `live-server.ts`).
+ *   user has paused the agent, and tells the held call what changed (`live.ts`, `live-server.ts`);
+ * - masks password and one-time code fields in every page snapshot and hides their values from
+ *   every result, whoever typed them, refuses the agent's typing into them (`sensitive.ts`), drops
+ *   credential values from network output (`network-redact.ts`), and says when a result ends on
+ *   a challenge page (`reputation.ts`).
  *
  * stdio, the transport mcpd and every agent use, is served by turno with the MCP SDK.
  * `--port` keeps upstream's HTTP server (Host check, streamable HTTP and SSE) serving the
@@ -235,6 +250,51 @@ function errorResult(message: string, json: boolean): ToolResult {
   };
 }
 
+/** How long a one-time code read from a page stays redacted, as a vault one-time code. */
+const FIELD_CODE_MS = 10 * 60_000;
+/** Longest a result waits for the challenge check of the page it ended on. */
+const CHALLENGE_WAIT_MS = 2_000;
+
+/** A note after the rest of a result (under `turno.<key>` in JSON). */
+function withTrailer(result: ToolResult, title: string, note: string, key: string, json: boolean): ToolResult {
+  const first = result.content[0];
+  if (!first || first.type !== "text")
+    return { ...result, content: [...result.content, { type: "text", text: `### ${title}\n${note}` }] };
+  const text = (first as { text: string }).text;
+  if (json) {
+    try {
+      const payload = JSON.parse(text) as Record<string, unknown>;
+      const turno = (payload.turno ?? {}) as Record<string, unknown>;
+      const out = JSON.stringify({ ...payload, turno: { ...turno, [key]: note } }, null, 2);
+      return { ...result, content: [{ ...first, text: out }, ...result.content.slice(1)] };
+    } catch {
+      /* not JSON after all: add a section */
+    }
+  }
+  return { ...result, content: [{ ...first, text: `${text}\n### ${title}\n${note}` }, ...result.content.slice(1)] };
+}
+
+/** What the agent reads when the page it ended on is a challenge (`reputation.ts`). */
+export function challengeNote(event: Omit<ChallengeEvent, "ts">): string {
+  const what =
+    event.kind === "captcha"
+      ? "a captcha"
+      : event.kind === "verify"
+        ? "a check that asks whether a person is there"
+        : "a page that blocks this browser";
+  return `This page (${event.site}) shows ${what}. A person should handle it: ask them to (with browser_request_human, if this server offers it), and go on once they are done.`;
+}
+
+/** A result's text parts with credentials replaced (`network-redact.ts`). */
+function redactNetworkResult(result: ToolResult): ToolResult {
+  return {
+    ...result,
+    content: result.content.map((part) =>
+      part.type === "text" ? { ...part, text: redactNetworkText((part as { text: string }).text) } : part,
+    ),
+  };
+}
+
 /**
  * One MCP session. Implements upstream's server backend contract, so upstream's HTTP server
  * can serve it as well as turno's stdio server.
@@ -309,6 +369,10 @@ class SessionBackend extends EventEmitter implements ServerBackend {
   private readonly recorders = new Map<string, FlowRecorder>();
   /** The agent name each client session's calls came with (mcpd, a shared host), for the cursor. */
   private readonly clients = new Map<string, string>();
+  /** When the sensitive fields of a page were last read (a snapshot reads them too). */
+  private readonly fieldsRead = new WeakMap<Page, number>();
+  /** The challenge check of each page's last load, until a result reports it. */
+  private readonly challenges = new WeakMap<Page, Promise<Omit<ChallengeEvent, "ts"> | undefined>>();
 
   constructor(
     private readonly host: {
@@ -421,7 +485,12 @@ class SessionBackend extends EventEmitter implements ServerBackend {
       const profile = launched.engine !== "lightpanda" && launched.engine !== "attach";
       if (identity && profile) {
         try {
-          await afterIdentityLaunch(identity, launched, (event) => input?.noteChallenge(event.site));
+          await afterIdentityLaunch(
+            identity,
+            launched,
+            (event) => input?.noteChallenge(event.site),
+            (page, found) => this.challenges.set(page, found),
+          );
         } catch (error) {
           await launched.close().catch(() => {});
           throw error;
@@ -466,8 +535,18 @@ class SessionBackend extends EventEmitter implements ServerBackend {
           await launched.close();
         },
       });
+      // Every snapshot of every page masks its password and one-time code fields.
+      const masked = new WeakSet<Page>();
+      const mask = (page: Page) => {
+        if (masked.has(page)) return;
+        masked.add(page);
+        maskSnapshots(page, (fields) => this.noteFields(page, fields));
+      };
+      for (const page of launched.context.pages()) mask(page);
+      launched.context.on("page", mask);
       try {
         await backend.initialize(clientInfo);
+        this.hookUpstream(backend);
         // After upstream's own routes (--allowed-origins, --blocked-origins), so this one runs
         // first and hands every request it does not block or serve on to them.
         if (identity && profile)
@@ -488,6 +567,9 @@ class SessionBackend extends EventEmitter implements ServerBackend {
             title,
             ...(noTraces ? { noTraces } : {}),
             ...(idleLimit ? { idleMs: idleLimit } : {}),
+            beforeSave: async () => {
+              await Promise.all(launched.context.pages().map((page) => this.readFields(page)));
+            },
           });
       } catch (error) {
         await launched.close();
@@ -503,6 +585,7 @@ class SessionBackend extends EventEmitter implements ServerBackend {
             const config = viewConfig(forViews);
             const view = new BrowserBackend(config, launched.context, tools, {});
             await view.initialize(clientInfo);
+            this.hookUpstream(view);
             return { backend: view, config };
           },
         });
@@ -604,8 +687,91 @@ class SessionBackend extends EventEmitter implements ServerBackend {
     client?: string,
   ): Promise<ToolResult> {
     if (client && session) this.clients.set(session, client);
+    const started = performance.now();
+    let result = await this.callLive(name, args, signal, session, sample);
+    if (this.touchesBrowser(name)) result = await this.afterCall(name, args, result, session, started);
     // Every result and error of this server leaves through the redactor.
-    return this.host.redactor.result(await this.callLive(name, args, signal, session, sample));
+    return this.host.redactor.result(result);
+  }
+
+  /**
+   * After a browser call, before the redactor: the sensitive fields of the tab it ended on are
+   * read unless a snapshot of the call read them (the values join the redactor, whoever typed
+   * them), credentials leave a network tool's output, and a challenge page is pointed out.
+   */
+  private async afterCall(
+    name: string,
+    args: Record<string, unknown>,
+    result: ToolResult,
+    session: string | undefined,
+    started: number,
+  ): Promise<ToolResult> {
+    const json = !!(args._meta as { json?: boolean } | undefined)?.json;
+    const page = await this.currentPageOf(session ?? DIRECT_SESSION);
+    if (NETWORK_TOOLS.has(name)) result = redactNetworkResult(result);
+    if (!page) return result;
+    if ((this.fieldsRead.get(page) ?? -1) < started) await this.readFields(page);
+    const check = this.challenges.get(page);
+    if (!check) return result;
+    this.challenges.delete(page);
+    let timer: NodeJS.Timeout | undefined;
+    const event = await Promise.race([
+      check,
+      new Promise<undefined>((r) => {
+        timer = setTimeout(() => r(undefined), CHALLENGE_WAIT_MS);
+      }),
+    ]).finally(() => clearTimeout(timer));
+    return event ? withTrailer(result, "Challenge", challengeNote(event), "challenge", json) : result;
+  }
+
+  /** Values of a page's sensitive fields join the redactor, shown as `[sensitive field]`. */
+  private noteFields(page: Page, fields: readonly PageField[]): void {
+    this.fieldsRead.set(page, performance.now());
+    for (const f of fields)
+      this.host.redactor.addField(f.value, SENSITIVE_MARK, f.kind === "one-time code" ? FIELD_CODE_MS : undefined);
+  }
+
+  private async readFields(page: Page): Promise<void> {
+    if (page.isClosed()) return;
+    this.noteFields(page, await sensitiveFields(page).catch(() => []));
+  }
+
+  /**
+   * Chains the redactor into upstream's own (`redactSecrets`), which every text result, written
+   * file (a snapshot or a network request saved with `filename`) and session log line passes
+   * through, and, while a network tool runs, the credential rules of `network-redact.ts`.
+   */
+  private hookUpstream(backend: BrowserBackendInstance): void {
+    const context = backendContext(backend);
+    if (!context || typeof context.redactSecrets !== "function") return;
+    const own = context.redactSecrets.bind(context);
+    let network = 0;
+    context.redactSecrets = (text) => this.host.redactor.text(network ? redactNetworkText(own(text)) : own(text));
+    const call = backend.callTool.bind(backend);
+    backend.callTool = async (name, args, signal) => {
+      const counted = NETWORK_TOOLS.has(name);
+      if (counted) network++;
+      try {
+        return await call(name, args, signal);
+      } finally {
+        if (counted) network--;
+      }
+    };
+  }
+
+  /**
+   * Typing into a password or one-time code field is the person's or the vault's: the call is
+   * refused, unless the text was read from the secret store (a flow replay's `keychain:` value).
+   */
+  private async refuseSensitive(
+    name: string,
+    args: Record<string, unknown>,
+    page: Page | undefined,
+    options: { fromSecretStore?: boolean },
+  ): Promise<string | undefined> {
+    if (!page || options.fromSecretStore || !TYPING_TOOLS.has(name)) return undefined;
+    const kind = await typesIntoSensitive(page, name, args).catch(() => undefined);
+    return kind ? sensitiveRefusal(name, kind) : undefined;
   }
 
   /** True when a call needs the browser, so a pause holds it. */
@@ -811,7 +977,7 @@ class SessionBackend extends EventEmitter implements ServerBackend {
     name: string,
     args: Record<string, unknown>,
     signal?: AbortSignal,
-    options: { snapshot?: boolean } = {},
+    options: { snapshot?: boolean; fromSecretStore?: boolean } = {},
     session?: string,
   ): Promise<ToolResult> {
     const refusal = this.host.engine.refuse?.(name, this.host.identity);
@@ -834,25 +1000,44 @@ class SessionBackend extends EventEmitter implements ServerBackend {
     let result: ToolResult;
     try {
       await governor.quiet();
-      const pending = await this.beforeStock(running, session, name, args, backendContext(backend)?.currentTab()?.page);
+      // A parked tab loads again first, so the field a call would type into is the one it reaches.
       await governor.prepare(name, args);
-      if (tuning.backgroundThrottling && !launched.userBrowser && name !== "browser_tabs")
-        await backendContext(backend)
-          ?.currentTab()
-          ?.page.bringToFront()
-          .catch(() => {});
-      const page = backendContext(backend)?.currentTab()?.page;
-      const key = session ?? DIRECT_SESSION;
-      await running.cursor?.begin(page, key, this.clients.get(key));
-      result =
-        (launched.engine === "lightpanda" ? undefined : await coveredBeforeCall(page, name, args, json)) ??
-        (await this.withCursor(running, name, page, () => backend.callTool(name, args, signal)));
-      void running.cursor?.end(backendContext(backend)?.currentTab()?.page, key);
-      this.host.live?.follow(key, backendContext(backend)?.currentTab()?.page);
-      if (result.isError)
-        result = await explainFailure(backendContext(backend)?.currentTab()?.page, name, args, result, json);
-      await this.afterStock(running, session, name, args, pending, result, backendContext(backend)?.currentTab()?.page);
-      await governor.afterCall();
+      const refusedField = await this.refuseSensitive(name, args, backendContext(backend)?.currentTab()?.page, options);
+      if (refusedField) result = errorResult(refusedField, json);
+      else {
+        const pending = await this.beforeStock(
+          running,
+          session,
+          name,
+          args,
+          backendContext(backend)?.currentTab()?.page,
+        );
+        if (tuning.backgroundThrottling && !launched.userBrowser && name !== "browser_tabs")
+          await backendContext(backend)
+            ?.currentTab()
+            ?.page.bringToFront()
+            .catch(() => {});
+        const page = backendContext(backend)?.currentTab()?.page;
+        const key = session ?? DIRECT_SESSION;
+        await running.cursor?.begin(page, key, this.clients.get(key));
+        result =
+          (launched.engine === "lightpanda" ? undefined : await coveredBeforeCall(page, name, args, json)) ??
+          (await this.withCursor(running, name, page, () => backend.callTool(name, args, signal)));
+        void running.cursor?.end(backendContext(backend)?.currentTab()?.page, key);
+        this.host.live?.follow(key, backendContext(backend)?.currentTab()?.page);
+        if (result.isError)
+          result = await explainFailure(backendContext(backend)?.currentTab()?.page, name, args, result, json);
+        await this.afterStock(
+          running,
+          session,
+          name,
+          args,
+          pending,
+          result,
+          backendContext(backend)?.currentTab()?.page,
+        );
+        await governor.afterCall();
+      }
     } finally {
       running.recording?.callEnded();
       endCall?.();
@@ -873,7 +1058,7 @@ class SessionBackend extends EventEmitter implements ServerBackend {
     name: string,
     args: Record<string, unknown>,
     signal: AbortSignal | undefined,
-    options: { snapshot?: boolean },
+    options: { snapshot?: boolean; fromSecretStore?: boolean },
   ): Promise<ToolResult> {
     const { governor, tuning, idle } = running;
     const json = !!(args._meta as { json?: boolean } | undefined)?.json;
@@ -904,26 +1089,30 @@ class SessionBackend extends EventEmitter implements ServerBackend {
             };
           }
           const tabs = sharing.tabView(view);
-          const pending = await this.beforeStock(running, key, name, args, tabs.current());
           await governor.prepare(name, args, tabs);
-          if (tuning.backgroundThrottling && name !== "browser_tabs")
-            await tabs
-              .current()
-              ?.bringToFront()
-              .catch(() => {});
-          await running.cursor?.begin(tabs.current(), key, this.clients.get(key));
-          result =
-            (running.launched.engine === "lightpanda"
-              ? undefined
-              : await coveredBeforeCall(tabs.current(), name, args, json)) ??
-            (await this.withCursor(running, name, tabs.current(), () => backend.callTool(name, args, signal)));
-          void running.cursor?.end(tabs.current(), key);
-          this.host.live?.follow(key, tabs.current());
-          if (result.isError) result = await explainFailure(tabs.current(), name, args, result, json);
-          await this.afterStock(running, key, name, args, pending, result, tabs.current());
-          // The tab the call left current is the session's before the cap counts its tabs.
-          sharing.after(key, view);
-          await governor.afterCall();
+          const refusedField = await this.refuseSensitive(name, args, tabs.current(), options);
+          if (refusedField) result = errorResult(refusedField, json);
+          else {
+            const pending = await this.beforeStock(running, key, name, args, tabs.current());
+            if (tuning.backgroundThrottling && name !== "browser_tabs")
+              await tabs
+                .current()
+                ?.bringToFront()
+                .catch(() => {});
+            await running.cursor?.begin(tabs.current(), key, this.clients.get(key));
+            result =
+              (running.launched.engine === "lightpanda"
+                ? undefined
+                : await coveredBeforeCall(tabs.current(), name, args, json)) ??
+              (await this.withCursor(running, name, tabs.current(), () => backend.callTool(name, args, signal)));
+            void running.cursor?.end(tabs.current(), key);
+            this.host.live?.follow(key, tabs.current());
+            if (result.isError) result = await explainFailure(tabs.current(), name, args, result, json);
+            await this.afterStock(running, key, name, args, pending, result, tabs.current());
+            // The tab the call left current is the session's before the cap counts its tabs.
+            sharing.after(key, view);
+            await governor.afterCall();
+          }
         }
       }
     } finally {
@@ -967,6 +1156,8 @@ class SessionBackend extends EventEmitter implements ServerBackend {
   ): Promise<PendingStep | undefined> {
     const { recording } = running;
     await recording?.beforeCall();
+    // While a trace records, a value the person typed since the last call is known before it is traced.
+    if (recording && page) await this.readFields(page);
     const recorder = this.recorderFor(session);
     const pending = recorder?.active ? await recorder.capture(name, args, page).catch(() => undefined) : undefined;
     const secretHook = this.secretHook(recording);
@@ -1132,16 +1323,21 @@ async function afterIdentityLaunch(
   identity: IdentityRef,
   launched: LaunchedBrowser,
   onChallenge?: (event: Omit<ChallengeEvent, "ts">) => void,
+  onCheck?: (page: Page, found: Promise<Omit<ChallengeEvent, "ts"> | undefined>) => void,
 ): Promise<void> {
   const { id, env } = identity;
-  watchChallenges(launched.context, (event) => {
-    onChallenge?.(event);
-    try {
-      recordChallenge(id, env, event);
-    } catch {
-      /* the log is best effort; a full disk must not break a tool call */
-    }
-  });
+  watchChallenges(
+    launched.context,
+    (event) => {
+      onChallenge?.(event);
+      try {
+        recordChallenge(id, env, event);
+      } catch {
+        /* the log is best effort; a full disk must not break a tool call */
+      }
+    },
+    onCheck ? { onCheck: (page, found) => onCheck(page as unknown as Page, found) } : {},
+  );
   const check = readIdentitySettings(id, env)?.health;
   if (!check || !healthDue(readHealth(id, env), check)) return;
   const record = await runHealthCheck(launched.context as unknown as HealthContext, check);

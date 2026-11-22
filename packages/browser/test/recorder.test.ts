@@ -2,7 +2,8 @@ import { readFileSync } from "node:fs";
 import type { Page } from "patchright-core";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { flowPath, listFlows, readFlow } from "../src/flows.js";
-import { FlowRecorder, roleFromSelector, secretField } from "../src/recorder.js";
+import { FlowRecorder, roleFromSelector } from "../src/recorder.js";
+import { secretField } from "../src/sensitive.js";
 import { Redactor } from "../src/redact.js";
 import { type Sandbox, sandbox } from "./helpers/sandbox.js";
 
