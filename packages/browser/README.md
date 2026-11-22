@@ -3,8 +3,8 @@
 **A browser your agents use with your accounts. It stays light on your machine, and the model
 never sees your passwords.**
 
-An MCP server that lets a coding agent drive the Chrome installed on your machine (or Brave, Edge
-or Chromium), with one persistent profile per identity. You sign in to a site once, by hand, and the agent works in
+An MCP server that lets a coding agent drive the Chrome installed on your machine (or Brave or
+Edge), with one persistent profile per identity. You sign in to a site once, by hand, and the agent works in
 that same signed-in browser afterwards.
 
 ![Two accounts, each with its own Chrome profile, and a third identity an agent drives through the gateway](https://raw.githubusercontent.com/wimo-dev/turno/main/docs/assets/browser-identities.png)
