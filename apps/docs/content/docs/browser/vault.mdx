@@ -44,4 +44,4 @@ Windows has no command line keychain like `security` or `secret-tool`, so each i
 - Any program running as you can decrypt them, as on macOS and Linux. Admin rights are not needed, and neither are native modules.
 - Each file carries its item name, and DPAPI binds the value to that name, so a file copied over another item's file does not decrypt.
 - The items are not in Credential Manager. Credential Manager caps an item at 2560 bytes, which an OAuth record can pass, and has no credentials in an SSH session; these files have no size limit.
-- Reading or storing a value starts Windows PowerShell, about 0.35 s on a GitHub Actions Windows runner; checking whether an item exists (`secret has`, `secret list`, `vault list`, `doctor`) only looks at the file.
+- Reading or storing a value starts Windows PowerShell: about 0.3 s on a GitHub Actions Windows runner, and a few seconds for the first start after the machine boots. Checking whether an item exists (`secret has`, `secret list`, `vault list`, `doctor`) only looks at the file.
