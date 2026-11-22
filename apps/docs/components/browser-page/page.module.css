@@ -301,7 +301,7 @@
   }
 }
 
-/* The opt-in features: a picture each, in a grid where the first two are wider. */
+/* The opt-in features: a picture each, twelve of them in three even columns. */
 .optIns {
   display: grid;
   gap: 16px;
@@ -335,11 +335,6 @@
   }
   .optIn {
     grid-column: span 2;
-  }
-  /* The two a developer asks about first get half the row each. */
-  .optIn[data-id="live"],
-  .optIn[data-id="sharing"] {
-    grid-column: span 3;
   }
 }
 

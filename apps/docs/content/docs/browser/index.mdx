@@ -3,7 +3,7 @@ title: "turno-browser"
 description: "A browser your agents use with your accounts. It stays light on your machine, and the model never sees your passwords."
 ---
 
-turno-browser is an MCP server that lets a coding agent drive the Google Chrome installed on your machine, with one persistent profile per identity. You sign in to a site once, by hand, and the agent works in that same signed-in browser afterwards.
+turno-browser is an MCP server that lets a coding agent drive the Chrome installed on your machine (or Brave or Edge), with one persistent profile per identity. You sign in to a site once, by hand, and the agent works in that same signed-in browser afterwards.
 
 It is its own package and works without turno. With turno, the gateway runs one browser server for every session of every agent.
 
@@ -19,7 +19,7 @@ turno-browser init
 | The problem | What turno-browser does | Read |
 |---|---|---|
 | Your agent opens a browser that is not signed in | each identity is a real Chrome profile that keeps its cookies | [Identities and settings](/docs/browser/identities) |
-| A browser left open eats the machine | pages are capped, parked and closed, and Chrome closes when no agent calls it | [Tabs and lifecycle](/docs/browser/tabs) |
+| A browser left open eats the machine | pages are capped, parked and closed, and Chrome closes when no agent calls it; a [low-resource mode](/docs/browser/tabs#low-resource-mode) tightens all of it | [Tabs and lifecycle](/docs/browser/tabs) |
 | Passwords should not pass through a model | a vault in the system keychain fills a sign-in form, and the agent never sees the values | [Vault, sign-in and secrets](/docs/browser/vault) |
 
 ## On from the start
@@ -39,6 +39,7 @@ Each of these is a setting of an identity. Whether to turn one on is your call; 
 
 | | |
 |---|---|
+| [Identity policy](/docs/browser/policy) | the domains an identity's tabs may show and the features that are off for good |
 | [Several agents, one browser](/docs/browser/sharing) | several sessions in one identity's Chrome, each in its own tabs |
 | [Live view and take-over](/docs/browser/live-view) | watch the agent's tab, pause it and act yourself |
 | [Recordings and traces](/docs/browser/flows#recordings-and-traces) | every session as a flow, a trace and screenshots |

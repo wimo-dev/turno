@@ -34,6 +34,7 @@ export const CMD = {
   record: "turno-browser record school --flows --traces --screenshots",
   userAgent: "turno-browser set school --user-agent coherent",
   lighter: "turno-browser set school --block-trackers true --block-types image,media --cache",
+  policy: "turno-browser set shop --policy-file shop-policy.json",
   withTurnoInstall: "npm install --global turno-cli turno-browser",
   withTurnoAdd: "turno identity add browser:school",
 } as const;
@@ -64,8 +65,8 @@ export const PRINTS = {
 
 /** What the reader pastes into a coding agent so it sets turno-browser up for them. */
 const PROMPT = {
-  en: "Set up turno-browser for me. Run `npm install --global turno-browser`. Ask me what to call the identity, then run `turno-browser init --identity <name> --agent <agent>` with your own agent name (for example claude-code) and run the command it prints. In your session it skips the sign-in, so tell me to run `turno-browser login <name>` myself: I sign in by hand. The docs are at https://turno.wimo.dev/llms.txt.",
-  es: "Configura turno-browser por mí. Corre `npm install --global turno-browser`. Pregúntame cómo llamar a la identidad, luego corre `turno-browser init --identity <nombre> --agent <agente>` con el nombre de tu agente (por ejemplo claude-code) y corre el comando que imprime. En tu sesión se salta el inicio de sesión, así que dime que corra yo mismo `turno-browser login <nombre>`: inicio sesión a mano. La documentación está en https://turno.wimo.dev/llms.txt.",
+  en: "Set up turno-browser for me. Run `npm install --global turno-browser`. Ask me what to call the identity, then run `turno-browser init --identity <name> --agent <agent> --yes` with your own agent name (for example claude-code): it creates the identity and registers it with you. In your session it skips the sign-in, so tell me to run `turno-browser login <name>` myself: I sign in by hand. The docs are at https://turno.wimo.dev/llms.txt.",
+  es: "Configura turno-browser por mí. Corre `npm install --global turno-browser`. Pregúntame cómo llamar a la identidad, luego corre `turno-browser init --identity <nombre> --agent <agente> --yes` con el nombre de tu agente (por ejemplo claude-code): crea la identidad y la registra contigo. En tu sesión se salta el inicio de sesión, así que dime que corra yo mismo `turno-browser login <nombre>`: inicio sesión a mano. La documentación está en https://turno.wimo.dev/llms.txt.",
 } as const;
 
 export const CHAPTER_IDS = ["identities", "tabs", "vault"] as const;
@@ -77,7 +78,7 @@ export interface BrowserChapter extends SectionCopy {
 }
 
 /** The pictures of the opt-in features, by id. */
-export const OPT_IN_IDS = ["live", "sharing", "act", "captcha", "humanize", "read", "attach", "camoufox", "record", "network", "lighter"] as const;
+export const OPT_IN_IDS = ["live", "sharing", "policy", "act", "captcha", "humanize", "read", "attach", "camoufox", "record", "network", "lighter"] as const;
 export type OptInId = (typeof OPT_IN_IDS)[number];
 
 export interface Feature {
@@ -189,7 +190,7 @@ const en: BrowserCopy = {
     eyebrow: "turno-browser · Open source · Apache-2.0 · macOS and Linux",
     headline: ["A browser your agents use with ", "your accounts", "."],
     hook: "It stays light on your machine, and the model never sees your passwords.",
-    lead: "An MCP server for Claude Code, Codex, Cursor, Copilot CLI and Gemini CLI. It drives the Google Chrome you already have, with one persistent profile per identity.",
+    lead: "An MCP server for Claude Code, Codex, Cursor, Copilot CLI and Gemini CLI. It drives the Chrome you already have, or Brave or Edge, with one persistent profile per identity.",
     docs: "Read the docs",
     figure: "A Chrome window of the identity school: signed in, with two pages running and three parked, and a password field whose value is hidden.",
     prompt: {
@@ -233,7 +234,7 @@ const en: BrowserCopy = {
         { prompt: "…", run: "15 minutes without a call", note: "Chrome closes. The next call opens it again, with the same profile and cookies.", copyable: false },
         { prompt: "$", run: CMD.set, note: "Every limit is a setting of the identity." },
       ],
-      aside: "By default: 8 pages, parked after 5 minutes, closed after 15.",
+      aside: "By default: 8 pages, parked after 5 minutes, closed after 15. On a machine short of memory, --resources low keeps at most 2 pages and parks one you have not used for 2 minutes.",
       more: { text: "Tabs and lifecycle", href: `${DOCS}/tabs#tabs` },
       rest: "eight pages open",
     },
@@ -298,7 +299,7 @@ const en: BrowserCopy = {
   tags: { on: "on", optIn: "opt in" },
   facts: [
     { title: "On your machine", text: "No cloud browser, no telemetry and no bill per hour." },
-    { title: "The Chrome you have", text: "It drives the Google Chrome on your machine and downloads no browser." },
+    { title: "The browser you have", text: "Chrome by default, or Brave or Edge. It downloads one only if you ask." },
     { title: "No account, no API key", text: "Install it and it works." },
     { title: "Free and open source", text: "Apache-2.0." },
   ],
@@ -313,7 +314,7 @@ const en: BrowserCopy = {
       },
       {
         title: "The agent asks you for the step that is yours",
-        text: "For a password, a captcha, an emailed code or a second factor, the agent calls `browser_request_human`. The tab comes to the front with the instruction and a Done button, and every call waits. The agent learns that you finished, never what you typed.",
+        text: "For a password, a captcha, an emailed code or a second factor, the agent calls `browser_request_human`, and a passkey request hands you the browser by itself. The tab comes to the front with the instruction and a Done button, and every call waits. The agent learns that you finished, never what you typed.",
         run: "browser_request_human",
         more: { text: "When the agent asks for you", href: `${DOCS}/live-view#when-the-agent-asks-for-you` },
       },
@@ -364,6 +365,13 @@ const en: BrowserCopy = {
         run: CMD.sharing,
         more: { text: "Sharing a browser", href: `${DOCS}/sharing` },
         words: ["session"],
+      },
+      {
+        id: "policy",
+        title: "Keep an identity on its own sites",
+        text: "A policy lists the domains an identity's tabs may show and turns features off for good. Only the command line writes it: no tool of the agent can change it.",
+        run: CMD.policy,
+        more: { text: "Identity policy", href: `${DOCS}/policy` },
       },
       {
         id: "act",
@@ -441,7 +449,7 @@ const en: BrowserCopy = {
       { name: "your agents", items: ["Claude Code", "Codex", "Cursor", "Copilot CLI", "Gemini CLI"] },
       { name: "turno-browser", items: ["identities", "vault", "tabs and lifecycle", "portable sessions", "shared tabs", "record and replay", "live view"] },
       { name: "the driver", items: ["Playwright"] },
-      { name: "the browser", items: ["your Google Chrome"] },
+      { name: "the browser", items: ["Chrome", "Brave", "Edge"] },
     ],
     beside: "Each agent reaches it over MCP.",
     more: { text: "How it compares", href: `${DOCS}/alternatives` },
@@ -487,7 +495,7 @@ const es: BrowserCopy = {
     eyebrow: "turno-browser · Código abierto · Apache-2.0 · macOS y Linux",
     headline: ["Un navegador que tus agentes usan con ", "tus cuentas", "."],
     hook: "No carga tu máquina, y el modelo nunca ve tus contraseñas.",
-    lead: "Un servidor MCP para Claude Code, Codex, Cursor, Copilot CLI y Gemini CLI. Maneja el Google Chrome que ya tienes, con un perfil persistente por identidad.",
+    lead: "Un servidor MCP para Claude Code, Codex, Cursor, Copilot CLI y Gemini CLI. Maneja el Chrome que ya tienes, o Brave o Edge, con un perfil persistente por identidad.",
     docs: "Leer la documentación",
     figure: "Una ventana de Chrome de la identidad school: con sesión iniciada, dos páginas activas y tres en pausa, y un campo de contraseña con el valor oculto.",
     prompt: {
@@ -531,7 +539,7 @@ const es: BrowserCopy = {
         { prompt: "…", run: "15 minutos sin llamadas", note: "Chrome se cierra. La siguiente llamada lo abre otra vez, con el mismo perfil y las mismas cookies.", copyable: false },
         { prompt: "$", run: CMD.set, note: "Cada límite es un ajuste de la identidad." },
       ],
-      aside: "Por defecto: 8 páginas, en pausa a los 5 minutos, cerradas a los 15.",
+      aside: "Por defecto: 8 páginas, en pausa a los 5 minutos, cerradas a los 15. En una máquina con poca memoria, --resources low deja como máximo 2 páginas y pausa la que no hayas usado en 2 minutos.",
       more: { text: "Pestañas y ciclo de vida", href: `${DOCS}/tabs#tabs` },
       rest: "ocho páginas abiertas",
     },
@@ -596,7 +604,7 @@ const es: BrowserCopy = {
   tags: { on: "activo", optIn: "opcional" },
   facts: [
     { title: "En tu máquina", text: "Sin navegador en la nube, sin telemetría y sin cobro por hora." },
-    { title: "El Chrome que ya tienes", text: "Maneja el Google Chrome de tu máquina y no descarga ningún navegador." },
+    { title: "El navegador que ya tienes", text: "Chrome por defecto, o Brave o Edge. Solo descarga uno si se lo pides." },
     { title: "Sin cuenta ni API key", text: "Lo instalas y funciona." },
     { title: "Gratis y de código abierto", text: "Apache-2.0." },
   ],
@@ -611,7 +619,7 @@ const es: BrowserCopy = {
       },
       {
         title: "El agente te pide el paso que te toca a ti",
-        text: "Para una contraseña, un captcha, un código por correo o un segundo factor, el agente llama `browser_request_human`. La pestaña pasa al frente con la instrucción y un botón de listo, y todas las llamadas esperan. El agente se entera de que terminaste, nunca de lo que escribiste.",
+        text: "Para una contraseña, un captcha, un código por correo o un segundo factor, el agente llama `browser_request_human`, y cuando una página pide una passkey el navegador pasa a ti por sí solo. La pestaña pasa al frente con la instrucción y un botón de listo, y todas las llamadas esperan. El agente se entera de que terminaste, nunca de lo que escribiste.",
         run: "browser_request_human",
         more: { text: "Cuando el agente te necesita", href: `${DOCS}/live-view#when-the-agent-asks-for-you` },
       },
@@ -662,6 +670,13 @@ const es: BrowserCopy = {
         run: CMD.sharing,
         more: { text: "Compartir un navegador", href: `${DOCS}/sharing` },
         words: ["sesión"],
+      },
+      {
+        id: "policy",
+        title: "Mantén una identidad en sus propios sitios",
+        text: "Una política lista los dominios que pueden mostrar las pestañas de una identidad y apaga funciones de forma definitiva. Solo la línea de comandos la escribe: ninguna herramienta del agente puede cambiarla.",
+        run: CMD.policy,
+        more: { text: "Política de la identidad", href: `${DOCS}/policy` },
       },
       {
         id: "act",
@@ -739,7 +754,7 @@ const es: BrowserCopy = {
       { name: "tus agentes", items: ["Claude Code", "Codex", "Cursor", "Copilot CLI", "Gemini CLI"] },
       { name: "turno-browser", items: ["identidades", "bóveda", "pestañas y ciclo de vida", "sesiones portables", "pestañas compartidas", "grabar y repetir", "vista en vivo"] },
       { name: "el driver", items: ["Playwright"] },
-      { name: "el navegador", items: ["tu Google Chrome"] },
+      { name: "el navegador", items: ["Chrome", "Brave", "Edge"] },
     ],
     beside: "Cada agente llega a él por MCP.",
     more: { text: "Cómo se compara", href: `${DOCS}/alternatives` },
