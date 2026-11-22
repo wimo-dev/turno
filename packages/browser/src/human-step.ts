@@ -4,6 +4,7 @@ import { describeChanges, formatPause } from "./live.js";
 import { names } from "./names.js";
 import type { VaultGuard } from "./redact.js";
 import type { TurnoTool } from "./tools.js";
+import { DEFAULT_STEP_WAIT_MS, MAX_STEP_WAIT_MS, type StepInfo, parseWaitMs } from "./step-wait.js";
 import { type UiLocale, uiStrings } from "./ui-strings.js";
 import type { ToolResult, ToolSchema } from "./upstream.js";
 import { upstream } from "./upstream.js";
@@ -28,6 +29,12 @@ import type { BrowserWatch } from "./watch.js";
  *   clicks and changed fields the person made, never what they typed. A page where the person
  *   changed a password or code field is held by the vault guard until it navigates, so the
  *   script tools cannot read the value back.
+ * - A call waits for the step at most `waitMs` (`step-wait.ts`); then it says the step is still
+ *   open, and the agent calls again with `continue` to wait another piece. A new instruction
+ *   while a step is open is refused: the banner shows the first one, so joining would answer the
+ *   new instruction with what the person did for the old one, and changing the banner would
+ *   change what the person reads while they act. The refusal names the open step and how to
+ *   wait for it.
  */
 
 export const HUMAN_STEP_TOOL = "browser_request_human";
@@ -67,12 +74,26 @@ function schema(): ToolSchema {
       "Every browser call waits while the person acts. The step ends on the first of: the URL matches until.url or changes (until.urlChanges), until.selector is visible, the person presses Done, or the timeout (5 minutes by default, 10 at most).",
       "The result says why it ended, the tab's URL and title, what changed in the tabs and how many clicks and changed fields the person made; it never has what they typed. Take a snapshot before your next action.",
       "Write the instruction for a non-technical person, in their language. The browser must have a window, or the person must have the live view open.",
+      `A call waits at most waitMs (${DEFAULT_STEP_WAIT_MS / 1000} s by default). If the step is still open then, the result says so and the step goes on, with every other call held: call ${HUMAN_STEP_TOOL} again with { "continue": true } to keep waiting. While a step is open, a call with a new instruction is refused.`,
     ].join(" "),
     inputSchema: z.object({
       instruction: z
         .string()
+        .optional()
         .describe(
-          'What the person should do, in plain words, as the banner shows it (up to 500 characters), for example "Type your password and press Sign in."',
+          'What the person should do, in plain words, as the banner shows it (up to 500 characters), for example "Type your password and press Sign in." Needed unless continue is set.',
+        ),
+      continue: z
+        .union([z.boolean(), z.string()])
+        .optional()
+        .describe(
+          "Keep waiting for the step that is open (true), or for the step with this id, after a result said it is still waiting. The other arguments are ignored.",
+        ),
+      waitMs: z
+        .number()
+        .optional()
+        .describe(
+          `How long this call waits for the step before it returns, in milliseconds (default ${DEFAULT_STEP_WAIT_MS}, from 1000 to ${MAX_STEP_WAIT_MS}); keep it under your client's tool call timeout. The step's own timeout counts from when it began.`,
         ),
       element: z
         .string()
@@ -124,6 +145,23 @@ export function requestHumanTool(): TurnoTool {
       return await ctx.human(params);
     },
   };
+}
+
+/** What a call asks for: a new step, or more waiting for the open one (`continue`). */
+export type StepCall =
+  | { kind: "start"; params: StepParams; waitMs: number }
+  | { kind: "continue"; step: true | string; waitMs: number };
+
+/** A call's arguments, or why they are not a call of the tool. */
+export function parseStepCall(raw: Record<string, unknown>): StepCall | { error: string } {
+  const waitMs = parseWaitMs(raw.waitMs);
+  if (typeof waitMs !== "number") return waitMs;
+  const more = raw.continue;
+  if (more === true || (typeof more === "string" && more.trim()))
+    return { kind: "continue", step: more === true ? true : (more as string).trim(), waitMs };
+  if (more !== undefined && more !== false) return { error: "continue must be true or the id of a step" };
+  const params = parseStepParams(raw);
+  return "error" in params ? params : { kind: "start", params, waitMs };
 }
 
 /** The tool's arguments as the step uses them, or why they do not make a step. */
@@ -383,12 +421,11 @@ async function toFront(page: Page, window: boolean): Promise<void> {
   await page.bringToFront().catch(() => {});
 }
 
-/** Runs one person step on `deps.page` and says how it went. */
-export async function runHumanStep(params: StepParams, deps: StepDeps): Promise<ToolResult> {
-  const run = await runStep(params, deps);
-  if ("error" in run) return stepError(run.error, deps.json);
+/** How a step went (or why it did not start), as a result. */
+export function stepRunResult(params: StepParams, run: StepRun | { error: string }, json: boolean): ToolResult {
+  if ("error" in run) return stepError(run.error, json);
   const { targetClicked, ...rest } = run;
-  return stepResult({ params, ...rest, ...(params.requireHumanClick ? { targetClicked } : {}), json: deps.json });
+  return stepResult({ params, ...rest, ...(params.requireHumanClick ? { targetClicked } : {}), json });
 }
 
 /** Runs one person step on `deps.page`: what ended it and what changed, or why it did not start. */
@@ -545,6 +582,41 @@ export async function runStep(params: StepParams, deps: StepDeps): Promise<StepR
     liveInputs,
     targetClicked: totals.targetClicked,
   };
+}
+
+/** What the agent reads when a step has not ended within a call's wait: the step goes on. */
+export function stillWaiting(
+  step: { id: string; info: StepInfo },
+  elapsedMs: number,
+): { text: string; data: Record<string, unknown> } {
+  const left = Math.max(0, step.info.timeoutMs - elapsedMs);
+  const next = { continue: true };
+  const text = [
+    "### Person step still open",
+    `Step ${step.id} (${step.info.by}) has waited ${formatPause(elapsedMs)}; it times out in ${formatPause(left)} unless it ends first. The person is asked: ${JSON.stringify(step.info.instruction)}`,
+    `The banner is still up and every browser call waits until the step ends. Call ${HUMAN_STEP_TOOL} with ${JSON.stringify(next)} (or { "continue": "${step.id}" }) to keep waiting for it.`,
+  ].join("\n");
+  const data = {
+    waiting: true,
+    step: step.id,
+    by: step.info.by,
+    instruction: step.info.instruction,
+    waitedMs: elapsedMs,
+    timeoutMs: step.info.timeoutMs,
+    next: { tool: HUMAN_STEP_TOOL, arguments: next },
+  };
+  return { text, data };
+}
+
+/** A call's result when the step has not ended within its wait. */
+export function stillWaitingResult(step: { id: string; info: StepInfo }, elapsedMs: number, json: boolean): ToolResult {
+  const { text, data } = stillWaiting(step, elapsedMs);
+  return { content: [{ type: "text", text: json ? JSON.stringify(data, null, 2) : text }] };
+}
+
+/** Why a call with a new instruction is refused while `open` runs. */
+export function stepBusyMessage(open: { id: string; info: StepInfo }, elapsedMs: number): string {
+  return `a person step is open already: step ${open.id} (${open.info.by}, ${formatPause(elapsedMs)} so far) asks ${JSON.stringify(open.info.instruction)}. Call ${HUMAN_STEP_TOOL} with { "continue": true } to wait for it, then ask for the next step once it ended.`;
 }
 
 /** Why the step ended, in a sentence. */

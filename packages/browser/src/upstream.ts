@@ -221,6 +221,7 @@ export interface Zod {
   unknown(): ZodType;
   array(item: ZodType): ZodArray;
   record(key: ZodType, value: ZodType): ZodType;
+  union(options: ZodType[]): ZodType;
   toJSONSchema(schema: ZodObject): Record<string, unknown>;
   ZodError: new (...args: never[]) => Error;
   prettifyError(error: unknown): string;

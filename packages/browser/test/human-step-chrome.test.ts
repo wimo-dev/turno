@@ -281,18 +281,24 @@ describe.skipIf(reason)(`browser_request_human with a real Chrome${reason ? ` (s
     expect(noView.text).toContain("Ask the person to run `turno-browser live work`");
 
     const view = await openView("work");
-    const step = call(client, "browser_request_human", {
+    // A call waits one piece (waitMs); the step goes on, and the agent continues it.
+    const first = await call(client, "browser_request_human", {
       instruction: "Open page B.",
       until: { urlChanges: true, done: false },
+      waitMs: 1_000,
     });
+    expect(first.error, first.text).toBe(false);
+    expect(first.text).toMatch(/^### Person step still open\nStep s\w+ \(browser_request_human\)/);
     await stepStarted("work");
+    const again = await call(client, "browser_request_human", { instruction: "Something else." });
+    expect(again.text).toContain("a person step is open already");
     const other = call(client, "browser_snapshot", {}, "other-session");
     await until(
       () => liveStatus("work", sb.env),
       (s) => s?.waiting === 1,
     );
     await view.input({ type: "click", x: 200, y: 200 });
-    const out = await step;
+    const out = await call(client, "browser_request_human", { continue: true });
     expect(out.error, out.text).toBe(false);
     expect(out.text).toMatch(/^### Person step\nThe step ended after \d+s: the tab's URL changed\./);
     expect(out.text).toContain(`Current tab: ${web.url}/b ("B")`);
