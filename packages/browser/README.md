@@ -30,6 +30,10 @@ The docs are at [turno.wimo.dev/docs/browser](https://turno.wimo.dev/docs/browse
 - **Passwords should not pass through a model.** A vault in the OS secret store fills a sign-in
   form without the agent ever seeing the values.
 
+It has no account, no server of its own and no telemetry.
+[What leaves your machine](https://turno.wimo.dev/docs/browser/what-leaves-your-machine) lists
+every way data can go out, and each one is off until you turn it on or run it.
+
 ## Where it sits
 
 A driver moves the browser. turno-browser is the layer above it: it decides which browser that

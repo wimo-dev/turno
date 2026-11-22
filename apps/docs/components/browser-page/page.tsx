@@ -90,6 +90,9 @@ export function BrowserPage({ lang: given }: { lang: string }) {
             <Marked parts={t.optIn.headline} />
           </h2>
           <p className={`t-lead ${s.lead}`}>{t.optIn.lead}</p>
+          <Link href={localePath(lang, t.optIn.more.href)} className={s.link}>
+            {t.optIn.more.text} <span aria-hidden>→</span>
+          </Link>
           <OptIns t={t} lang={lang} labels={labels} />
         </div>
       </section>
