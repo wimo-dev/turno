@@ -13,6 +13,9 @@ name: release
 #            with Harden-Runner blocking every host outside its allow list (as in tag).
 #            Trusted publishing stages each version; a maintainer approves it on npmjs.com.
 #   tag      creates the git tags and GitHub releases of what was published.
+#   standalone  after a turno-browser release, the standalone executables (standalone.yml),
+#            built from the tarball that was published and uploaded to its GitHub release. It
+#            runs after npm has the version, so a failure here never holds back the npm release.
 on:
   push:
     branches: [main]
@@ -173,6 +176,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write # create tags and releases
+    outputs:
+      browser-version: ${{ steps.tag.outputs.browser-version }}
     steps:
       - uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
@@ -186,6 +191,7 @@ jobs:
           name: release
           path: release
       - name: Tag and release what was published
+        id: tag
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
@@ -201,4 +207,20 @@ jobs:
             gh api "repos/$REPO/git/refs" -f "ref=refs/tags/$name@$version" -f "sha=$SHA"
             gh release create "$name@$version" --repo "$REPO" --verify-tag "${flags[@]}" \
               --title "$name $version" --notes-file "${name}-${version}.notes.md" "${name}-${version}.cdx.json"
+            if [ "$name" = turno-browser ]; then echo "browser-version=$version" >> "$GITHUB_OUTPUT"; fi
           done
+
+  standalone:
+    name: standalone executables
+    needs: tag
+    if: needs.tag.outputs.browser-version != ''
+    permissions:
+      contents: write # upload the archives to the turno-browser release
+      id-token: write # sign their attestations
+      attestations: write # store their attestations
+    # A local reusable workflow already comes from the commit of this run; the newer "$/" form
+    # means the same and is not yet understood by every workflow linter.
+    uses: ./.github/workflows/standalone.yml # zizmor: ignore[self-repository]
+    with:
+      version: ${{ needs.tag.outputs.browser-version }}
+      release-artifact: release
