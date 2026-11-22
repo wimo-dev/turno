@@ -144,7 +144,8 @@ trabaja dentro de las sesiones que tú iniciaste a mano.
   existe.
 - **Credenciales que el agente nunca ve.** `turno browser vault add` guarda usuario, contraseña
   y un secreto TOTP opcional por sitio en el almacén de secretos del sistema, y la herramienta
-  `browser_login` los escribe en la página de inicio de sesión de ese sitio.
+  `browser_login` los escribe en la página de inicio de sesión de ese sitio. Una contraseña o
+  un código de un solo uso nunca regresa al agente, lo escriba quien lo escriba.
 - **Sesiones que se pueden mover.** `turno browser export <id> --out <archivo>` escribe las
   cookies y el almacenamiento de una identidad en un archivo cifrado con una frase, con
   vencimiento, y `turno browser import <archivo>` lo lee en otra máquina. La bóveda de

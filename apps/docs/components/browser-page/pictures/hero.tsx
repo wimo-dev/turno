@@ -128,7 +128,7 @@ export function HeroPicture({ lang }: { lang: Lang }) {
               </span>
               <span className={s.readout} data-on={lit === 2 || undefined}>
                 <span>
-                  {t.vault.password} <span className={s.vaulted}>[vault: ...]</span>
+                  {t.vault.password} <span className={s.vaulted}>[sensitive field]</span>
                 </span>
                 <span>{t.vault.model}</span>
               </span>
