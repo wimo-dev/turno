@@ -70,7 +70,11 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter turno-core --filter turno-browser run build
       - run: pnpm --filter turno-core --filter turno-browser run typecheck
-      - run: pnpm --filter turno-core --filter turno-browser run test
+      # The secret store tests drive POSIX shell stand-ins for security and secret-tool; the
+      # Windows secret store comes with its own tests.
+      - run: pnpm --filter turno-core exec vitest run --exclude test/secrets.test.ts
+      - run: pnpm --filter turno-browser run test
+        if: ${{ !cancelled() }}
 
   pull-request:
     name: pull request rules
