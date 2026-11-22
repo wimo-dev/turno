@@ -327,8 +327,8 @@ export async function init(c: Ctx, args: string[], io: Io, run: RunCommand = run
   let exit: number = Exit.ok;
   if (agent === "none") say(`Skipped. ${b} setup <agent> --identity ${id} prints it later.`);
   else {
-    const { command, onPath } = mcpCommand(io.env);
-    const cfg = setupConfig(agent, id, command);
+    const { command, args: lead, onPath } = mcpCommand(io.env);
+    const cfg = setupConfig(agent, id, command, lead);
     if (!onPath) cfg.notes.push("turno-browser-mcp is not on the PATH here, so this names it by its full path.");
     const info = agent === "json" ? undefined : AGENTS[agent];
     const register = info?.add?.(cfg.server, command, cfg.args) ?? null;
