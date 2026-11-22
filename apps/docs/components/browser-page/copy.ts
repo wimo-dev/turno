@@ -166,7 +166,7 @@ export interface BrowserCopy {
   tags: { on: string; optIn: string };
   facts: { title: string; text: string }[];
   included: { label: string; headline: Headline; items: Feature[] };
-  optIn: { label: string; headline: Headline; lead: string; items: OptIn[] };
+  optIn: { label: string; headline: Headline; lead: string; more: { text: string; href: string }; items: OptIn[] };
   layers: {
     label: string;
     headline: Headline;
@@ -297,7 +297,7 @@ const en: BrowserCopy = {
   },
   tags: { on: "on", optIn: "opt in" },
   facts: [
-    { title: "On your machine", text: "No cloud browser and no bill per hour." },
+    { title: "On your machine", text: "No cloud browser, no telemetry and no bill per hour." },
     { title: "The Chrome you have", text: "It drives the Google Chrome on your machine and downloads no browser." },
     { title: "No account, no API key", text: "Install it and it works." },
     { title: "Free and open source", text: "Apache-2.0." },
@@ -347,6 +347,7 @@ const en: BrowserCopy = {
     label: "opt in",
     headline: ["Off by default. ", "On when you say so", "."],
     lead: "Each of these is a setting of an identity. Nothing below runs until you turn it on, and each one turns off the same way.",
+    more: { text: "What leaves your machine, and what never does", href: `${DOCS}/what-leaves-your-machine` },
     items: [
       {
         id: "live",
@@ -594,7 +595,7 @@ const es: BrowserCopy = {
   },
   tags: { on: "activo", optIn: "opcional" },
   facts: [
-    { title: "En tu máquina", text: "Sin navegador en la nube ni cobro por hora." },
+    { title: "En tu máquina", text: "Sin navegador en la nube, sin telemetría y sin cobro por hora." },
     { title: "El Chrome que ya tienes", text: "Maneja el Google Chrome de tu máquina y no descarga ningún navegador." },
     { title: "Sin cuenta ni API key", text: "Lo instalas y funciona." },
     { title: "Gratis y de código abierto", text: "Apache-2.0." },
@@ -644,6 +645,7 @@ const es: BrowserCopy = {
     label: "opcional",
     headline: ["Apagado por defecto. ", "Encendido cuando tú digas", "."],
     lead: "Cada una es un ajuste de una identidad. Nada de esto corre hasta que lo enciendes, y se apaga de la misma forma.",
+    more: { text: "Qué sale de tu máquina, y qué nunca", href: `${DOCS}/what-leaves-your-machine` },
     items: [
       {
         id: "live",
