@@ -70,41 +70,54 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter turno-core --filter turno-browser run build
       - run: pnpm --filter turno-core --filter turno-browser run typecheck
-      - name: Trace the CLI's child processes (temporary)
+      - name: PowerShell timings (temporary)
         continue-on-error: true
         shell: pwsh
         run: |
-          $trace = @'
-          const cp = require("node:child_process");
-          for (const k of ["spawn", "spawnSync", "execFile", "execFileSync"]) {
-            const f = cp[k];
-            cp[k] = function (...a) {
-              const t = Date.now();
-              const r = f.apply(this, a);
-              const log = () => process.stderr.write(`[trace ${process.pid}] ${k} ${String(a[0]).slice(-60)} ${JSON.stringify(Array.isArray(a[1]) ? a[1].slice(0, 3) : "").slice(0, 100)} ${Date.now() - t}ms\n`);
-              if (r && typeof r.on === "function") r.on("exit", log); else log();
-              return r;
-            };
-          }
-          require("node:module").syncBuiltinESMExports();
-          '@
-          Set-Content -Path "$env:RUNNER_TEMP\trace.cjs" -Value $trace
           $js = @'
           const { spawnSync } = require("node:child_process");
           const { mkdtempSync } = require("node:fs");
           const { tmpdir } = require("node:os");
           const { join } = require("node:path");
           const e = process.env;
-          const home = mkdtempSync(join(tmpdir(), "tr-"));
+          console.log("PSModulePath=" + e.PSModulePath);
+          const ps = join(e.SystemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
           const keep = ["SystemRoot", "windir", "ComSpec", "PATHEXT", "TEMP", "TMP", "ProgramFiles", "ProgramFiles(x86)", "PATH"];
-          const env = { ...Object.fromEntries(keep.map((k) => [k, e[k]])), HOME: home, USERPROFILE: home, APPDATA: join(home, "AppData", "Roaming"), LOCALAPPDATA: join(home, "AppData", "Local"), XDG_CONFIG_HOME: join(home, ".config"), XDG_STATE_HOME: join(home, ".local", "state"), XDG_DATA_HOME: join(home, ".local", "share"), TURNO_NO_INPUT: "1", NODE_OPTIONS: `--require ${join(e.RUNNER_TEMP, "trace.cjs")}` };
-          const cli = join("packages", "browser", "dist", "cli", "main.js");
-          for (const args of [["add", "school"], ["doctor", "--no-launch", "--json"], ["do", "school", "session"], ["do", "school", "end"]]) {
+          const sys32 = `${e.SystemRoot}\\System32\\WindowsPowerShell\\v1.0\\Modules`;
+          const scripts = {
+            one: "1",
+            cim: "(Get-CimInstance Win32_Process).Count",
+            wmi: "Add-Type -AssemblyName System.Management; (New-Object System.Management.ManagementObjectSearcher('SELECT ProcessId FROM Win32_Process')).Get().Count",
+            dotnet: "[void][Reflection.Assembly]::LoadWithPartialName('System.Management'); ([System.Management.ManagementObjectSearcher]::new('SELECT ProcessId,ParentProcessId,CommandLine FROM Win32_Process')).Get().Count",
+            dpapi: "Add-Type -AssemblyName System.Security; [Security.Cryptography.ProtectedData]::Protect([byte[]](1,2,3), $null, 'CurrentUser').Length",
+            modpath: "$env:PSModulePath",
+          };
+          const envs = {
+            unset: {},
+            sys32: { PSModulePath: sys32 },
+            triple: { PSModulePath: `${e.ProgramFiles}\\WindowsPowerShell\\Modules;${sys32}` },
+            real: { PSModulePath: e.PSModulePath },
+          };
+          for (const [en, extra] of Object.entries(envs)) for (const [sn, script] of Object.entries(scripts)) {
+            if (en !== "unset" && (sn === "one" || sn === "modpath")) continue;
+            const home = mkdtempSync(join(tmpdir(), "ps-"));
+            const env = { ...Object.fromEntries(keep.map((k) => [k, e[k]])), HOME: home, USERPROFILE: home, APPDATA: join(home, "r"), LOCALAPPDATA: join(home, "l"), ...extra };
             const t = Date.now();
-            const r = spawnSync(process.execPath, [cli, ...args], { env, encoding: "utf8", timeout: 60000 });
-            console.log(`== ${args.join(" ")}: ${Date.now() - t}ms status=${r.status} ${r.error ? r.error.code : ""}`);
-            console.log((r.stderr || "").split("\n").filter((l) => l.startsWith("[trace")).join("\n"));
+            const r = spawnSync(ps, ["-NoProfile", "-NonInteractive", "-Command", script], { env, encoding: "utf8", timeout: 25000, windowsHide: true });
+            console.log(`${en} ${sn}: ${((Date.now() - t) / 1000).toFixed(1)}s status=${r.status} out=${(r.stdout || "").trim().slice(0, 200)} err=${(r.stderr || "").trim().split("\n")[0].slice(0, 150)} ${r.error ? r.error.code : ""}`);
           }
+          (async () => {
+            const { secretStore } = await import("./packages/core/dist/secrets.js");
+            for (const [en, extra] of Object.entries(envs)) {
+              const home = mkdtempSync(join(tmpdir(), "dp-"));
+              const env = { ...Object.fromEntries(keep.map((k) => [k, e[k]])), HOME: home, USERPROFILE: home, APPDATA: join(home, "r"), LOCALAPPDATA: join(home, "l"), ...extra };
+              const store = secretStore(env, "win32");
+              let t = Date.now();
+              try { await store.set("diag", "v1"); console.log(`dpapi ${en} set: ${Date.now() - t}ms`); } catch (err) { console.log(`dpapi ${en} set failed after ${Date.now() - t}ms: ${err.message}`); }
+              t = Date.now();
+              try { const v = await store.get("diag"); console.log(`dpapi ${en} get: ${Date.now() - t}ms value=${v}`); } catch (err) { console.log(`dpapi ${en} get failed after ${Date.now() - t}ms: ${err.message}`); }
+            }
+          })();
           '@
           node -e $js
       # The core suite, the Windows secret store's DPAPI round trip included.
