@@ -8,6 +8,7 @@ import { CHROME_PROXY_ARGS, resolveProxy } from "./network.js";
 import { acquireRuntimeLock } from "./runtime-lock.js";
 import { chromeEnv, keychainArgs, launchSettings, readIdentitySettings, systemTimezone } from "./settings.js";
 import { names } from "./names.js";
+import { type UiLocale, fill, uiLocale, uiStrings } from "./ui-strings.js";
 import type { Page } from "patchright-core";
 
 export interface LoginOptions {
@@ -74,10 +75,15 @@ function escapeHtml(text: string): string {
   return text.replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[ch]!);
 }
 
-/** The page a login opens without --url: what this window is and what to do in it. Works offline. */
-export function welcomePage(id: string, loginCommand = names().identity("login", id)): string {
+/**
+ * The page a login opens without --url: what this window is and what to do in it, in the
+ * identity's language (`ui-strings.ts`). Works offline.
+ */
+export function welcomePage(id: string, loginCommand = names().identity("login", id), locale: UiLocale = "en"): string {
   const name = escapeHtml(id);
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Sign in: ${name}</title>
+  const t = uiStrings(locale).welcome;
+  const command = `<code>${escapeHtml(loginCommand)} --url https://mail.example.com</code>`;
+  return `<!doctype html><html lang="${locale}"><head><meta charset="utf-8"><title>${fill(escapeHtml(t.title), { id: name })}</title>
 <style>
 :root{color-scheme:light dark;--fg:#111;--muted:#555;--bg:#fff;--line:#ddd;--accent:#2b55e6}
 @media (prefers-color-scheme:dark){:root{--fg:#eee;--muted:#aaa;--bg:#141414;--line:#333;--accent:#7d9bff}}
@@ -89,14 +95,12 @@ code{font:14px ui-monospace,Menlo,monospace;color:var(--accent)}
 ol{padding-left:20px}li{margin:8px 0}
 p.note{color:var(--muted);border-top:1px solid var(--line);padding-top:16px;margin-top:28px;font-size:14px}
 </style></head><body><main>
-<div class="tag">turno-browser &middot; identity <code>${name}</code></div>
-<h1>This is the Chrome your agent will use.</h1>
+<div class="tag">turno-browser &middot; ${escapeHtml(t.identity)} <code>${name}</code></div>
+<h1>${escapeHtml(t.heading)}</h1>
 <ol>
-<li>Type the address of a site your agent needs in the bar above, and sign in as you always do.</li>
-<li>Do the same for every site it needs, in this window or in new tabs.</li>
-<li>Close the window when you are done. The cookies stay in this profile, and the agent starts signed in.</li>
+${t.steps.map((step) => `<li>${escapeHtml(step)}</li>`).join("\n")}
 </ol>
-<p class="note">Next time you can open a site directly: <code>${escapeHtml(loginCommand)} --url https://mail.example.com</code></p>
+<p class="note">${fill(escapeHtml(t.next), { command })}</p>
 </main></body></html>`;
 }
 
@@ -166,7 +170,7 @@ export async function loginIdentity(id: string, options: LoginOptions = {}): Pro
     try {
       const page = ctx.pages()[0] ?? (await ctx.newPage());
       if (options.url) await page.goto(options.url).catch(() => undefined);
-      else await page.setContent(welcomePage(id)).catch(() => undefined);
+      else await page.setContent(welcomePage(id, undefined, uiLocale(settings))).catch(() => undefined);
       await closed;
       clearHealth(id, env);
       const result = { sites: [...sites].sort() };

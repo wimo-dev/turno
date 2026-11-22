@@ -81,6 +81,7 @@ import {
   parseArguments,
 } from "./tools.js";
 import { type Tuning, type TuningFlags, resolveTuning } from "./tuning.js";
+import { type UiLocale, uiLocale } from "./ui-strings.js";
 import { vaultHasSites } from "./vault.js";
 import {
   type BrowserBackendInstance,
@@ -370,6 +371,8 @@ interface Running {
   input?: HumanInput;
   /** The agent cursor, when someone can see the browser (`agent-cursor.ts`). */
   cursor?: AgentCursor;
+  /** The language of what the person sees in this browser: the identity's (`ui-strings.ts`). */
+  locale: UiLocale;
 }
 
 class SessionBackend extends EventEmitter implements ServerBackend {
@@ -465,6 +468,7 @@ class SessionBackend extends EventEmitter implements ServerBackend {
       }
       const settings = identity ? readIdentitySettings(identity.id, identity.env) : undefined;
       const tuning = resolveTuning(settings, this.host.tuning);
+      const locale = uiLocale(settings);
       this.recordSettings = settings?.record;
       const noTraces = config.capabilities?.includes("devtools")
         ? "the devtools capability records traces of its own"
@@ -541,7 +545,7 @@ class SessionBackend extends EventEmitter implements ServerBackend {
         live: this.host.live !== undefined,
         engine: launched.engine,
       })
-        ? new AgentCursor({ title, ...(identity ? { identity: identity.id } : {}) })
+        ? new AgentCursor({ title, locale, ...(identity ? { identity: identity.id } : {}) })
         : undefined;
       const humanized = input ? humanizeTools(stock, input) : stock;
       // Every backend of this browser (each session's too, with "sharing": "tabs") runs these tools.
@@ -686,6 +690,7 @@ class SessionBackend extends EventEmitter implements ServerBackend {
         ...(recording ? { recording } : {}),
         ...(input ? { input } : {}),
         ...(cursor ? { cursor } : {}),
+        locale,
       };
     })();
     promise.catch(() => {
@@ -1272,6 +1277,7 @@ class SessionBackend extends EventEmitter implements ServerBackend {
       ...(signal ? { signal } : {}),
       ...(progress ? { progress } : {}),
       currentPage: () => stock.currentPage(),
+      locale: running.locale,
     });
   }
 
@@ -1516,6 +1522,7 @@ function liveServerFor(
       }
     },
     log,
+    uiLocale: () => uiLocale(settings()),
   });
   server.start().catch((error) => log(`the live view did not start: ${(error as Error).message}`));
   return server;

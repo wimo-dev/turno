@@ -10,6 +10,7 @@ import { type LiveFile, type LivePolicy, PauseGate, type PauseHold, type TabStat
 import { deniedPage, livePage } from "./live-page.js";
 import type { Redactor, VaultGuard } from "./redact.js";
 import { names } from "./names.js";
+import { type UiLocale, fill, uiStrings } from "./ui-strings.js";
 import { type BrowserWatch, titleOf } from "./watch.js";
 
 /**
@@ -87,6 +88,8 @@ export interface LiveServerOptions {
   viewRefusal(engine: string | undefined): string | undefined;
   /** A line for stderr (the server's log); never a token or a code. */
   log?(line: string): void;
+  /** The language of the page and of its answers to the page (`ui-strings.ts`); English without it. */
+  uiLocale?(): UiLocale;
 }
 
 /** How long a link's code works. */
@@ -603,7 +606,7 @@ export class LiveServer implements BrowserWatch {
       const method = req.method ?? "GET";
       if (!trusted && method === "GET" && url.pathname === "/" && url.searchParams.has("code")) {
         if (!this.takeCode(url.searchParams.get("code") ?? ""))
-          return this.send(res, 403, "text/html; charset=utf-8", deniedPage(this.o.identity.id));
+          return this.send(res, 403, "text/html; charset=utf-8", deniedPage(this.o.identity.id, this.locale()));
         return this.send(res, 303, "text/plain", "", {
           Location: "/",
           "Set-Cookie": `${this.cookieName}=${this.token}; HttpOnly; SameSite=Strict; Path=/`,
@@ -611,7 +614,7 @@ export class LiveServer implements BrowserWatch {
       }
       if (!trusted && !this.cookieOk(req)) {
         if (method === "GET" && url.pathname === "/")
-          return this.send(res, 401, "text/html; charset=utf-8", deniedPage(this.o.identity.id));
+          return this.send(res, 401, "text/html; charset=utf-8", deniedPage(this.o.identity.id, this.locale()));
         return this.json(res, 401, { error: "not signed in to this live view" });
       }
       if (method === "POST" && !trusted && !this.originOk(req))
@@ -619,7 +622,7 @@ export class LiveServer implements BrowserWatch {
       const route = `${method} ${url.pathname}`;
       if (route === "GET /" && !trusted) {
         const nonce = randomBytes(16).toString("base64");
-        return this.send(res, 200, "text/html; charset=utf-8", livePage(nonce), {
+        return this.send(res, 200, "text/html; charset=utf-8", livePage(nonce, this.locale()), {
           "Content-Security-Policy": `default-src 'none'; script-src 'nonce-${nonce}'; style-src 'nonce-${nonce}'; img-src data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
         });
       }
@@ -642,7 +645,7 @@ export class LiveServer implements BrowserWatch {
         if (body.tab === null || body.tab === undefined) this.pinned = undefined;
         else {
           const page = this.pages().find((p) => this.idOf(p) === body.tab);
-          if (!page) throw new HttpError(404, "no such tab (it may have closed)");
+          if (!page) throw new HttpError(404, uiStrings(this.locale()).live.noSuchTab);
           this.pinned = page;
         }
         await this.retarget();
@@ -686,14 +689,19 @@ export class LiveServer implements BrowserWatch {
 
   /** Why input from the view cannot go to the page now. */
   private inputRefusal(page: Page | undefined): string | undefined {
+    const t = uiStrings(this.locale()).live;
     const reason = this.refusal();
-    if (reason) return reason;
-    if (!this.paused) return "Pause first: input from the view goes to the page only while the agent waits.";
-    if (this.busy) return "A call that started before the pause is still running; try again when it ends.";
-    if (!page) return "There is no tab to send it to.";
-    if (this.o.guard.holds(page))
-      return "This page holds a vault or sensitive value, so the view hides it; use the browser window for it.";
+    if (reason) return fill(t.noView, { reason });
+    if (!this.paused) return t.pauseFirst;
+    if (this.busy) return t.busy;
+    if (!page) return t.noTab;
+    if (this.o.guard.holds(page)) return t.hiddenInput;
     return undefined;
+  }
+
+  /** The language of the page and of its answers to it. */
+  private locale(): UiLocale {
+    return this.o.uiLocale?.() ?? "en";
   }
 
   private async input(body: Record<string, unknown>): Promise<void> {

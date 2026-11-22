@@ -4,6 +4,7 @@ import { describeChanges, formatPause } from "./live.js";
 import { names } from "./names.js";
 import type { VaultGuard } from "./redact.js";
 import type { TurnoTool } from "./tools.js";
+import { type UiLocale, uiStrings } from "./ui-strings.js";
 import type { ToolResult, ToolSchema } from "./upstream.js";
 import { upstream } from "./upstream.js";
 import type { BrowserWatch } from "./watch.js";
@@ -30,26 +31,6 @@ import type { BrowserWatch } from "./watch.js";
  */
 
 export const HUMAN_STEP_TOOL = "browser_request_human";
-
-/** What the banner says to the person. */
-interface StepStrings {
-  title: string;
-  done: string;
-  /** Under the instruction, with a Done button. */
-  hintDone: string;
-  /** Under the instruction, without one (the step ends by itself). */
-  hintAuto: string;
-}
-
-/** Every person-facing text of the banner, by locale: one place to add a language. */
-const HUMAN_STEP_STRINGS = {
-  en: {
-    title: "Your turn",
-    done: "Done",
-    hintDone: "The agent is waiting for you. Press Done when you have finished.",
-    hintAuto: "The agent is waiting for you and goes on by itself once this step is done.",
-  },
-} as const satisfies Record<string, StepStrings>;
 
 export const DEFAULT_STEP_TIMEOUT_MS = 5 * 60_000;
 const MAX_STEP_TIMEOUT_MS = 10 * 60_000;
@@ -324,7 +305,8 @@ export interface StepDeps {
   progress?: (elapsedMs: number, message: string) => void;
   /** The session's current tab when the step ends. */
   currentPage(): Page | undefined;
-  locale?: keyof typeof HUMAN_STEP_STRINGS;
+  /** The language of the banner (`ui-strings.ts`); English without it. */
+  locale?: UiLocale;
   pollMs?: number;
   drainMs?: number;
   now?: () => number;
@@ -415,7 +397,7 @@ export async function runHumanStep(params: StepParams, deps: StepDeps): Promise<
   const drainEnd = now() + (deps.drainMs ?? DRAIN_MS);
   while (watch.inFlight > 0 && now() < drainEnd) await sleep(25);
 
-  const strings = HUMAN_STEP_STRINGS[deps.locale ?? "en"];
+  const strings = uiStrings(deps.locale).step;
   const view: StepView = {
     step: `${began.toString(36)}${Math.random().toString(36).slice(2, 8)}`,
     lang: deps.locale ?? "en",

@@ -75,8 +75,8 @@ function http(
 }
 
 /** Signs in with a fresh link and returns the cookie header. */
-async function signIn(port: number): Promise<string> {
-  const link = new URL(await liveLink("work", sb.env));
+async function signIn(port: number, id = "work"): Promise<string> {
+  const link = new URL(await liveLink(id, sb.env));
   const res = await http(port, "GET", `${link.pathname}${link.search}`);
   expect(res.status).toBe(303);
   const cookie = String(res.headers["set-cookie"]).split(";")[0]!;
@@ -228,15 +228,18 @@ describe("the live view in the host", () => {
     return h;
   }
 
-  it("is off by default, and on with identity.json live.enabled or --live", async () => {
+  it("is off by default, and on with identity.json live.enabled or --live, in the identity's language", async () => {
     addIdentity("plain", sb.env);
     expect((await host("plain")).live).toBeUndefined();
     expect((await host("plain", { live: true })).live).toBeDefined();
     addIdentity("on", sb.env);
-    writeIdentitySettings("on", { live: { enabled: true, wait: "10s" } }, sb.env);
+    writeIdentitySettings("on", { locale: "es-MX", live: { enabled: true, wait: "10s" } }, sb.env);
     const h = await host("on");
     expect(h.live?.waitMs).toBe(10_000);
-    expect((await liveStatus("on", sb.env))?.view).toEqual({ available: true, headless: true });
+    const status = await liveStatus("on", sb.env);
+    expect(status?.view).toEqual({ available: true, headless: true });
+    const page = await http(status!.port, "GET", "/", { cookie: await signIn(status!.port, "on") });
+    expect(page.body).toMatch(/<html lang="es">[\s\S]*>Pausar</);
   });
 
   it("holds the natural language and captcha tools like any browser call, and not the flow list", async () => {

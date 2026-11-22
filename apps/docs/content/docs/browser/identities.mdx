@@ -48,6 +48,12 @@ browser:school
 
 The [agent cursor](/docs/browser/agent-cursor) row is the `cursor` setting. They are applied at every Chrome start: languages go to Chrome's own `--accept-lang`, the locale to `--lang`, and the time zone is emulated only when it differs from the machine's. An identity without the file uses Chrome's defaults.
 
+The locale also picks the language of what a person sees in the browser: the [live view](/docs/browser/live-view) page, the banner and Done button of a person step (`browser_request_human`), the [agent cursor](/docs/browser/agent-cursor)'s badge and the page `turno-browser login` opens. A Spanish locale (`es`, `es-MX`, `es-419`) shows them in Spanish; any other locale, or none, in English. Without a locale, the first entry of `languages` decides. Tool results, tool descriptions and CLI output stay in English, since agents and developers read them.
+
+```sh
+turno-browser set school --locale es-MX
+```
+
 ## One Chrome per identity
 
 While a server drives an identity's Chrome it holds a runtime lock. A second session on the same identity gets an error that names the process holding it and how to stop it, instead of Chrome's "Browser is already in use". That is also why an identity is declared as a `shared`, `exclusive` server ([Scopes](/docs/concepts/scopes#exclusive-shared-one-session-at-a-time)): one agent session uses it at a time, unless you turn on tab sharing.
