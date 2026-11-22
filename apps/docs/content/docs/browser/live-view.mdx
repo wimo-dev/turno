@@ -67,6 +67,45 @@ How it is protected:
 - Your input in the view is not logged, traced or recorded in a flow; a flow being recorded does
   not have what you did, and the resume note says so.
 
+## When the agent asks for you
+
+Some steps only you may do: typing a password, solving a captcha, entering a code from an email
+or a text message, a second factor, accepting terms or giving consent. For those the agent calls
+`browser_request_human` instead of acting itself. It works with the live view on or off:
+
+```json
+{
+  "instruction": "Type your password and press Sign in.",
+  "target": "e12",
+  "until": { "urlChanges": true, "timeoutMs": 300000 },
+  "requireHumanClick": false
+}
+```
+
+- The agent's tab comes to the front (and its window back from the dock), with a banner at the
+  bottom of the page that shows the instruction and a Done button, and a ring around `target`
+  (a ref from the agent's last snapshot, or a selector, as `browser_click` takes). The banner is
+  drawn again on every page you open during the step, and goes away when it ends. The live view
+  shows it too.
+- Every call of every session waits while you act, as during a pause: calls already running
+  finish first, so no input of the agent's reaches the page while the banner is up.
+- The step ends on the first of: the URL matches `until.url` (a glob like `**/dashboard*`, a
+  regular expression written `/.../`, or text the URL contains) or changes (`until.urlChanges`),
+  `until.selector` is visible, you press Done (`until.done: false` hides the button), you resume
+  the agent (Resume in the view, or `turno-browser resume`), or the timeout: 5 minutes by
+  default, up to 10 (`until.timeoutMs`). That is longer than the live wait, because typing a
+  password and solving a captcha, or fetching a code from your email, takes minutes.
+- Done counts only a click the browser made from real input (your mouse or keys, or the live
+  view's), never one a page script dispatches. With `requireHumanClick` the result says whether
+  your own click landed on the target.
+- The agent learns why the step ended, the tab's URL and title, the tabs opened and closed, and
+  how many times you clicked and how many fields you changed. It never gets what you typed. A
+  page where you typed into a password or code field is held like a vault fill: the script tools
+  are refused on it until it navigates.
+- With a headless Chrome there is no window: the step needs the live view open
+  (`turno-browser live <id>`), and the agent is told to ask you for it when it is not. Read mode
+  and Camoufox do not have the tool.
+
 With the other settings:
 
 - Attach mode: you already see the agent's tabs in your own Chrome, and a view would stream your

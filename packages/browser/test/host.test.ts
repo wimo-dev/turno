@@ -13,7 +13,7 @@ import {
 } from "../src/engine.js";
 import { readHealth } from "../src/health.js";
 import { writeIdentitySettings } from "../src/settings.js";
-import { CallIdleTimer, SERVER_INFO, createHost, mergeTextParts, serve } from "../src/host.js";
+import { CallIdleTimer, SERVER_INFO, createHost, mergeTextParts, serve, unseenReason } from "../src/host.js";
 import { SESSION_META_KEY } from "../src/session.js";
 import { TURNO_TOOLS, type TurnoTool, checkTurnoTools, turnoZod } from "../src/tools.js";
 import { type IdleTimerLike, type McpConfig, upstream } from "../src/upstream.js";
@@ -304,6 +304,15 @@ function idleEngine(idleTimer: IdleTimerLike): Engine {
   };
 }
 
+describe("a person step on a headless Chrome", () => {
+  it("starts only while the live view has a viewer, and otherwise says how to open one", () => {
+    expect(unseenReason({ viewerCount: 1 }, "work")).toBeUndefined();
+    expect(unseenReason({ viewerCount: 0 }, "work")).toContain("`turno-browser live work`");
+    expect(unseenReason(undefined, "work")).toContain("`turno-browser set work --live true`");
+    expect(unseenReason(undefined, undefined)).toContain("without --headless");
+  });
+});
+
 describe("idle limit", () => {
   it("does not count while a call runs, and counts again from the end of the last call", async () => {
     const timer = recordingTimer();
@@ -373,8 +382,15 @@ describe("idle limit", () => {
 describe("turno tool registry", () => {
   const stock = () => upstream().tools.browserTools;
 
-  it("ships browser_batch, browser_login and the flow tools, after the stock tools", () => {
-    const names = ["browser_batch", "browser_login", "browser_record", "browser_replay", "browser_flows"];
+  it("ships browser_batch, browser_login, the flow tools and browser_request_human, after the stock tools", () => {
+    const names = [
+      "browser_batch",
+      "browser_login",
+      "browser_record",
+      "browser_replay",
+      "browser_flows",
+      "browser_request_human",
+    ];
     expect(TURNO_TOOLS.map((t) => t.schema.name)).toEqual(names);
     const host = createHost({
       config: { server: {}, browser: { browserName: "chromium", launchOptions: {} } } as McpConfig,

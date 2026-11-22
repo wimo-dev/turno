@@ -8,6 +8,7 @@ import { writeIdentitySettings } from "../src/settings.js";
 import { TURNO_TOOLS, type TurnoTool, allOptInTools, checkTurnoTools, turnoZod } from "../src/tools.js";
 import { type McpConfig, upstream } from "../src/upstream.js";
 import { type Sandbox, sandbox } from "./helpers/sandbox.js";
+import { TOOL_NAMES } from "./helpers/upstream-tools.js";
 
 /**
  * The opt-in tools in the host, without a browser: listed only when identity.json turns them
@@ -74,29 +75,32 @@ async function connect(options: {
   return client;
 }
 
+/** The stock tools and the turno tools: what every identity lists before its opt-in tools. */
+const LISTED = TOOL_NAMES.length + TURNO_TOOLS.length;
+
 const names = async (client: Client) => (await client.listTools()).tools.map((t) => t.name);
 
 describe("opt-in tools in the host", () => {
   it("are not listed by default, nor for an identity that does not turn them on", async () => {
     const plain = await connect({});
-    expect(await names(plain)).toHaveLength(30);
+    expect(await names(plain)).toHaveLength(LISTED);
     writeIdentitySettings("work", { region: "MX" }, sb.env);
     const identity = await connect({ identity: { id: "work", env: sb.env } });
     const listed = await names(identity);
-    expect(listed).toHaveLength(30);
+    expect(listed).toHaveLength(LISTED);
     for (const t of ["browser_act", "browser_extract", "browser_observe", "browser_solve_captcha"])
       expect(listed).not.toContain(t);
   });
 
   it("are listed after the turno tools when identity.json turns them on", async () => {
     writeIdentitySettings("work", { act: {} }, sb.env);
-    expect((await names(await connect({ identity: { id: "work", env: sb.env } }))).slice(30)).toEqual([
+    expect((await names(await connect({ identity: { id: "work", env: sb.env } }))).slice(LISTED)).toEqual([
       "browser_act",
       "browser_extract",
       "browser_observe",
     ]);
     writeIdentitySettings("work", { captcha: SOLVER }, sb.env);
-    expect((await names(await connect({ identity: { id: "work", env: sb.env } }))).slice(30)).toEqual([
+    expect((await names(await connect({ identity: { id: "work", env: sb.env } }))).slice(LISTED)).toEqual([
       "browser_act",
       "browser_extract",
       "browser_observe",

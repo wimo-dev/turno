@@ -76,6 +76,7 @@ const NOT_IN_READ_MODE: Readonly<Record<string, string>> = {
   browser_run_code_unsafe: "read mode runs only the reading tools",
   browser_login: "read mode keeps no vault sign-ins; it is meant for public pages",
   browser_solve_captcha: "read mode runs no captcha widget to solve",
+  browser_request_human: "Lightpanda shows no window and no picture, so the person has no page to act on",
 };
 
 /** Why read mode refuses this tool, or undefined when it runs it. */

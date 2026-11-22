@@ -6,10 +6,11 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import type { BrowserContext, CDPSession, Page } from "patchright-core";
 import type { IdentityRef } from "./engine.js";
-import { type LiveFile, type LivePolicy, PauseGate, type TabState, liveFilePath } from "./live.js";
+import { type LiveFile, type LivePolicy, PauseGate, type PauseHold, type TabState, liveFilePath } from "./live.js";
 import { deniedPage, livePage } from "./live-page.js";
 import type { Redactor, VaultGuard } from "./redact.js";
 import { names } from "./names.js";
+import { type BrowserWatch, titleOf } from "./watch.js";
 
 /**
  * The live view server of one turno-browser-mcp process, when identity.json `live.enabled` or
@@ -127,18 +128,6 @@ function plainUrl(url: string): string {
   }
 }
 
-async function titleOf(page: Page): Promise<string> {
-  let timer: NodeJS.Timeout | undefined;
-  const late = new Promise<string>((r) => {
-    timer = setTimeout(() => r(""), 1_000);
-  });
-  try {
-    return await Promise.race([page.title().catch(() => ""), late]);
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
 function sameSecret(a: string, b: string): boolean {
   const x = Buffer.from(a);
   const y = Buffer.from(b);
@@ -179,7 +168,7 @@ const num = (v: unknown, min: number, max: number): number => {
   return v;
 };
 
-export class LiveServer {
+export class LiveServer implements BrowserWatch {
   readonly gate = new PauseGate();
   private browser: LiveBrowser | undefined;
   /** The browser `onPause` was called for, so `onResume` goes to the same one. */
@@ -214,6 +203,15 @@ export class LiveServer {
 
   get waitMs(): number {
     return this.o.policy.waitMs;
+  }
+
+  get inFlight(): number {
+    return this.busy;
+  }
+
+  /** Views open now. */
+  get viewerCount(): number {
+    return this.viewers.size;
   }
 
   /** The control socket path (tests). */
@@ -389,10 +387,12 @@ export class LiveServer {
   }
 
   /** Pauses the agent. `front`: bring the shown tab to the front of a headed window. */
-  async pause(by: string, front = false): Promise<boolean> {
-    if (!this.gate.start(by, this.tabStates())) return false;
+  async pause(by: string, front = false, hold: PauseHold = {}): Promise<boolean> {
+    if (!this.gate.start(by, this.tabStates(), hold)) return false;
     this.o.log?.(
-      `"${this.o.identity.id}" paused (${by}); the agent's next call waits up to ${this.o.policy.waitMs / 1000}s`,
+      hold.step
+        ? `"${this.o.identity.id}" waits for the person (${by}); every call waits until the step ends`
+        : `"${this.o.identity.id}" paused (${by}); the agent's next call waits up to ${this.o.policy.waitMs / 1000}s`,
     );
     const b = this.browser;
     if (b) {

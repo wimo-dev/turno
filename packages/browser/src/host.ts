@@ -33,8 +33,18 @@ import { AgentCursor, CursorInput, cursorTools, resolveCursor } from "./agent-cu
 import { HumanInput, adaptiveSites, humanizeTools } from "./human-input.js";
 import { identityStateDir } from "./ids.js";
 import { idleMs } from "./idle-timer.js";
-import { type LiveFlags, describeChanges, resolveLive, resumeNote, timeoutMessage, viewRefusal } from "./live.js";
+import { HUMAN_STEP_TOOL, parseStepParams, runHumanStep } from "./human-step.js";
+import {
+  type LiveFlags,
+  describeChanges,
+  pausedWhileRunningNote,
+  resolveLive,
+  resumeNote,
+  timeoutMessage,
+  viewRefusal,
+} from "./live.js";
 import { LiveServer } from "./live-server.js";
+import { names } from "./names.js";
 import { NETWORK_TOOLS, redactNetworkText } from "./network-redact.js";
 import { FlowRecorder, type PendingStep } from "./recorder.js";
 import { Recording, tracesTmpDir } from "./recordings.js";
@@ -87,6 +97,7 @@ import {
   toMcpTool,
   upstream,
 } from "./upstream.js";
+import { type BrowserWatch, PlainWatch } from "./watch.js";
 
 /**
  * turno-browser as the MCP server host.
@@ -115,6 +126,8 @@ import {
  *   routed to the calling session, when the client offers it;
  * - with the live view on (identity.json `live`, `--live`), holds every browser call while the
  *   user has paused the agent, and tells the held call what changed (`live.ts`, `live-server.ts`);
+ *   a person step (`browser_request_human`, `human-step.ts`) holds them the same way, with the live
+ *   view or without it (`watch.ts`);
  * - masks password and one-time code fields in every page snapshot and hides their values from
  *   every result, whoever typed them, refuses the agent's typing into them (`sensitive.ts`), drops
  *   credential values from network output (`network-redact.ts`), and says when a result ends on
@@ -165,6 +178,9 @@ export interface Host {
   /** The live view server, when the live view is on for the identity served. */
   live?: LiveServer;
 }
+
+/** Tells the client a long call is still at work: MCP progress, when the call asked for it. */
+type Progress = (elapsedMs: number, message: string) => void;
 
 /** Upstream joins the text parts of a result into one (`mergeTextParts`). */
 export function mergeTextParts(result: ToolResult): ToolResult {
@@ -373,6 +389,8 @@ class SessionBackend extends EventEmitter implements ServerBackend {
   private readonly fieldsRead = new WeakMap<Page, number>();
   /** The challenge check of each page's last load, until a result reports it. */
   private readonly challenges = new WeakMap<Page, Promise<Omit<ChallengeEvent, "ts"> | undefined>>();
+  /** The pause gate and the tabs of this browser: the live server, or a plain watch without it. */
+  private readonly watch: BrowserWatch;
 
   constructor(
     private readonly host: {
@@ -396,6 +414,7 @@ class SessionBackend extends EventEmitter implements ServerBackend {
     private readonly title: (clientInfo: ClientInfo) => string,
   ) {
     super();
+    this.watch = host.live ?? new PlainWatch();
   }
 
   async initialize(clientInfo: ClientInfo): Promise<void> {
@@ -619,10 +638,12 @@ class SessionBackend extends EventEmitter implements ServerBackend {
           throw error;
         }
       }
-      if (this.host.live) {
+      // The watch (the live server, or a plain one without the live view) holds this browser
+      // during a pause: the user's own, or a person step's.
+      {
         const tabs = governor;
         let endIdle: (() => void) | undefined;
-        unbindLive = this.host.live.bind({
+        unbindLive = this.watch.bind({
           context: launched.context,
           engine: launched.engine,
           userBrowser: launched.userBrowser === true,
@@ -685,10 +706,11 @@ class SessionBackend extends EventEmitter implements ServerBackend {
     session?: string,
     sample?: Sampler,
     client?: string,
+    progress?: Progress,
   ): Promise<ToolResult> {
     if (client && session) this.clients.set(session, client);
     const started = performance.now();
-    let result = await this.callLive(name, args, signal, session, sample);
+    let result = await this.callLive(name, args, signal, session, sample, progress);
     if (this.touchesBrowser(name)) result = await this.afterCall(name, args, result, session, started);
     // Every result and error of this server leaves through the redactor.
     return this.host.redactor.result(result);
@@ -781,9 +803,10 @@ class SessionBackend extends EventEmitter implements ServerBackend {
   }
 
   /**
-   * A call through the live view's pause gate (`live.ts`): it runs at once unless the user
-   * paused the agent; then it waits, and on resume it runs, or returns an error with a fresh
-   * snapshot when the browser changed and the call does more than read.
+   * A call through the pause gate (`live.ts`): it runs at once unless the user paused the agent
+   * (the live view) or a person step holds the browser; then it waits, and on resume it runs, or
+   * returns an error with a fresh snapshot when the browser changed and the call does more than
+   * read. A person step itself is not counted as a call in flight: it waits for those.
    */
   private async callLive(
     name: string,
@@ -791,53 +814,53 @@ class SessionBackend extends EventEmitter implements ServerBackend {
     signal: AbortSignal | undefined,
     session: string | undefined,
     sample?: Sampler,
+    progress?: Progress,
   ): Promise<ToolResult> {
-    const live = this.host.live;
-    if (!live || !this.touchesBrowser(name)) return await this.callAny(name, args, signal, session, sample);
+    if (!this.touchesBrowser(name)) return await this.callAny(name, args, signal, session, sample, progress);
+    const watch = this.watch;
+    const step = name === HUMAN_STEP_TOOL;
     const json = !!(args._meta as { json?: boolean } | undefined)?.json;
     const key = session ?? DIRECT_SESSION;
-    const outcome = await live.gate.wait(live.waitMs, signal);
+    const outcome = await watch.gate.wait(watch.waitMs, signal);
     if (outcome.kind === "timeout")
       return errorResult(
-        timeoutMessage(this.host.identity?.id ?? "", name, outcome.pausedMs, outcome.by, live.waitMs),
+        timeoutMessage(this.host.identity?.id ?? "", name, outcome.pausedMs, outcome.by, watch.waitMs),
         json,
       );
     if (outcome.kind === "aborted") return errorResult(`${name} was cancelled while the user had the browser`, json);
-    const end = live.begin();
+    const end = step ? () => {} : watch.begin();
     try {
       if (outcome.kind === "open") {
-        const result = await this.callAny(name, args, signal, session, sample);
-        if (!live.paused) return result;
-        return withNote(
-          result,
-          "### Paused by the user\nThe user paused this browser while this call ran. Your next call waits until they resume.",
-          json,
-        );
+        const result = await this.callAny(name, args, signal, session, sample, progress);
+        const paused = watch.gate.paused;
+        if (!paused || step) return result;
+        return withNote(result, pausedWhileRunningNote(paused.step), json);
       }
-      const beforePage = live.lastPage(key);
+      const beforePage = watch.lastPage(key);
       const afterPage = beforePage ? await this.currentPageOf(key) : undefined;
-      const after = await live.tabStates();
+      const after = await watch.tabStates();
       const { changed, lines } = describeChanges(
         outcome.before,
         after,
-        beforePage ? live.idOf(beforePage) : undefined,
-        afterPage ? live.idOf(afterPage) : undefined,
+        beforePage ? watch.idOf(beforePage) : undefined,
+        afterPage ? watch.idOf(afterPage) : undefined,
         outcome.inputs,
       );
       const note = {
         pausedMs: outcome.pausedMs,
         by: outcome.by,
+        step: outcome.step,
         lines,
         tool: name,
         recordingFlow: this.recorderFor(session)?.recording !== undefined,
       };
       if (!changed || this.readsOnly(name)) {
-        const result = await this.callAny(name, args, signal, session, sample);
+        const result = await this.callAny(name, args, signal, session, sample, progress);
         return withNote(result, resumeNote({ ...note, ran: true }), json);
       }
       // A call that was not run is an error, so a client that reads only the outcome (a script,
       // turno browser do) does not take it for done.
-      const notRun = `### Error\n${name} was not run: the user changed the browser while you waited (below).`;
+      const notRun = `### Error\n${name} was not run: ${outcome.step ? "the person" : "the user"} changed the browser while you waited (below).`;
       if (!this.launched?.isOpen()) {
         const text = `${notRun}\n\n${resumeNote({ ...note, ran: false, noBrowser: true })}`;
         return errorResultOf(json ? JSON.stringify({ isError: true, error: text }, null, 2) : text);
@@ -870,6 +893,7 @@ class SessionBackend extends EventEmitter implements ServerBackend {
     signal?: AbortSignal,
     session?: string,
     sample?: Sampler,
+    progress?: Progress,
   ): Promise<ToolResult> {
     const tool = this.host.turno.get(name);
     if (!tool) return await this.callStock(name, args, signal, {}, session);
@@ -890,6 +914,7 @@ class SessionBackend extends EventEmitter implements ServerBackend {
     let recording: Recording | undefined;
     let engine: string | undefined;
     let input: HumanInput | undefined;
+    let human: ((params: Record<string, unknown>) => Promise<ToolResult>) | undefined;
     if (tool.browser !== false) {
       const running = await this.browser();
       engine = running.launched.engine;
@@ -918,6 +943,10 @@ class SessionBackend extends EventEmitter implements ServerBackend {
       }
       stock = this.stockAccess(view, signal, session);
       recording = running.recording;
+      if (name === HUMAN_STEP_TOOL) {
+        const access = stock;
+        human = (params) => this.requestHuman(running, access, params, json, session, signal, progress);
+      }
     }
     const recorder = this.recorderFor(session);
     const secretHook = this.secretHook(recording);
@@ -935,6 +964,7 @@ class SessionBackend extends EventEmitter implements ServerBackend {
         ...(sample ? { sample } : {}),
         ...(engine ? { engine } : {}),
         ...(this.host.providers ? { providers: this.host.providers } : {}),
+        ...(human ? { human } : {}),
         ...(this.host.identity
           ? {
               vault: {
@@ -949,7 +979,7 @@ class SessionBackend extends EventEmitter implements ServerBackend {
           : {}),
       };
       const result = await tool.handle(context, parsed.params);
-      if (stock) this.host.live?.follow(session ?? DIRECT_SESSION, stock.currentPage());
+      if (stock) this.watch.follow(session ?? DIRECT_SESSION, stock.currentPage());
       if (name === "browser_login") {
         if (!result.isError) recorder?.record("browser_login", { site: parsed.params.site });
         await recording?.afterStep({ tool: name, ok: !result.isError, screenshot: false });
@@ -1024,7 +1054,7 @@ class SessionBackend extends EventEmitter implements ServerBackend {
           (launched.engine === "lightpanda" ? undefined : await coveredBeforeCall(page, name, args, json)) ??
           (await this.withCursor(running, name, page, () => backend.callTool(name, args, signal)));
         void running.cursor?.end(backendContext(backend)?.currentTab()?.page, key);
-        this.host.live?.follow(key, backendContext(backend)?.currentTab()?.page);
+        this.watch.follow(key, backendContext(backend)?.currentTab()?.page);
         if (result.isError)
           result = await explainFailure(backendContext(backend)?.currentTab()?.page, name, args, result, json);
         await this.afterStock(
@@ -1106,7 +1136,7 @@ class SessionBackend extends EventEmitter implements ServerBackend {
                 : await coveredBeforeCall(tabs.current(), name, args, json)) ??
               (await this.withCursor(running, name, tabs.current(), () => backend.callTool(name, args, signal)));
             void running.cursor?.end(tabs.current(), key);
-            this.host.live?.follow(key, tabs.current());
+            this.watch.follow(key, tabs.current());
             if (result.isError) result = await explainFailure(tabs.current(), name, args, result, json);
             await this.afterStock(running, key, name, args, pending, result, tabs.current());
             // The tab the call left current is the session's before the cap counts its tabs.
@@ -1212,6 +1242,40 @@ class SessionBackend extends EventEmitter implements ServerBackend {
   }
 
   /**
+   * A person step on the session's current tab (`human-step.ts`). The person must be able to see
+   * the browser: a Chrome window (headed, or attach mode), or the live view open on a headless one.
+   */
+  private async requestHuman(
+    running: Running,
+    stock: StockAccess,
+    raw: Record<string, unknown>,
+    json: boolean,
+    session: string | undefined,
+    signal: AbortSignal | undefined,
+    progress: Progress | undefined,
+  ): Promise<ToolResult> {
+    const params = parseStepParams(raw);
+    if ("error" in params) return errorResult(params.error, json);
+    const page = stock.currentPage();
+    if (!page) return errorResult("no page is open; navigate to the page of the step first", json);
+    const { launched } = running;
+    const headless = this.host.config.browser?.launchOptions?.headless === true && !launched.userBrowser;
+    const unseen = headless ? unseenReason(this.host.live, this.host.identity?.id) : undefined;
+    return await runHumanStep(params, {
+      page,
+      watch: this.watch,
+      guard: this.host.guard,
+      session: session ?? DIRECT_SESSION,
+      ...(unseen ? { unseen } : {}),
+      window: !headless && !launched.userBrowser,
+      json,
+      ...(signal ? { signal } : {}),
+      ...(progress ? { progress } : {}),
+      currentPage: () => stock.currentPage(),
+    });
+  }
+
+  /**
    * The script tools near the vault: `browser_evaluate` and `browser_run_code_unsafe`
    * are refused on a page browser_login filled, until it navigates; `browser_run_code_unsafe`
    * runs code in this process, which can read the secret store, so it is refused for an
@@ -1236,7 +1300,7 @@ class SessionBackend extends EventEmitter implements ServerBackend {
       formatError: (error) => upstream().utils.z.prettifyError(error),
       // A batch, a replay or an act run stops at its next step once the user pauses the agent.
       call: (name, args, options) =>
-        this.host.live?.paused
+        this.watch.paused
           ? Promise.resolve(
               errorResult(
                 `${PAUSED_STEP}: this step and the ones after it were not run. Your next call waits until they resume.`,
@@ -1244,7 +1308,7 @@ class SessionBackend extends EventEmitter implements ServerBackend {
               ),
             )
           : this.callStock(name, args, signal, options, session),
-      held: () => (this.host.live?.paused ? PAUSED_STEP : undefined),
+      held: () => (this.watch.paused ? PAUSED_STEP : undefined),
       page: async () => {
         const page = backendContext(view.backend)?.currentTab()?.page;
         if (!page) return undefined;
@@ -1503,6 +1567,20 @@ function samplerFor(server: Server, requestId: string | number): Sampler | undef
   };
 }
 
+/** Progress notifications for a call whose client gave a progress token. */
+function progressFor(
+  token: string | number | undefined,
+  send: (notification: { method: "notifications/progress"; params: Record<string, unknown> }) => Promise<void>,
+): Progress | undefined {
+  if (token === undefined) return undefined;
+  return (elapsedMs, message) => {
+    void send({
+      method: "notifications/progress",
+      params: { progressToken: token, progress: Math.round(elapsedMs / 1000), message },
+    }).catch(() => {});
+  };
+}
+
 /** The one session backend that every connection of a shared host uses (`shareHost`). */
 interface SharedBackend {
   /** The backend, created on the first use, with the first connection's client info. */
@@ -1558,6 +1636,7 @@ function createServer(host: Host, shared?: SharedBackend): Server {
         sessionId,
         samplerFor(server, extra.requestId),
         client,
+        progressFor(meta?.progressToken, extra.sendNotification),
       );
       return mergeTextParts(result) as CallToolResult;
     } catch (error) {
@@ -1695,4 +1774,16 @@ export async function runHost(
     console.error((error as Error).message);
     core.utils.gracefullyProcessExitDoNotHang(1);
   }
+}
+
+/** Why the person cannot see a headless Chrome now, or undefined when the live view shows it. */
+export function unseenReason(live: { viewerCount: number } | undefined, id: string | undefined): string | undefined {
+  const b = names().browser;
+  if (live && live.viewerCount > 0) return undefined;
+  if (live && id)
+    return `Chrome runs without a window here, so the person sees the page only in the live view, and it is not open. Ask the person to run \`${b} live ${id}\` (it opens the view in their browser), then call ${HUMAN_STEP_TOOL} again.`;
+  const start = id
+    ? `\`${b} set ${id} --live true\` and a new session, then \`${b} live ${id}\``
+    : "an identity with the live view on";
+  return `Chrome runs without a window here (--headless) and the live view is off, so the person cannot see the page. Ask the person to run the browser with a window (start turno-browser-mcp without --headless), or to turn the live view on (${start}), then call ${HUMAN_STEP_TOOL} again.`;
 }
