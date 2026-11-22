@@ -153,6 +153,15 @@ What it guards against:
   which runs code in the server process, is refused for any identity that has vault
   credentials. A password goes only into `<input type="password">`, a username and a code only
   into text inputs, also when the model names the field.
+- **Password fields typed by anyone.** The value of a password or one-time code field (by
+  type, `autocomplete` or a name like `otp`) is masked as `[sensitive field]` in every page
+  snapshot, also in the snapshot files written to the workspace, and joins the redactor,
+  whoever typed it. The agent's `browser_type`, `browser_fill_form` and key presses into such
+  a field are refused; the person types it, or `browser_login` fills it from the vault.
+- **Credentials in network output.** `browser_network_requests` and `browser_network_request`
+  show `[redacted]` for `Authorization`, `Proxy-Authorization`, `Cookie` and `Set-Cookie`
+  values and for query, form and JSON fields named like a token, code, session, key, secret
+  or password, in their results and in the files they save.
 - **Being recorded.** `browser_login` refuses to run while the server saves traces, sessions
   or video (Playwright's own `--save-*` options), or has the devtools capability. An identity's
   own recordings stop around it (see below).

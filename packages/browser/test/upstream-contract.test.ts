@@ -308,6 +308,23 @@ describe("upstream contract (patchright-core 1.64.3)", () => {
     );
   });
 
+  it("lets the host mask sensitive fields and redact what a tool writes, where it hooks in", () => {
+    // Every text result, written file and session log line passes the context's redactSecrets.
+    expect(bundleSource).toContain(
+      '{ type: "text", text: sanitizeUnicode(this._context.redactSecrets(serializedText)) }',
+    );
+    expect(bundleSource).toMatch(
+      /await import_fs\d+\.default\.promises\.writeFile\(resolvedFile\.fileName, this\._context\.redactSecrets\(data\), "utf-8"\);/,
+    );
+    // The snapshot of a result comes from the page's own ariaSnapshot, which the host wraps.
+    expect(bundleSource).toContain('await this.page.ariaSnapshot({ mode: "ai", depth, boxes })');
+    expect(bundleSource).toContain('await this.page.ariaSnapshotJSON({ mode: "ai", depth, boxes })');
+    // Each element keeps its ref, which the host reads to mask that line.
+    expect(bundleSource).toContain("element._ariaRef = ariaRef;");
+    // Request details list one header per line, as network-redact.ts reads them.
+    expect(bundleSource).toContain("lines.push(`    ${k}: ${v}`);");
+  });
+
   it("launches Chromium with the anti-throttling switches and focus emulation that backgroundThrottling turns off", () => {
     const switches = bundleSource.slice(
       bundleSource.indexOf("chromiumSwitches = (options) => ["),

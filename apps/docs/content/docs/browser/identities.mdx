@@ -64,7 +64,7 @@ When Chrome starts (at most every 30 minutes while it passes) turno checks it. I
 
 ## Reputation log
 
-Each captcha, "verify it's you" or block page the identity meets is one line in its state folder, with the site's host name only: no path, no page content. With [captcha solving](/docs/browser/natural-language-and-captchas#captcha-solving) on, each solve attempt is a line too.
+Each captcha, "verify it's you" or block page the identity meets is one line in its state folder, with the site's host name only: no path, no page content. With [captcha solving](/docs/browser/natural-language-and-captchas#captcha-solving) on, each solve attempt is a line too. The tool result that ends on such a page says so in a `Challenge` section (`turno.challenge` in JSON) and suggests that the person handles it; nothing is paused.
 
 ```sh
 # counts per site, and whether they go up or down

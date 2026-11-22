@@ -19,6 +19,7 @@ import {
 } from "./flows.js";
 import { existsSync } from "node:fs";
 import type { Redactor } from "./redact.js";
+import { secretField } from "./sensitive.js";
 import type { TurnoTool } from "./tools.js";
 import { type ToolSchema, upstream } from "./upstream.js";
 
@@ -80,53 +81,6 @@ interface ElementInfo {
   id: string;
   text: string;
   css: string;
-}
-
-export const SECRET_AUTOCOMPLETE =
-  /(^|\s)(current-password|new-password|one-time-code|cc-number|cc-csc|cc-exp(-month|-year)?)(\s|$)/i;
-export const SECRET_NAME =
-  /pass(word|wd|code)?|pwd|otp|totp|2fa|mfa|(^|[^a-z])pin([^a-z]|$)|cvv|cvc|csc|secret|token|ssn/i;
-
-/** A field whose typed value must never be stored. */
-export function secretField(info: Pick<ElementInfo, "type" | "autocomplete" | "name" | "id">): boolean {
-  if (info.type === "password") return true;
-  if (SECRET_AUTOCOMPLETE.test(info.autocomplete)) return true;
-  return SECRET_NAME.test(`${info.name} ${info.id}`);
-}
-
-/**
- * The values a `browser_type` or `browser_fill_form` call is about to put into secret fields
- * (`secretField`), so a recording can stop its trace first. A target the page cannot resolve
- * counts as not secret: the call then fails the same way.
- */
-export async function secretValues(page: Page, tool: string, args: Record<string, unknown>): Promise<string[]> {
-  const pairs: [unknown, unknown][] =
-    tool === "browser_type"
-      ? [[args.target, args.text]]
-      : tool === "browser_fill_form" && Array.isArray(args.fields)
-        ? (args.fields as { target?: unknown; value?: unknown; type?: unknown }[])
-            .filter((f) => f.type === "textbox")
-            .map((f) => [f.target, f.value])
-        : [];
-  const out: string[] = [];
-  for (const [target, value] of pairs) {
-    if (typeof target !== "string" || typeof value !== "string" || !value) continue;
-    const locator = page.locator(REF.test(target) ? `aria-ref=${target}` : target);
-    const info = await locator
-      .evaluate(
-        (el: Element) => ({
-          type: ((el as HTMLInputElement).type || "").toLowerCase(),
-          autocomplete: el.getAttribute("autocomplete") ?? "",
-          name: el.getAttribute("name") ?? "",
-          id: el.id,
-        }),
-        undefined,
-        { timeout: 2_000 },
-      )
-      .catch(() => undefined);
-    if (info && secretField(info)) out.push(value);
-  }
-  return out;
 }
 
 /** Playwright's attribute value syntax: `"Sign in"s` (exact) for role and text selectors. */

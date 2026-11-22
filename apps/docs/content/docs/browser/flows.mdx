@@ -22,7 +22,9 @@ keeps no value: a password field, a one-time code or card field, a field named l
 `otp`, `pin` or `token`, a vault value typed by hand, or any parameter the agent lists in
 `sensitive` when it stops. A vault sign-in is a `browser_login` step with the site name only.
 Replay needs the sensitive values again; a value written `keychain:<item>` is read from the secret
-store (`turno-browser secret set <item>`), so the agent never sees it.
+store (`turno-browser secret set <item>`), so the agent never sees it. Into a password or
+one-time code field an agent's `browser_replay` types only such a value; a plain one is refused
+there, as the agent's own typing is ([password fields](/docs/browser/vault#password-fields-and-credentials)).
 
 ```sh
 # saved flows and their parameters

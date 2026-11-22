@@ -160,6 +160,7 @@ export async function replay(c: Ctx, args: string[], io: Io): Promise<number> {
     return fail(`usage: ${c.names.browser} replay <id> <flow> [--param name=value]... [--from <step>] [--headless]`);
   const flow = mod.readFlow(id, name, io.env);
   const params: Record<string, string> = {};
+  const prompted: string[] = [];
   for (const pair of (p.values.param as string[] | undefined) ?? []) {
     const eq = pair.indexOf("=");
     if (eq <= 0) return fail(`--param takes name=value, not "${pair}"`);
@@ -175,6 +176,7 @@ export async function replay(c: Ctx, args: string[], io: Io): Promise<number> {
       if (!input.isTty() || noInputReason(io.env))
         needsAnswer(`browser replay (parameter ${param.name})`, `--param ${param.name}=keychain:<item>`);
       params[param.name] = await input.hidden(`${param.name} (input hidden): `);
+      prompted.push(param.name);
     }
   }
   const from = str(p, "from");
@@ -183,6 +185,7 @@ export async function replay(c: Ctx, args: string[], io: Io): Promise<number> {
   if (holder) return fail(holder);
   const result = await mod.replayFlow(id, name, {
     params,
+    ...(prompted.length ? { prompted } : {}),
     ...(from ? { from: Number(from) } : {}),
     headless: bool(p, "headless"),
     env: io.env,

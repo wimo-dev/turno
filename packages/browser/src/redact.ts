@@ -19,6 +19,8 @@ const MIN_LENGTH = 4;
 
 interface Entry {
   label: string;
+  /** What the value reads in a result: `[vault: <label>]` unless set. */
+  mark?: string;
   variants: string[];
   /** When the value stops being redacted (one-time codes); undefined: for the life of the server. */
   until?: number;
@@ -46,17 +48,46 @@ export function variantsOf(value: string): string[] {
   return [...out].filter((v) => v.length >= MIN_LENGTH);
 }
 
+/** Most values read from sensitive fields kept at once; the oldest go first. */
+const MAX_FIELD_VALUES = 256;
+
 export class Redactor {
   private readonly entries = new Map<string, Entry>();
+  private readonly fields = new Set<string>();
 
   /** Redact `value` from now on, shown as `[vault: <label>]`; `ttlMs` for a one-time code. */
   add(value: string, label: string, ttlMs?: number, now: number = Date.now()): void {
     if (value.length < MIN_LENGTH) return;
+    this.fields.delete(value);
     this.entries.set(value, {
       label,
       variants: variantsOf(value),
       ...(ttlMs !== undefined ? { until: now + ttlMs } : {}),
     });
+  }
+
+  /**
+   * Redact a value read from a sensitive field of a page, whoever typed it (the person, a page
+   * script), shown as `mark`; `ttlMs` for a one-time code. A value the vault already hides
+   * keeps its vault label.
+   */
+  addField(value: string, mark: string, ttlMs?: number, now: number = Date.now()): void {
+    if (value.length < MIN_LENGTH) return;
+    const known = this.entries.get(value);
+    if (known && !this.fields.has(value)) return;
+    this.fields.delete(value);
+    this.fields.add(value);
+    this.entries.set(value, {
+      label: "sensitive field",
+      mark,
+      variants: variantsOf(value),
+      ...(ttlMs !== undefined ? { until: now + ttlMs } : {}),
+    });
+    for (const old of this.fields) {
+      if (this.fields.size <= MAX_FIELD_VALUES) break;
+      this.fields.delete(old);
+      this.entries.delete(old);
+    }
   }
 
   /** True when there is something to redact. */
@@ -88,9 +119,10 @@ export class Redactor {
     for (const [value, e] of this.entries) {
       if (e.until !== undefined && now > e.until) {
         this.entries.delete(value);
+        this.fields.delete(value);
         continue;
       }
-      for (const v of e.variants) pairs.push([v, `[vault: ${e.label}]`]);
+      for (const v of e.variants) pairs.push([v, e.mark ?? `[vault: ${e.label}]`]);
     }
     // Longest first, so a value inside another value's encoding is handled by the longer one.
     pairs.sort((a, b) => b[0].length - a[0].length);

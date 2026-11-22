@@ -1,9 +1,8 @@
-import type { Page } from "patchright-core";
 import { type ActModel, ModelError, estimateTokens, resolveModel } from "./act-model.js";
 import { clip, sections, textOf } from "./batch.js";
 import { type ActBudget, type ActSettings, actBudget } from "./opt-in-settings.js";
-import { SECRET_AUTOCOMPLETE, SECRET_NAME, secretValues } from "./recorder.js";
 import type { Redactor } from "./redact.js";
+import { pageFields, secretValues } from "./sensitive.js";
 import { readIdentitySettings } from "./settings.js";
 import type { StockAccess, TurnoTool } from "./tools.js";
 import { type ToolResult, type ToolSchema, type ZodObject, upstream } from "./upstream.js";
@@ -156,37 +155,6 @@ export function checkCall(
   return { tool, arguments: a as Record<string, unknown> };
 }
 
-/** The values of password, one-time code and card fields in every frame of the page. */
-async function sensitiveValues(page: Page): Promise<string[]> {
-  const out: string[] = [];
-  for (const frame of page.frames()) {
-    const values = await frame
-      .evaluate(
-        ({ auto, name }: { auto: string; name: string }) => {
-          const a = new RegExp(auto, "i");
-          const n = new RegExp(name, "i");
-          const found: string[] = [];
-          for (const el of Array.from(document.querySelectorAll("input, textarea"))) {
-            const field = el as HTMLInputElement;
-            if (!field.value) continue;
-            const type = (field.type || "").toLowerCase();
-            if (
-              type === "password" ||
-              a.test(field.getAttribute("autocomplete") ?? "") ||
-              n.test(`${field.getAttribute("name") ?? ""} ${field.id}`)
-            )
-              found.push(field.value);
-          }
-          return found;
-        },
-        { auto: SECRET_AUTOCOMPLETE.source, name: SECRET_NAME.source },
-      )
-      .catch(() => [] as string[]);
-    out.push(...values);
-  }
-  return out;
-}
-
 /** What one call of these tools works with. */
 interface Run {
   stock: StockAccess;
@@ -202,7 +170,7 @@ interface Run {
 /** The current tab as the model reads it: page, dialog and snapshot, sensitive values hidden. */
 async function pageForModel(run: Run, reserve: number): Promise<{ text: string; note: string }> {
   const page = run.stock.currentPage();
-  if (page) for (const v of await sensitiveValues(page)) run.redactor.add(v, "sensitive value");
+  if (page) for (const f of await pageFields(page)) if (f.kind) run.redactor.add(f.value, "sensitive value");
   const snap = await run.stock.call("browser_snapshot", {}, { snapshot: true });
   if (snap.isError) throw new ActStop(`the page snapshot failed: ${clip(textOf(snap))}`);
   const parts = sections(textOf(snap));

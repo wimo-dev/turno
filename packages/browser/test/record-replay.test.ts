@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { afterEach, beforeEach, describe, expect, it, onTestFinished } from "vitest";
-import { flowsDir, listFlows, readFlow } from "../src/flows.js";
+import { flowsDir, listFlows, readFlow, writeFlow } from "../src/flows.js";
 import { addIdentity } from "../src/identities.js";
 import { listRecordings, recordingsDir, tracesTmpDir, zipTexts } from "../src/recordings.js";
 import { SESSION_META_KEY } from "../src/session.js";
@@ -152,7 +152,7 @@ async function site(): Promise<{ url: string; posted: string[]; variant: { v: Va
 describe.skipIf(reason !== undefined)(
   reason ? `record and replay on real Chrome (skipped: ${reason})` : "record and replay on real Chrome",
   () => {
-    it("records a sign-in without its password, replays it when the page changed, and reports a step it cannot find", async () => {
+    it("records a sign-in without its password, replays it from the secret store when the page changed, and reports a step it cannot find", async () => {
       const web = await site();
       onTestFinished(() => web.close());
       addIdentity("flows", sb.env);
@@ -161,11 +161,14 @@ describe.skipIf(reason !== undefined)(
       await call(client, "browser_navigate", { url: `${web.url}/login` });
       const snap = (await call(client, "browser_snapshot")).text;
       await call(client, "browser_type", { element: "Email", target: ref(snap, "textbox", "Email"), text: EMAIL });
-      await call(client, "browser_type", {
+      // The agent never types a password: the call is refused, and the flow does not keep it.
+      const typed = await call(client, "browser_type", {
         element: "Password",
         target: ref(snap, "textbox", "Password"),
         text: PASSWORD,
       });
+      expect(typed.error).toBe(true);
+      expect(typed.text).toContain("browser_type was refused: that field takes a password");
       const clicked = await call(client, "browser_click", {
         element: "Sign in button",
         target: ref(snap, "button", "Sign in"),
@@ -173,11 +176,36 @@ describe.skipIf(reason !== undefined)(
       expect(clicked.error, clicked.text).toBe(false);
       const stopped = await call(client, "browser_record", { action: "stop" });
       expect(stopped.error, stopped.text).toBe(false);
-      expect(stopped.text).toMatch(/Saved flow "sign-in" with 4 steps/);
+      expect(stopped.text).toMatch(/Saved flow "sign-in" with 3 steps/);
       expect(web.posted).toHaveLength(1);
 
       const file = readFileSync(join(flowsDir("flows", sb.env), "sign-in.json"), "utf8");
       expect(leaks(file, [PASSWORD]), "password in the flow file").toBe(0);
+      // A flow written by hand (or by an older turno-browser) types a sensitive parameter.
+      const recorded = readFlow("flows", "sign-in", sb.env);
+      writeFlow(
+        "flows",
+        {
+          ...recorded,
+          params: [...recorded.params, { name: "password", sensitive: true, description: "Password" }],
+          steps: [
+            recorded.steps[0]!,
+            recorded.steps[1]!,
+            {
+              tool: "browser_type",
+              args: { text: { $param: "password" } },
+              targets: {
+                target: {
+                  description: "Password",
+                  locators: [{ kind: "role", selector: 'internal:role=textbox[name="Password"s]' }],
+                },
+              },
+            },
+            recorded.steps[2]!,
+          ],
+        },
+        sb.env,
+      );
       const flow = readFlow("flows", "sign-in", sb.env);
       expect(flow.params.map((p) => [p.name, p.sensitive, p.default])).toEqual([
         ["email", false, EMAIL],
@@ -189,9 +217,22 @@ describe.skipIf(reason !== undefined)(
       expect(missing.error).toBe(true);
       expect(missing.text).toMatch(/Nothing ran: flow "sign-in" needs "password" \(sensitive\)/);
 
+      // Passed in plain, the password would come from the agent: the replay stops at that step.
+      const plain = await call(client, "browser_replay", { flow: "sign-in", params: { password: PASSWORD_2 } });
+      expect(plain.error).toBe(true);
+      expect(plain.text).toMatch(
+        /Step 3 of 4 \(browser_type Password with \{password\}\) failed: browser_type was refused/,
+      );
+      expect(leaks(plain.text, [PASSWORD_2]), "parameter in the result").toBe(0);
+      expect(web.posted).toHaveLength(1);
+
       // The button moved and lost its id: the CSS path fails, role and name still find it.
+      store.write("flow-password", PASSWORD_2);
       web.variant.v = "moved";
-      const replayed = await call(client, "browser_replay", { flow: "sign-in", params: { password: PASSWORD_2 } });
+      const replayed = await call(client, "browser_replay", {
+        flow: "sign-in",
+        params: { password: "keychain:flow-password" },
+      });
       expect(replayed.error, replayed.text).toBe(false);
       expect(replayed.text).toMatch(/4\. browser_click Sign in button: ok \(found by (generated|role)\)/);
       expect(leaks(replayed.text, [PASSWORD_2]), "parameter in the result").toBe(0);
@@ -203,7 +244,7 @@ describe.skipIf(reason !== undefined)(
       web.variant.v = "renamed";
       const failed = await call(client, "browser_replay", {
         flow: "sign-in",
-        params: { password: PASSWORD_2 },
+        params: { password: "keychain:flow-password" },
         wait: 1,
       });
       expect(failed.error).toBe(true);
@@ -223,7 +264,6 @@ describe.skipIf(reason !== undefined)(
       await client.close();
 
       // The same flow from the command line's path, the password read from the secret store.
-      store.write("flow-password", PASSWORD_2);
       web.variant.v = "normal";
       const { replayFlow } = (await import(join(pkg, "dist", "replay.js"))) as typeof import("../src/replay.js");
       const cli = await replayFlow("flows", "sign-in", {
@@ -257,10 +297,14 @@ describe.skipIf(reason !== undefined)(
         target: ref(snap, "button", "Sign in"),
       });
       expect(clicked.error, clicked.text).toBe(false);
-      // A password typed by hand is kept out the same way.
+      // A password the person types is kept out the same way (the agent's own typing is refused).
       await call(client, "browser_navigate", { url: `${web.url}/login` });
       const again = (await call(client, "browser_snapshot")).text;
-      await call(client, "browser_type", { target: ref(again, "textbox", "Password"), text: PASSWORD });
+      const refused = await call(client, "browser_type", { target: ref(again, "textbox", "Password"), text: PASSWORD });
+      expect(refused.error).toBe(true);
+      await call(client, "browser_evaluate", {
+        function: `() => { const pw = document.querySelector("input[type=password]"); pw.value = ${JSON.stringify(PASSWORD)}; pw.focus(); }`,
+      });
       await call(client, "browser_hover", { target: ref(again, "button", "Sign in") });
       await call(client, "browser_press_key", { key: "Enter" });
       await call(client, "browser_navigate", { url: `${web.url}/login` });
@@ -270,16 +314,17 @@ describe.skipIf(reason !== undefined)(
       expect(new URLSearchParams(web.posted[0]).get("password") === VAULT_PASSWORD).toBe(true);
       expect(new URLSearchParams(web.posted[1]).get("password") === PASSWORD).toBe(true);
       const [rec] = listRecordings("rec", sb.env);
-      expect(rec!.traces.length).toBeGreaterThanOrEqual(2);
+      // The trace before the vault fill is kept; the one that saw the person's password is deleted.
+      expect(rec!.traces.length).toBeGreaterThanOrEqual(1);
+      expect(rec!.discarded).toBeGreaterThanOrEqual(1);
       expect(rec!.screenshots).toBeGreaterThan(0);
       const index = JSON.parse(readFileSync(join(rec!.dir, "index.json"), "utf8")) as {
         steps: { tool: string; screenshot?: string; note?: string }[];
       };
       const login = index.steps.find((s) => s.tool === "browser_login");
       expect(login?.screenshot).toBeUndefined();
-      // Typed into the password field, the page holds the value until it navigates: no screenshot.
-      for (const tool of ["browser_type", "browser_hover"])
-        expect(index.steps.find((s) => s.tool === tool)?.note, tool).toMatch(/no screenshot/);
+      // The refused call is no step of the recording.
+      expect(index.steps.find((s) => s.tool === "browser_type")).toBeUndefined();
 
       const recorded = allText(recordingsDir("rec", sb.env)) + allText(flowsDir("rec", sb.env));
       expect(leaks(recorded, [VAULT_PASSWORD, PASSWORD]), "secrets in recordings or flows").toBe(0);
@@ -290,7 +335,7 @@ describe.skipIf(reason !== undefined)(
       const [auto] = listFlows("rec", sb.env);
       const steps = readFlow("rec", auto!.name, sb.env).steps;
       expect(steps.find((s) => s.tool === "browser_login")?.args).toEqual({ site: "local" });
-      expect(readFlow("rec", auto!.name, sb.env).params.find((p) => p.sensitive)).toBeDefined();
+      expect(steps.some((s) => s.tool === "browser_type")).toBe(false);
       await client.close();
     }, 120_000);
 

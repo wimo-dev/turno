@@ -26,8 +26,9 @@ import { parseSize } from "./units.js";
  * - It starts again at the first call after every page that holds those values has navigated
  *   away (the vault guard), so neither the filled form nor the request that sends it is traced.
  * - Each saved trace is read back and searched for the passwords, one-time codes and sensitive
- *   values this server knows, in the encodings the redactor knows; a trace that holds one, or
- *   that cannot be read while such values exist, is deleted.
+ *   values this server knows (the values of the pages' password and one-time code fields are
+ *   read just before), in the encodings the redactor knows; a trace that holds one, or that
+ *   cannot be read while such values exist, is deleted.
  * - No screenshot is taken of a page while it holds those values. There is no video: a video
  *   cannot leave the sign-in out.
  *
@@ -268,6 +269,11 @@ export interface RecordingOptions {
   idleMs?: number;
   /** Why traces cannot be recorded in this session (another trace owner); screenshots still are. */
   noTraces?: string;
+  /**
+   * Runs before a trace is saved: the host reads the sensitive fields of every page, so a value
+   * the person typed since the last tool call joins the redactor and the search below finds it.
+   */
+  beforeSave?: () => Promise<void>;
   now?: () => Date;
 }
 
@@ -386,6 +392,7 @@ export class Recording {
     const file = join(this.dir, name);
     const entry: TraceEntry = { file: name, from: this.segmentFrom, to: this.index.steps.length };
     if (entry.to < entry.from) entry.from = entry.to = 0;
+    await this.o.beforeSave?.().catch(() => {});
     try {
       await this.o.context.tracing.stop({ path: file });
     } catch (error) {

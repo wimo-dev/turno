@@ -243,6 +243,11 @@ export interface WatchOptions {
   /** The same site and kind within this long counts once (a reload loop). */
   dedupeMs?: number;
   now?: () => number;
+  /**
+   * Hears every check of a page load as it starts, with what it will find (any challenge, also
+   * one the log counts once), so a tool result can say the page it ended on is one.
+   */
+  onCheck?: (page: WatchedPage, found: Promise<Omit<ChallengeEvent, "ts"> | undefined>) => void;
 }
 
 /**
@@ -259,29 +264,34 @@ export function watchChallenges(
   const last = new Map<string, number>();
   const listeners = new Map<WatchedPage, () => void>();
   let stopped = false;
-  const inspect = async (page: WatchedPage) => {
+  const inspect = async (page: WatchedPage): Promise<Omit<ChallengeEvent, "ts"> | undefined> => {
     let site: string;
     try {
       const url = new URL(page.url());
-      if (url.protocol !== "http:" && url.protocol !== "https:") return;
+      if (url.protocol !== "http:" && url.protocol !== "https:") return undefined;
       site = url.hostname;
     } catch {
-      return;
+      return undefined;
     }
     const html = await page.content().catch(() => undefined);
-    if (stopped || html === undefined) return;
+    if (stopped || html === undefined) return undefined;
     const found = classifyChallenge(html);
-    if (!found) return;
+    if (!found) return undefined;
+    const event = { site, kind: found.kind, markers: found.markers };
     const key = `${site}\n${found.kind}`;
     const t = now();
     const previous = last.get(key);
-    if (previous !== undefined && t - previous < dedupeMs) return;
+    if (previous !== undefined && t - previous < dedupeMs) return event;
     last.set(key, t);
-    onChallenge({ site, kind: found.kind, markers: found.markers });
+    onChallenge(event);
+    return event;
   };
   const attach = (page: WatchedPage) => {
     if (listeners.has(page)) return;
-    const listener = () => void inspect(page).catch(() => {});
+    const listener = () => {
+      const found = inspect(page).catch(() => undefined);
+      opts.onCheck?.(page, found);
+    };
     listeners.set(page, listener);
     page.on("load", listener);
   };
