@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { browserPaths as paths, tildify } from "turno-core/paths";
 import { type ProcTable, readProcTable, signalProcess } from "turno-core/process";
+import { type PressureProbe, memoryPressureProbe } from "turno-core/memory";
 import { type SecretStore, secretStore } from "turno-core/secrets";
 import { backgroundAlive, readBackgroundState } from "./background-state.js";
 import { profileHasCookies, readLoginRecord } from "./login.js";
@@ -27,6 +28,7 @@ import {
   playwrightCoreHint,
 } from "./engine-camoufox.js";
 import { findProfileChrome, sweepOrphan } from "./lifecycle.js";
+import { totalMemory } from "./memory.js";
 import { readChallenges, summarizeChallenges } from "./reputation.js";
 import { inUseMessage, readRuntimeLock, runtimeLockAlive, runtimeLockPath } from "./runtime-lock.js";
 import { type IdentitySettings, acceptLanguages, checkIdentitySettings, systemTimezone } from "./settings.js";
@@ -47,7 +49,8 @@ import { vaultItem, vaultSummary } from "./vault.js";
  * each problem with the command that fixes it, like `turno doctor`.
  *
  * - Chrome: found, its version, and a smoke launch on a throwaway profile (headless).
- * - System: a headed Chrome needs the desktop session (macOS) or a display (Linux).
+ * - System: a headed Chrome needs the desktop session (macOS) or a display (Linux), and the
+ *   memory pressure the system reports (a warning when it is up; never a failure).
  * - Engines: Lightpanda for read mode and Camoufox with the stock Playwright it runs on (both
  *   optional; a failure only when an identity uses them), and a Lightpanda an earlier server
  *   left running.
@@ -100,6 +103,8 @@ export interface DoctorOptions {
   playwrightCore?: (env: NodeJS.ProcessEnv) => (PlaywrightCoreInfo & { ok: boolean }) | undefined;
   /** The secret store proxy credentials come from (tests inject a fake); default: this machine's. */
   secrets?: SecretStore;
+  /** Reads the memory pressure (tests inject one); default: what mcpd reads (`turno-core/memory`). */
+  memory?: PressureProbe;
   /** The process table, for a Lightpanda left running (tests inject one). */
   procTable?: () => ProcTable | undefined;
   /** The mcp.toml servers that run turno-browser-mcp for an identity (turno-cli reads mcp.toml). */
@@ -235,13 +240,28 @@ function systemChecks(env: NodeJS.ProcessEnv, platform: NodeJS.Platform): Doctor
   return out;
 }
 
+/** The memory pressure the system reports, with the low-resource preset as the way out. */
+async function memoryCheck(probe: PressureProbe): Promise<DoctorCheck> {
+  const level = await probe().catch(() => "normal" as const);
+  const total = totalMemory();
+  if (level === "normal") return { area: "system", level: "ok", text: `memory: no pressure (${total} in all)` };
+  return {
+    area: "system",
+    level: "warn",
+    text: `memory pressure is ${level} on this machine (${total} in all): every Chrome an identity opens adds to it`,
+    manual:
+      "close the apps and browser sessions you do not need; where memory runs short often, turn on the low-resource preset for each identity: turno browser set <id> --resources low",
+  };
+}
+
 function describeSettings(s: IdentitySettings): string {
   const parts: string[] = [];
   if (s.timezone) parts.push(`time zone ${s.timezone}`);
   const langs = acceptLanguages(s);
   if (langs) parts.push(`languages ${langs.join(", ")}`);
   if (s.region) parts.push(`region ${s.region}`);
-  const base = parts.length ? parts.join(", ") : "no fixed time zone or languages";
+  const fixed = parts.length ? parts.join(", ") : "no fixed time zone or languages";
+  const base = s.resources === "low" ? `${fixed}; low-resource preset` : fixed;
   // The agent cursor is on when the browser can be seen (auto): say so only when set otherwise.
   if (s.cursor === "on") return `${base}; agent cursor always shown`;
   if (s.cursor === "off") return `${base}; agent cursor off`;
@@ -758,7 +778,7 @@ async function collect(
       });
     }
   }
-  checks.push(...systemChecks(env, platform));
+  checks.push(...systemChecks(env, platform), await memoryCheck(opts.memory ?? memoryPressureProbe()));
   const ids = identityIds(env);
   checks.push(...engineChecks(opts, env, ids));
   if (!ids.length)

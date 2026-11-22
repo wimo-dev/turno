@@ -9,6 +9,7 @@ import { runHost } from "../host.js";
 import { watchStdinCalls } from "../last-used.js";
 import { installShutdownGuard, sweepOrphan } from "../lifecycle.js";
 import { readIdentitySettings } from "../settings.js";
+import { backgroundIdleMs } from "../tuning.js";
 
 /**
  * turno-browser-mcp [--identity <id>] [playwright-mcp flags]
@@ -46,6 +47,11 @@ Tabs (these flags win over the identity's identity.json):
   --sharing <session|tabs> "tabs": several agent sessions use the browser at once, each in
                            its own tabs, which it locks (default "session", one at a time;
                            mcp.toml then needs exclusive = false for this server)
+  --resources <normal|low> low: the preset for a machine short of memory: at most 2 tabs,
+                           pages parked after 2m, Chrome closed after 5m without a call (unless
+                           TURNO_BROWSER_IDLE says otherwise), the background server gone after
+                           5m, and a note in tool results while memory is low. The flags
+                           above still win over it
 
 Input (wins over the identity's identity.json):
   --humanize <level>       off (default), light, full or adaptive: the pointer travels a curve
@@ -179,7 +185,12 @@ await runHost(built.args, {
           try {
             await serveBackground(host, {
               identity,
-              idleMs: background.idleMs,
+              idleMs: backgroundIdleMs(
+                readIdentitySettings(identity.id, identity.env),
+                built.tuning,
+                background.idleSet ? background.idleMs : undefined,
+                background.idleMs,
+              ),
               sharing: sharingOf(built.tuning?.sharing, () => readIdentitySettings(identity.id, identity.env)?.sharing),
             });
           } catch (err) {

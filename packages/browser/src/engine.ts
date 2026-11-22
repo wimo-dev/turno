@@ -203,8 +203,15 @@ const chromeEngine: Engine = {
       const applied = launchSettings(settings, userArgs, systemTimezone(), config.browser.contextOptions);
       const tuned = tuning ? launchTuning(tuning) : { ignoreDefaultArgs: [], contextOptions: {} };
       // Chrome's third-party storage partitioning stays on, as in a person's Chrome (`chrome-features.ts`).
+      // The low-resource preset's features go in the same list: Chrome reads only the last one.
+      const chromium = config.browser.browserName === "chromium";
+      const extraFeatures = tuning?.disabledFeatures ?? [];
       const partitioning =
-        config.browser.browserName === "chromium" && ignore !== true ? storagePartitioningArgs() : undefined;
+        chromium && ignore !== true
+          ? storagePartitioningArgs(extraFeatures)
+          : chromium && extraFeatures.length
+            ? { ignoreDefaultArgs: [], args: [`--disable-features=${extraFeatures.join(",")}`] }
+            : undefined;
       const launchOptions = {
         tracesDir,
         ...config.browser.launchOptions,

@@ -5,7 +5,7 @@
  */
 import { SHELLS, type Sub, completionScripts } from "turno-core/cli";
 import { listIdentities } from "../identities.js";
-import { CURSOR_MODES } from "../settings.js";
+import { CURSOR_MODES, RESOURCE_MODES } from "../settings.js";
 import { ACTION_NAMES } from "./do.js";
 import { SETUP_AGENTS } from "./setup.js";
 
@@ -43,6 +43,7 @@ const FLAG_VALUES: Record<string, readonly string[] | "identity" | "file"> = {
   "--color": ["auto", "always", "never"],
   "--agent": [...SETUP_AGENTS, "none"],
   "--cursor": CURSOR_MODES,
+  "--resources": RESOURCE_MODES,
 };
 
 const GLOBAL_FLAGS = ["--help", "--version", "--no-input", "--color"];

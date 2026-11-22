@@ -380,6 +380,14 @@ export const DOCTOR_CHECKS = [
     why: "turno-browser drives a headed Chrome, and this session has no display.",
   },
   {
+    id: "browser-memory-pressure",
+    source: BROWSER,
+    match: "on this machine (<total> in all): every Chrome an identity opens adds to it",
+    title: "The machine is short of memory",
+    why: "The system reports memory pressure (the kernel's level on macOS, pressure stall information on Linux), the same reading mcpd uses to stop idle servers sooner. Each identity's Chrome holds a few hundred megabytes, more with many tabs open, so on a machine with little memory several sessions can push it into swapping or a restart. turno never closes a session that is working because of it.",
+    fix: "Close the apps and browser sessions you do not need. Where memory runs short often, turn on the low-resource preset for each identity (turno browser set <id> --resources low): at most 2 tabs, idle tabs parked after 2 minutes, Chrome closed after 5 minutes without a call, and a note in tool results while memory is low.",
+  },
+  {
     id: "browser-identity-json-invalid",
     source: BROWSER,
     match: "identity.json <problems>",

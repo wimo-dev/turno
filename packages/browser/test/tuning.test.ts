@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { extractTuning } from "../src/argv.js";
-import { BACKGROUND_SWITCHES, DEFAULT_TABS, launchTuning, resolveTuning } from "../src/tuning.js";
+import {
+  BACKGROUND_SWITCHES,
+  DEFAULT_TABS,
+  LOW_RESOURCES,
+  backgroundIdleMs,
+  launchTuning,
+  resolveTuning,
+} from "../src/tuning.js";
 import { parseDuration, parseSize } from "../src/units.js";
 
 const base = { created: "2026-11-18T00:00:00.000Z", updated: "2026-11-18T00:00:00.000Z" };
@@ -94,6 +101,60 @@ describe("resolveTuning", () => {
       block: { trackers: false, types: ["image"], patterns: ["ads.example"] },
       cacheBytes: 20 * 1024 ** 2,
     });
+  });
+});
+
+describe("the low-resource preset", () => {
+  const low = { ...base, version: 13, resources: "low" as const };
+
+  it("applies with resources low: 2 tabs, parked after 2m, Chrome closed after 5m, the back/forward cache off", () => {
+    const t = resolveTuning(low);
+    expect(t.tabs).toEqual({ max: 2, popups: "close", parkMs: 120_000, closeMs: 900_000 });
+    expect(t).toMatchObject({ lowResources: true, browserIdleMs: 300_000, disabledFeatures: ["BackForwardCache"] });
+    expect(t.backgroundThrottling).toBe(false);
+    expect(LOW_RESOURCES.tabs).toEqual({ max: 2, parkMs: 120_000 });
+  });
+
+  it("changes nothing with resources normal or without the key", () => {
+    for (const settings of [undefined, { ...base, version: 13, resources: "normal" as const }]) {
+      const t = resolveTuning(settings);
+      expect(t.tabs).toEqual(DEFAULT_TABS);
+      expect(t.lowResources).toBeUndefined();
+      expect(t.browserIdleMs).toBeUndefined();
+      expect(t.disabledFeatures).toBeUndefined();
+    }
+  });
+
+  it("lets a key set on its own win over the preset: identity.json first, then the flags", () => {
+    const own = { ...low, tabs: { max: 4, park: "0" } };
+    expect(resolveTuning(own).tabs).toEqual({ max: 4, popups: "close", parkMs: 0, closeMs: 900_000 });
+    expect(resolveTuning(own, { maxTabs: 1, parkAfterMs: 60_000 }).tabs).toMatchObject({ max: 1, parkMs: 60_000 });
+    expect(resolveTuning({ ...low, backgroundThrottling: true }).backgroundThrottling).toBe(true);
+  });
+
+  it("keeps an idle limit the user set (TURNO_BROWSER_IDLE, --idle-timeout, a config of their own)", () => {
+    const t = resolveTuning(low, { idleSet: true });
+    expect(t.browserIdleMs).toBeUndefined();
+    expect(t.tabs.max).toBe(2);
+  });
+
+  it("takes --resources over identity.json either way", () => {
+    expect(resolveTuning(undefined, { resources: "low" }).tabs.max).toBe(2);
+    expect(resolveTuning(low, { resources: "normal" }).tabs.max).toBe(8);
+    expect(extractTuning(["--resources", "low", "--headless"])).toEqual({
+      tuning: { resources: "low" },
+      rest: ["--headless"],
+    });
+    expect(() => extractTuning(["--resources=tiny"])).toThrow(
+      '--resources must be "normal" or "low" (the low-resource preset), not "tiny"',
+    );
+  });
+
+  it("shortens the background server's idle limit to 5m unless the flag or the variable set it", () => {
+    expect(backgroundIdleMs(low, undefined, undefined, 900_000)).toBe(300_000);
+    expect(backgroundIdleMs(low, undefined, 1_800_000, 900_000)).toBe(1_800_000);
+    expect(backgroundIdleMs(undefined, undefined, undefined, 900_000)).toBe(900_000);
+    expect(backgroundIdleMs(undefined, { resources: "low" }, undefined, 900_000)).toBe(300_000);
   });
 });
 

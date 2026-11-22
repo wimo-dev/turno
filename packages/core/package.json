@@ -36,6 +36,10 @@
       "types": "./dist/process.d.ts",
       "default": "./dist/process.js"
     },
+    "./memory": {
+      "types": "./dist/memory.d.ts",
+      "default": "./dist/memory.js"
+    },
     "./cli": {
       "types": "./dist/cli/index.d.ts",
       "default": "./dist/cli/index.js"

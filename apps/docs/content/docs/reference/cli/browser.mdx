@@ -20,8 +20,8 @@ Usage:
       <tag,...>] [--region <CC>] [--health-url <url>] [--health-text <text>]
       [--health-selector <css>] [--no-health] [--tabs-max <n>] [--tabs-popups
       close|keep] [--tabs-park <duration>] [--tabs-close <duration>] [--no-tabs]
-      [--background-throttling true|false] [--settle <duration>]
-      [--block-trackers true|false] [--block-types image,media,font]
+      [--background-throttling true|false] [--settle <duration>] [--resources
+      normal|low] [--block-trackers true|false] [--block-types image,media,font]
       [--block-patterns <host|glob>,...] [--no-block] [--cache]
       [--cache-max-size <size>] [--no-cache] [--humanize
       off|light|full|adaptive] [--cursor auto|on|off] [--sharing session|tabs]
@@ -185,8 +185,8 @@ Usage:
       <tag,...>] [--region <CC>] [--health-url <url>] [--health-text <text>]
       [--health-selector <css>] [--no-health] [--tabs-max <n>] [--tabs-popups
       close|keep] [--tabs-park <duration>] [--tabs-close <duration>] [--no-tabs]
-      [--background-throttling true|false] [--settle <duration>]
-      [--block-trackers true|false] [--block-types image,media,font]
+      [--background-throttling true|false] [--settle <duration>] [--resources
+      normal|low] [--block-trackers true|false] [--block-types image,media,font]
       [--block-patterns <host|glob>,...] [--no-block] [--cache]
       [--cache-max-size <size>] [--no-cache] [--humanize
       off|light|full|adaptive] [--cursor auto|on|off] [--sharing session|tabs]
@@ -209,6 +209,10 @@ Each flag writes one key of identity.json; an empty value (--settle "") removes 
 changes only its part: the rest of that group stays.
 
 How the host runs this identity's Chrome (read at every Chrome start):
+  --resources normal|low          low: the preset for a machine short of memory (at most 2
+                                  tabs, idle tabs parked after 2m, Chrome closed after 5m
+                                  without a call, a note in tool results when memory runs
+                                  low); the flags below still win over it
   --tabs-max <n>                  most tabs open at once, 0 for no cap (default 8)
   --tabs-popups close|keep        close popups the agent did not open (default close)
   --tabs-park <duration>          park an unused tab on about:blank, "0" never (default 5m)

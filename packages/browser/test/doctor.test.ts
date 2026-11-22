@@ -36,7 +36,7 @@ const chrome = () => ({
 const smoke = async () => 840;
 
 async function doctor(over: Parameters<typeof runDoctor>[0] = {}) {
-  return runDoctor({ env: sb.env, platform: "darwin", chrome, smoke, now: NOW, ...over });
+  return runDoctor({ env: sb.env, platform: "darwin", chrome, smoke, memory: async () => "normal", now: NOW, ...over });
 }
 
 const find = (checks: DoctorCheck[], area: string, text: RegExp) =>
@@ -58,6 +58,15 @@ describe("browser doctor: Chrome and the system", () => {
         text: "macOS: driving Chrome through its DevTools pipe needs no Accessibility or Screen Recording permission",
       },
     ]);
+  });
+
+  it("reports the memory pressure: ok when there is none, a warning with the low-resource preset when it is up", async () => {
+    expect(find((await doctor()).checks, "system", /^memory/)).toMatchObject({ level: "ok" });
+    for (const level of ["warn", "critical"] as const) {
+      const row = find((await doctor({ memory: async () => level })).checks, "system", /memory pressure/);
+      expect(row).toMatchObject({ level: "warn", text: expect.stringContaining(`memory pressure is ${level}`) });
+      expect(row?.manual).toMatch(/set <id> --resources low$/);
+    }
   });
 
   it("fails without Chrome, and when the smoke launch fails", async () => {

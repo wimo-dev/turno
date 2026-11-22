@@ -37,10 +37,17 @@ export const PLAYWRIGHT_DISABLED_FEATURES: readonly string[] = Object.freeze([
   "msEdgeUpdateLaunchServicesPreferredVersion",
 ]);
 
-/** The switches for a Chrome turno launches: Playwright's list to drop, and the one to pass. */
-export function storagePartitioningArgs(): { ignoreDefaultArgs: string[]; args: string[] } {
+/**
+ * The switches for a Chrome turno launches: Playwright's list to drop, and the one to pass, with
+ * `extra` features turned off as well (the low-resource preset's, `tuning.ts`).
+ */
+export function storagePartitioningArgs(extra: readonly string[] = []): {
+  ignoreDefaultArgs: string[];
+  args: string[];
+} {
+  const features = [...PLAYWRIGHT_DISABLED_FEATURES.filter((f) => f !== KEPT_FEATURE), ...extra];
   return {
     ignoreDefaultArgs: [`--disable-features=${PLAYWRIGHT_DISABLED_FEATURES.join(",")}`],
-    args: [`--disable-features=${PLAYWRIGHT_DISABLED_FEATURES.filter((f) => f !== KEPT_FEATURE).join(",")}`],
+    args: [`--disable-features=${[...new Set(features)].join(",")}`],
   };
 }

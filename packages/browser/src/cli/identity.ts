@@ -127,6 +127,8 @@ export const SETTINGS_FLAGS: FlagSpec = {
   "no-proxy": { type: "boolean" },
   // The agent cursor (format 12): auto, on or off.
   cursor: { type: "string" },
+  // The low-resource preset (format 13): normal or low.
+  resources: { type: "string" },
 };
 
 /** The identity.json key behind each tuning flag, so the package's messages name the flag. */
@@ -144,6 +146,7 @@ const KEY_FLAGS: readonly (readonly [string, string])[] = [
   ["humanize.level", "--humanize"],
   ["sharing", "--sharing"],
   ["cursor", "--cursor"],
+  ["resources", "--resources"],
   ["tabLocks.wait", "--tab-lock-wait"],
   ["tabLocks.release", "--tab-lock-release"],
   ["engine", "--engine"],
@@ -354,6 +357,9 @@ function tuningPatch(
   // Checked by the package too: an unknown value comes back as `--cursor must be ...`.
   const cursor = value("cursor");
   if (cursor !== undefined) patch.cursor = cursor as IdentitySettings["cursor"] | null;
+  // And this one: `--resources must be ...`.
+  const resources = value("resources");
+  if (resources !== undefined) patch.resources = resources as IdentitySettings["resources"] | null;
   const locks = { wait: value("tab-lock-wait"), release: value("tab-lock-release") };
   if (locks.wait !== undefined || locks.release !== undefined)
     patch.tabLocks = mergeGroup<TabLockSettings>(current?.tabLocks, locks);
@@ -584,6 +590,8 @@ export function show(c: Ctx, id: string, args: string[], io: Io): number {
         ? describeHealth(settings.health)
         : s.muted(`off (to turn on: ${c.names.browser} set ${id} --health-url <url> --health-text <text>)`),
     ]);
+    if (settings.resources === "low")
+      rows.push(["resources", "low: at most 2 tabs, idle tabs parked after 2m, Chrome closed after 5m idle"]);
     if (settings.tabs) rows.push(["tabs", `${describeTabs(settings.tabs)}${s.muted(" (the rest as default)")}`]);
     if (settings.backgroundThrottling !== undefined)
       rows.push([
@@ -667,7 +675,7 @@ const SET_FLAGS: FlagSpec = { ...SETTINGS_FLAGS, "dry-run": { type: "boolean" },
 /** The arguments of `set` after the identity, for the usage line. */
 export const SET_SYNOPSIS =
   "[--timezone <zone>] [--locale <tag>] [--languages <tag,...>] [--region <CC>] [--health-url <url>] [--health-text <text>] [--health-selector <css>] [--no-health] " +
-  "[--tabs-max <n>] [--tabs-popups close|keep] [--tabs-park <duration>] [--tabs-close <duration>] [--no-tabs] [--background-throttling true|false] [--settle <duration>] " +
+  "[--tabs-max <n>] [--tabs-popups close|keep] [--tabs-park <duration>] [--tabs-close <duration>] [--no-tabs] [--background-throttling true|false] [--settle <duration>] [--resources normal|low] " +
   "[--block-trackers true|false] [--block-types image,media,font] [--block-patterns <host|glob>,...] [--no-block] [--cache] [--cache-max-size <size>] [--no-cache] [--humanize off|light|full|adaptive] [--cursor auto|on|off] [--sharing session|tabs] [--tab-lock-wait <duration>] [--tab-lock-release <duration>] " +
   "[--engine chrome|lightpanda] [--attach auto|<dir>|<url>] [--record-flows true|false] [--record-traces true|false] [--record-screenshots true|false] [--record-max-size <size>] [--no-record] " +
   "[--act] [--act-sampling true|false] [--act-provider chat-completions] [--act-endpoint <url>] [--act-model <name>] [--act-key keychain:<item>] [--act-max-steps <n>] [--act-max-tokens <n>] [--act-timeout <duration>] [--no-act] " +
@@ -682,6 +690,10 @@ export function setDetails(n: CliNames): string {
 changes only its part: the rest of that group stays.
 
 How the host runs this identity's Chrome (read at every Chrome start):
+  --resources normal|low          low: the preset for a machine short of memory (at most 2
+                                  tabs, idle tabs parked after 2m, Chrome closed after 5m
+                                  without a call, a note in tool results when memory runs
+                                  low); the flags below still win over it
   --tabs-max <n>                  most tabs open at once, 0 for no cap (default 8)
   --tabs-popups close|keep        close popups the agent did not open (default close)
   --tabs-park <duration>          park an unused tab on about:blank, "0" never (default 5m)

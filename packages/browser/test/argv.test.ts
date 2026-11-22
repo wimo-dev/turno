@@ -178,6 +178,19 @@ describe("generated Playwright MCP config", () => {
     );
   });
 
+  it("marks an idle limit the user set, which the low-resource preset keeps", () => {
+    expect(buildArgv(["--identity", "school"], { env: sb.env }).tuning?.idleSet).toBeUndefined();
+    for (const [args, env] of [
+      [[], { TURNO_BROWSER_IDLE: "30m" }],
+      [[], { PLAYWRIGHT_MCP_IDLE_TIMEOUT: "60000" }],
+      [["--idle-timeout", "60000"], {}],
+      [["--config", "/x/pw.json"], {}],
+    ] as const) {
+      const b = buildArgv(["--identity", "school", ...args], { env: { ...sb.env, ...env } });
+      expect(b.tuning?.idleSet).toBe(true);
+    }
+  });
+
   it("follows TURNO_STATE_DIR for the identity's config", () => {
     const b = buildArgv(["--identity", "school"], { env: { ...sb.env, TURNO_STATE_DIR: join(sb.home, "st") } });
     expect(b.config?.path).toBe(join(sb.home, "st", "browser", "identities", "school", "mcp-config.json"));
