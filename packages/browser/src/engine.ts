@@ -7,6 +7,7 @@ import { createLightpandaEngine } from "./engine-lightpanda.js";
 import { findProfileChrome, readLockPid } from "./lifecycle.js";
 import { chromeNetwork, pinUserAgent, verifyCoherence } from "./network-chrome.js";
 import { networkEngineClash } from "./network.js";
+import { policyEngineClash } from "./policy.js";
 import { acquireRuntimeLock } from "./runtime-lock.js";
 import {
   type IdentitySettings,
@@ -456,7 +457,8 @@ export function createEngine(config: McpConfig, flags: EngineFlags = {}, fallbac
       const clash =
         (request.tuning ? tuningClash(engine.id, request.tuning) : undefined) ??
         (record ? recordEngineClash(engine.id, record) : undefined) ??
-        (settings ? networkEngineClash(engine.id, settings) : undefined);
+        (settings ? networkEngineClash(engine.id, settings) : undefined) ??
+        policyEngineClash(engine.id, settings?.policy);
       if (clash) throw new Error(clash);
       return await engine.launch(request);
     },

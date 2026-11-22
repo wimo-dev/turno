@@ -6,6 +6,7 @@ import { parseAttachTarget } from "./engine-attach.js";
 import { IdentityError, assertIdentityId } from "./ids.js";
 import { HUMANIZE_LEVELS, type HumanizeSettings } from "./humanize.js";
 import { type ProxySettings, type UserAgentMode, networkEngineClash, networkProblems } from "./network.js";
+import { type IdentityPolicy, policyProblems } from "./policy.js";
 import { parseDuration, parseSize } from "./units.js";
 
 /**
@@ -61,6 +62,9 @@ import { parseDuration, parseSize } from "./units.js";
  * - `resources` (format 13): `"low"` applies the low-resource preset (`tuning.ts`) for a
  *   machine short of memory; `"normal"` (the default) keeps the defaults. A key set on its own
  *   (`tabs`, `backgroundThrottling`) still wins over the preset.
+ * - `policy` (format 13): what the identity may do (`policy.ts`): the hosts its pages may show,
+ *   the features that do not exist for it, and whether browser_login may submit. Only the
+ *   command line writes it.
  *
  * A missing file means Chrome's own defaults, as before identity.json existed.
  */
@@ -131,7 +135,7 @@ const FORMAT_11_KEYS = ["userAgent", "proxy"] as const;
 const FORMAT_12_KEYS = ["cursor"] as const;
 
 /** The keys format 13 added. */
-const FORMAT_13_KEYS = ["resources"] as const;
+const FORMAT_13_KEYS = ["resources", "policy"] as const;
 
 /** The values of `resources`: the defaults, or the low-resource preset (`tuning.ts`). */
 export const RESOURCE_MODES = ["normal", "low"] as const;
@@ -255,6 +259,8 @@ export interface IdentitySettings {
   cursor?: CursorMode;
   /** `"low"`: the low-resource preset (fewer tabs, Chrome closed sooner); default `"normal"`. */
   resources?: ResourceMode;
+  /** What the identity may do: allowed hosts, disabled features, auto submit (`policy.ts`). */
+  policy?: IdentityPolicy;
   /** ISO dates. */
   created: string;
   updated: string;
@@ -394,6 +400,7 @@ function browserProblems(v: Record<string, unknown>, out: string[]): void {
   networkProblems(v, out);
   const networkClash = networkEngineClash(engineOf(v), v);
   if (networkClash) out.push(networkClash);
+  policyProblems(v.policy, engineOf(v), v, out);
   if (v.cache !== undefined) {
     const c = v.cache;
     if (!isObject(c)) out.push('cache must be an object, like {} or { "maxSize": "100MB" }');
