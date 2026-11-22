@@ -1,6 +1,6 @@
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import {
   Exit,
   type FlagSpec,
@@ -54,6 +54,7 @@ type CaptchaSettings = NonNullable<IdentitySettings["captcha"]>;
 type TabLockSettings = NonNullable<IdentitySettings["tabLocks"]>;
 type LiveSettings = NonNullable<IdentitySettings["live"]>;
 type ProxySettings = NonNullable<IdentitySettings["proxy"]>;
+type PolicySettings = NonNullable<IdentitySettings["policy"]>;
 type SettingsPatch = Parameters<BrowserFunctions["writeIdentitySettings"]>[1];
 type DoctorCheck = Awaited<ReturnType<BrowserFunctions["runDoctor"]>>["checks"][number];
 
@@ -129,6 +130,12 @@ export const SETTINGS_FLAGS: FlagSpec = {
   cursor: { type: "string" },
   // The low-resource preset (format 13): normal or low.
   resources: { type: "string" },
+  // What the identity may do (format 13): allowed hosts, disabled features, auto submit.
+  "policy-file": { type: "string" },
+  "allowed-domains": { type: "string" },
+  disable: { type: "string" },
+  "auto-submit": { type: "string" },
+  "no-policy": { type: "boolean" },
 };
 
 /** The identity.json key behind each tuning flag, so the package's messages name the flag. */
@@ -266,7 +273,80 @@ export function settingsPatch(p: Parsed, current?: IdentitySettings): SettingsPa
   const attach = value("attach");
   if (attach !== undefined) patch.attach = attach;
   networkPatch(p, value, patch, current);
+  policyPatch(p, value, patch, current);
   return patch;
+}
+
+/** A policy file: one JSON object, checked by the package when it is written. */
+export function readPolicyFile(file: string): PolicySettings {
+  let text: string;
+  try {
+    text = readFileSync(resolve(file), "utf8");
+  } catch (err) {
+    return fail(
+      `--policy-file ${file} cannot be read: ${(err as NodeJS.ErrnoException).code ?? (err as Error).message}`,
+    );
+  }
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text);
+  } catch {
+    return fail(`--policy-file ${file} is not valid JSON`);
+  }
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw))
+    return fail(`--policy-file ${file} must hold one JSON object, like { "allowedDomains": ["example.com"] }`);
+  return raw as PolicySettings;
+}
+
+/**
+ * The format 13 `policy` key: a whole policy from a file, or its parts from flags. Removing a
+ * part keeps the policy (an empty one still turns browser_run_code_unsafe off); --no-policy
+ * removes it.
+ */
+function policyPatch(
+  p: Parsed,
+  value: (name: string) => string | null | undefined,
+  patch: SettingsPatch,
+  current?: IdentitySettings,
+): void {
+  const file = str(p, "policy-file");
+  const domains = value("allowed-domains");
+  const disabled = value("disable");
+  const autoSubmit = value("auto-submit");
+  const parts = {
+    allowedDomains: typeof domains === "string" ? list(domains) : domains,
+    disabled: typeof disabled === "string" ? (list(disabled) as PolicySettings["disabled"]) : disabled,
+    autoSubmit: typeof autoSubmit === "string" ? booleanValue("--auto-submit", autoSubmit) : autoSubmit,
+  };
+  const given = Object.values(parts).some((v) => v !== undefined);
+  if (bool(p, "no-policy")) {
+    if (given || file !== undefined) fail("--no-policy does not go with the other policy flags");
+    patch.policy = null;
+  } else if (file !== undefined) {
+    if (given)
+      fail("--policy-file does not go with --allowed-domains, --disable or --auto-submit: put them in the file");
+    patch.policy = readPolicyFile(file);
+  } else if (given) {
+    patch.policy = mergeGroup<PolicySettings>(current?.policy, parts) ?? {};
+  }
+}
+
+/** The features a policy turns off, as the server applies them. */
+function offFeatures(policy: PolicySettings): string[] {
+  const off = new Set<string>([...(policy.disabled ?? []), "run_code"]);
+  if (policy.allowedDomains) off.add("network");
+  return [...off];
+}
+
+/** A policy in a few words: "opens only example.com, *.example.com; off: captcha, run_code". */
+export function describePolicy(policy: PolicySettings): string {
+  return [
+    policy.allowedDomains ? `opens only ${policy.allowedDomains.join(", ")}` : "any site",
+    `off: ${offFeatures(policy).join(", ")}`,
+    policy.autoSubmit === false ? "browser_login never submits" : "",
+  ]
+    .filter(Boolean)
+    .join("; ");
 }
 
 /** The format 11 keys: `userAgent` and `proxy`. The package checks the values. */
@@ -630,6 +710,7 @@ export function show(c: Ctx, id: string, args: string[], io: Io): number {
     const act = describeAct(settings.act);
     if (act) rows.push(["act", act]);
     if (settings.captcha) rows.push(["captcha", `on: ${settings.captcha.provider} at ${settings.captcha.endpoint}`]);
+    if (settings.policy) rows.push(["policy", describePolicy(settings.policy)]);
     if (settings.live?.enabled)
       rows.push([
         "live view",
@@ -680,7 +761,8 @@ export const SET_SYNOPSIS =
   "[--engine chrome|lightpanda] [--attach auto|<dir>|<url>] [--record-flows true|false] [--record-traces true|false] [--record-screenshots true|false] [--record-max-size <size>] [--no-record] " +
   "[--act] [--act-sampling true|false] [--act-provider chat-completions] [--act-endpoint <url>] [--act-model <name>] [--act-key keychain:<item>] [--act-max-steps <n>] [--act-max-tokens <n>] [--act-timeout <duration>] [--no-act] " +
   "[--captcha-provider task-api] [--captcha-endpoint <url>] [--captcha-key keychain:<item>] [--captcha-timeout <duration>] [--no-captcha] [--live true|false] [--live-wait <duration>] [--no-live] " +
-  "[--user-agent coherent] [--proxy-server <url>] [--proxy-username <name|keychain:item>] [--proxy-password keychain:<item>] [--no-proxy] [--dry-run] [--json]";
+  "[--user-agent coherent] [--proxy-server <url>] [--proxy-username <name|keychain:item>] [--proxy-password keychain:<item>] [--no-proxy] " +
+  "[--policy-file <file>] [--allowed-domains <host,...>] [--disable <feature,...>] [--auto-submit true|false] [--no-policy] [--dry-run] [--json]";
 
 /** More help for `set`: what each tuning flag writes to identity.json, with the host's command names. */
 export function setDetails(n: CliNames): string {
@@ -777,7 +859,22 @@ Network and user agent (all off by default; for your own accounts and sites you 
                                   where you go, and sites see its address
   --proxy-username <name>         the proxy user name, or keychain:<item>
   --proxy-password keychain:<item> the password, only from the secret store (${n.secretStore ?? n.secretSet("<item>")})
-  --no-proxy                      remove the proxy`;
+  --no-proxy                      remove the proxy
+
+What the identity may do (a policy; only this command writes it, no agent tool can):
+  --policy-file <file>            the whole policy from a JSON file, like
+                                  {"allowedDomains": ["example.com", "*.example.com"],
+                                   "disabled": ["captcha"], "autoSubmit": false}
+  --allowed-domains <list>        the hosts its pages may show: example.com, *.example.com
+                                  (subdomains), localhost:* (any port), host:8443; every
+                                  navigation of every tab is checked, a page's own scripts,
+                                  images and data are not
+  --disable <list>                features that do not exist for it: act, captcha, login, totp,
+                                  attach, evaluate, run_code, network
+  --auto-submit false             browser_login never submits, whatever vault submit says
+  --no-policy                     remove the policy
+Any policy turns browser_run_code_unsafe off, and allowedDomains the network tools. The server
+reads the policy when it starts.`;
 }
 
 /** The flags of `set`, for completion. */
@@ -788,7 +885,12 @@ export const SET_FLAG_NAMES = ["--dry-run", "--json", ...SETTINGS_FLAG_NAMES];
  * folder and the patch written there, so `--dry-run` refuses exactly what the write would and
  * shows the file it would leave, without touching the real one.
  */
-function rehearse(m: BrowserFunctions, id: string, patch: SettingsPatch, env: NodeJS.ProcessEnv): IdentitySettings {
+export function rehearse(
+  m: BrowserFunctions,
+  id: string,
+  patch: SettingsPatch,
+  env: NodeJS.ProcessEnv,
+): IdentitySettings {
   const dir = mkdtempSync(join(env.TMPDIR || tmpdir(), "turno-identity-"));
   try {
     const copy = { ...env, TURNO_DATA_DIR: dir };
@@ -813,6 +915,10 @@ function optInNotes(c: Ctx, id: string, patch: SettingsPatch): string[] {
   if (patch.captcha)
     notes.push(
       `captcha solving: the solver service sees the page address and the captcha, and solving a site's captchas by machine may break its terms; use it only for your own accounts. Every use goes to the reputation log; ${restart}. Undo with --no-captcha.`,
+    );
+  if (patch.policy !== undefined)
+    notes.push(
+      `the policy applies from the next start of browser-${id} (${c.host.restart}); an agent that also has a shell on this computer can still run this command`,
     );
   const own = "Meant for your own accounts and sites you may automate.";
   if (typeof patch.userAgent === "string")

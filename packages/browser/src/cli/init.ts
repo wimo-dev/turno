@@ -18,6 +18,7 @@ import {
 import { findOnPath, tildify } from "turno-core/paths";
 import { AGENTS, agentReachable, execCommand, findEntry, recordRegistration } from "../agent-mcp.js";
 import type { Ctx } from "./context.js";
+import { describePolicy, readPolicyFile, rehearse } from "./identity.js";
 import { loginSummary } from "./login-summary.js";
 import {
   AGENT_NAMES,
@@ -51,6 +52,7 @@ const INIT_FLAGS: FlagSpec = {
   identity: { type: "string" },
   agent: { type: "string" },
   url: { type: "string" },
+  "policy-file": { type: "string" },
   "no-login": { type: "boolean" },
   yes: { type: "boolean", short: "y" },
   "dry-run": { type: "boolean" },
@@ -58,7 +60,7 @@ const INIT_FLAGS: FlagSpec = {
 };
 
 export const INIT_SYNOPSIS =
-  "[--identity <id>] [--agent <claude-code|codex|cursor|copilot|gemini|json|none>] [--url <url>] [--no-login] [--yes] [--dry-run] [--json]";
+  "[--identity <id>] [--agent <claude-code|codex|cursor|copilot|gemini|json|none>] [--url <url>] [--policy-file <file>] [--no-login] [--yes] [--dry-run] [--json]";
 
 export const INIT_DETAILS = `Sets up a browser identity and gives it to your agent, asking at each step:
   1. the identity's name (a new one is created; an existing one is used as it is)
@@ -67,6 +69,8 @@ export const INIT_DETAILS = `Sets up a browser identity and gives it to your age
      and an agent without one (cursor, json) gets the block to paste
 
 --yes answers yes to every step, --no-login skips the sign-in, --agent none skips the agent.
+--policy-file gives the identity a policy (allowed hosts, disabled features; see set --help),
+checked before anything is created and applied in step 1, also to an identity already here.
 Without a terminal (--no-input, a pipe or an agent session) it needs --identity and --agent and
 skips the sign-in; it prints the agent's command, or with --yes runs it. An agent that already
 has the identity's server is left as it is, so running init again changes nothing.
@@ -216,6 +220,16 @@ export async function init(c: Ctx, args: string[], io: Io, run: RunCommand = run
   } catch (err) {
     return fail((err as Error).message);
   }
+  // A policy is checked before the identity exists, so a bad file creates nothing.
+  const policyFile = str(p, "policy-file");
+  const policy = policyFile === undefined ? undefined : readPolicyFile(policyFile);
+  if (policy) {
+    try {
+      rehearse(api, id, { policy }, io.env);
+    } catch (err) {
+      return fail(`--policy-file ${policyFile}: ${(err as Error).message}`);
+    }
+  }
   let created = false;
   const existed = api.identityExists(id, io.env);
   if (existed) say(`Using the identity "${id}" that is already here.`);
@@ -225,12 +239,20 @@ export async function init(c: Ctx, args: string[], io: Io, run: RunCommand = run
     created = true;
     say(`Created "${id}" at ${tildify(info.dir, io.env)}`);
   }
+  if (policy) {
+    if (dry) say(`(dry run) would give "${id}" the policy: ${describePolicy(policy)}`);
+    else {
+      api.writeIdentitySettings(id, { policy }, io.env);
+      say(`Policy of "${id}": ${describePolicy(policy)}`);
+    }
+  }
   const identity = {
     id,
     created,
     existed,
     dir: tildify(api.identityDir(id, io.env), io.env),
     settingsFile: tildify(api.identitySettingsPath(id, io.env), io.env),
+    policy: policy ?? null,
   };
 
   // 2. The sign-in.

@@ -54,6 +54,10 @@ The locale also picks the language of what a person sees in the browser: the [li
 turno-browser set school --locale es-MX
 ```
 
+## Policy
+
+An identity can also carry a [policy](/docs/browser/policy): the hosts its tabs may show, features that do not exist for it (captcha solving, natural language actions, scripts) and whether `browser_login` may submit. Only the command line writes it (`turno-browser set <id> --policy-file <file>`, or `init --policy-file`), and no agent tool can change it.
+
 ## One Chrome per identity
 
 While a server drives an identity's Chrome it holds a runtime lock. A second session on the same identity gets an error that names the process holding it and how to stop it, instead of Chrome's "Browser is already in use". That is also why an identity is declared as a `shared`, `exclusive` server ([Scopes](/docs/concepts/scopes#exclusive-shared-one-session-at-a-time)): one agent session uses it at a time, unless you turn on tab sharing.

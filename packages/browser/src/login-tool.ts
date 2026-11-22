@@ -2,6 +2,7 @@ import type { Frame, Locator, Page } from "patchright-core";
 import type { SecretStore } from "turno-core/secrets";
 import type { IdentityRef } from "./engine.js";
 import type { HumanInput } from "./human-input.js";
+import type { IdentityPolicy } from "./policy.js";
 import type { Redactor, VaultGuard } from "./redact.js";
 import { totp, totpSecondsLeft } from "./totp.js";
 import type { TurnoTool } from "./tools.js";
@@ -44,6 +45,8 @@ export interface VaultAccess {
    * not into a result (the redactor), a trace (`beforeFill` stopped it) or a log.
    */
   input?: HumanInput;
+  /** The identity's policy as the server started: TOTP off, or never submitting (`policy.ts`). */
+  policy?: IdentityPolicy;
 }
 
 type Field = "username" | "password" | "code";
@@ -188,7 +191,10 @@ export function loginTool(): TurnoTool {
         throw new VaultError(
           `identity "${id}" has no credentials for "${siteKey}" in its vault; the person adds them with: ${commandNames().browser} vault add ${id} ${siteKey} --url <sign-in page>`,
         );
-      const { site, submit } = found;
+      const { site } = found;
+      // The policy wins over the vault's own submit setting.
+      const submit = vault.policy?.autoSubmit === false ? "confirm" : found.submit;
+      const totpOff = vault.policy?.disabled?.includes("totp") === true;
       const page = ctx.stock?.currentPage();
       if (!page) throw new VaultError("no page is open; navigate to the sign-in page first");
       if (!originAllowed(site, page.url())) {
@@ -217,7 +223,10 @@ export function loginTool(): TurnoTool {
       const skipped: string[] = [];
       let code: string | undefined;
       if (fields.has("code")) {
-        if (!credential.totp) {
+        if (totpOff) {
+          fields.delete("code");
+          skipped.push("the one-time code (the identity's policy turns TOTP off)");
+        } else if (!credential.totp) {
           fields.delete("code");
           skipped.push("the one-time code (no TOTP secret is stored for this site)");
         } else {

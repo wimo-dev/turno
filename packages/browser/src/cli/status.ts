@@ -8,7 +8,7 @@ import { cookieHosts } from "../cookie-hosts.js";
 import { readLastUsed } from "../last-used.js";
 import { vaultSummary } from "../vault.js";
 import type { Ctx } from "./context.js";
-import { localTime } from "./identity.js";
+import { describePolicy, localTime } from "./identity.js";
 
 /**
  * `status [<id>] [--json]`: one look at what turno-browser has on this machine. For each
@@ -47,6 +47,8 @@ function settingsSummary(s: Settings | undefined) {
     captcha: s?.captcha !== undefined,
     proxy: s?.proxy?.server ?? null,
     health: s?.health?.url ?? null,
+    /** identity.json `policy` as written: allowed hosts, disabled features, auto submit. */
+    policy: s?.policy ?? null,
   };
 }
 
@@ -68,6 +70,7 @@ function settingsLine(s: ReturnType<typeof settingsSummary>): string {
     s.act ? "act on" : "",
     s.captcha ? "captcha solving on" : "",
     s.proxy ? `proxy ${s.proxy}` : "",
+    s.policy ? `policy: ${describePolicy(s.policy)}` : "",
   ];
   return parts.filter(Boolean).join("; ");
 }

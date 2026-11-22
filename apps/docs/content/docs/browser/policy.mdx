@@ -1,0 +1,102 @@
+---
+title: "Identity policy"
+description: "Keep an identity on its own sites and some features off for good, set from the command line where no agent tool can change it."
+---
+
+A policy says what one identity may do: which sites its tabs may show, which features do not exist for it, and whether `browser_login` may submit a sign-in form. It is meant for a product or a script that creates an identity for its own sites and hands it to an agent.
+
+It lives in the identity's `identity.json` under `policy`. Only `turno-browser` (and `turno browser`) on the command line writes that file: no MCP tool does, and the server turns off the one tool that could.
+
+## Set it
+
+From a file, all at once (what an onboarding script does):
+
+```json
+{
+  "allowedDomains": ["example.com", "*.example.com", "accounts.example-idp.com"],
+  "disabled": ["captcha", "act", "evaluate"],
+  "autoSubmit": false
+}
+```
+
+```sh
+turno-browser set shop --policy-file shop-policy.json
+# or when the identity is created, without a terminal
+turno-browser init --identity shop --agent claude-code --policy-file shop-policy.json --yes --json
+```
+
+Or one part at a time:
+
+```sh
+turno-browser set shop --allowed-domains example.com,*.example.com
+turno-browser set shop --disable captcha,act
+turno-browser set shop --auto-submit false
+# remove the whole policy
+turno-browser set shop --no-policy
+```
+
+`init --policy-file` checks the file before it creates anything, so a bad file leaves nothing behind. `turno-browser show shop --json` and `turno-browser status shop --json` include the policy as written. The server reads the policy when it starts: after a change, start a new agent session.
+
+## Allowed domains
+
+`allowedDomains` lists the hosts a tab of the identity may show:
+
+| Pattern | Matches |
+|---|---|
+| `example.com` | `example.com` on the default port (443 for https, 80 for http) |
+| `*.example.com` | every subdomain of `example.com`, not `example.com` itself: list both |
+| `localhost:*` | `localhost` on any port |
+| `dev.example.com:8443` | that host on that port |
+
+Every main-frame navigation of every tab is checked, whoever starts it: `browser_navigate`, `browser_tabs` with `new`, a link the agent clicks, a form, a page script that changes `location`, and a popup a page opens with `window.open`. A tab may also show `about:blank` and a `blob:` URL of an allowed site; `data:`, `file:` and other schemes are refused.
+
+A blocked navigation fails the tool call with an error that names the host and the allowed list:
+
+```text
+### Error
+Navigation to accounts.other.example is blocked by the policy of browser identity "shop": it opens only example.com, *.example.com. Stay on those sites. The tab is on https://example.com/cart now.
+```
+
+How it is enforced, and where it stops:
+
+- **The first request of a navigation** is stopped before it leaves Chrome, by a route on the whole browser context that runs before any other. Chrome shows its error page for it, and the tab is taken back to its last allowed page. New tabs and popups belong to that context, so they are covered from their first request; a popup opened straight on a refused host is closed.
+- **A redirect** from an allowed site to another host is caught when the page commits: Playwright does not route the hops of a redirect (the browser follows them on its own), so that request reaches the other host. The tab is taken back at once (to its last allowed page; a popup that never showed one is closed) and the call fails.
+- **Subresources are not checked**: scripts, styles, images, fonts and requests a page makes (`fetch`, XHR) load from any host, because real sites need their CDNs, analytics and sign-in providers. Frames inside a page are not checked either.
+- **Sign-in providers need listing.** A site that sends you to another host to sign in (an identity provider, a single sign-on page, a payment page) only works when that host is in the list too.
+
+## Disabled features
+
+`disabled` names features that do not exist for the identity. Their tools are not in the tool list and are refused if called (also as a step of `browser_batch` or a flow replay), and the settings they need are refused by `set` while the policy names them.
+
+| Feature | What goes |
+|---|---|
+| `act` | `browser_act`, `browser_extract`, `browser_observe`; the `act` setting |
+| `captcha` | `browser_solve_captcha`; the `captcha` setting |
+| `login` | `browser_login`; `vault add` |
+| `totp` | one-time codes: `browser_login` fills the username and password only; `vault add --totp` |
+| `attach` | attach mode: the `attach` setting, and a server started with `--attach` |
+| `evaluate` | `browser_evaluate` |
+| `run_code` | `browser_run_code_unsafe` |
+| `network` | `browser_route`, `browser_route_list`, `browser_unroute`, `browser_network_state_set` |
+
+Whatever the list says:
+
+- **Any policy turns `run_code` off.** `browser_run_code_unsafe` runs code in the server process, which could rewrite `identity.json` and the policy with it.
+- **`allowedDomains` turns `network` off**: a route the agent adds runs before the domain check and could let a navigation through. A server started with `--caps network` for such an identity refuses to start, and so does any `--caps` whose every tool the policy turns off.
+- **`allowedDomains` does not go with attach mode** (the check would apply to your own tabs) or read mode (Lightpanda).
+- **Files inside turno's own folders are off limits**: a tool's `filename` or `paths` argument that points inside them is refused, so a tool that writes a file cannot reach `identity.json`.
+- `browser_request_human` cannot be disabled: it hands a step to the person and needs no permission the agent does not have.
+
+### `browser_evaluate` under a policy
+
+`browser_evaluate` stays available unless the policy lists `evaluate`. Its script runs in the page, with the same reach as the page's own scripts: a navigation it starts goes through the same domain check, and it cannot touch `identity.json` or the server. Two things it can do that the other tools cannot: read any value of the page (the values of password and one-time code fields are hidden from results only as typed, not in another encoding), and send data to any host with `fetch`, since subresources are not checked. If the agent must not have either, add `evaluate` to `disabled`.
+
+## Auto submit
+
+`"autoSubmit": false` keeps `browser_login` from submitting the sign-in form, whatever [`vault submit`](/docs/browser/vault) says, and `turno-browser vault submit <id> auto` is refused while it is set. `true` is the same as leaving it out.
+
+## What a policy does not cover
+
+- **An agent with a shell on the same computer** can run `turno-browser set` like any program of yours. The policy binds the MCP server; give such an agent no shell, or run it as another user.
+- **Signing in by hand** (`turno-browser login`) opens the profile for you, without the policy.
+- **An older turno-browser** refuses an `identity.json` with a policy (format 13) instead of ignoring it.

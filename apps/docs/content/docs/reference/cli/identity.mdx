@@ -38,7 +38,9 @@ Usage:
       keychain:<item>] [--captcha-timeout <duration>] [--no-captcha] [--live
       true|false] [--live-wait <duration>] [--no-live] [--user-agent coherent]
       [--proxy-server <url>] [--proxy-username <name|keychain:item>]
-      [--proxy-password keychain:<item>] [--no-proxy] [--dry-run] [--json]
+      [--proxy-password keychain:<item>] [--no-proxy] [--policy-file <file>]
+      [--allowed-domains <host,...>] [--disable <feature,...>] [--auto-submit
+      true|false] [--no-policy] [--dry-run] [--json]
                                 change a browser identity's identity.json:
                                 place, languages, health check, tabs, blocking,
                                 cache
@@ -137,7 +139,9 @@ Usage:
       keychain:<item>] [--captcha-timeout <duration>] [--no-captcha] [--live
       true|false] [--live-wait <duration>] [--no-live] [--user-agent coherent]
       [--proxy-server <url>] [--proxy-username <name|keychain:item>]
-      [--proxy-password keychain:<item>] [--no-proxy] [--dry-run] [--json]
+      [--proxy-password keychain:<item>] [--no-proxy] [--policy-file <file>]
+      [--allowed-domains <host,...>] [--disable <feature,...>] [--auto-submit
+      true|false] [--no-policy] [--dry-run] [--json]
     change a browser identity's identity.json: place, languages, health check,
     tabs, blocking, cache
 
@@ -234,6 +238,21 @@ Network and user agent (all off by default; for your own accounts and sites you 
   --proxy-username <name>         the proxy user name, or keychain:<item>
   --proxy-password keychain:<item> the password, only from the secret store (turno secret set)
   --no-proxy                      remove the proxy
+
+What the identity may do (a policy; only this command writes it, no agent tool can):
+  --policy-file <file>            the whole policy from a JSON file, like
+                                  {"allowedDomains": ["example.com", "*.example.com"],
+                                   "disabled": ["captcha"], "autoSubmit": false}
+  --allowed-domains <list>        the hosts its pages may show: example.com, *.example.com
+                                  (subdomains), localhost:* (any port), host:8443; every
+                                  navigation of every tab is checked, a page's own scripts,
+                                  images and data are not
+  --disable <list>                features that do not exist for it: act, captcha, login, totp,
+                                  attach, evaluate, run_code, network
+  --auto-submit false             browser_login never submits, whatever vault submit says
+  --no-policy                     remove the policy
+Any policy turns browser_run_code_unsafe off, and allowedDomains the network tools. The server
+reads the policy when it starts.
 
 Examples:
   $ turno identity set browser:school --timezone Europe/Madrid --languages es-ES,es,en

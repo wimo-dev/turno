@@ -47,6 +47,15 @@ import { LiveServer } from "./live-server.js";
 import { MemoryWatch } from "./memory.js";
 import { names } from "./names.js";
 import { NETWORK_TOOLS, redactNetworkText } from "./network-redact.js";
+import {
+  type IdentityPolicy,
+  blockedMessage,
+  disabledTools,
+  hostPatterns,
+  policyEngineClash,
+  policyRefusal,
+} from "./policy.js";
+import { NavigationGuard } from "./policy-guard.js";
 import { FlowRecorder, type PendingStep } from "./recorder.js";
 import { Recording, tracesTmpDir } from "./recordings.js";
 import { Redactor, SCRIPT_TOOLS, VaultGuard } from "./redact.js";
@@ -130,6 +139,9 @@ import { type BrowserWatch, PlainWatch } from "./watch.js";
  *   user has paused the agent, and tells the held call what changed (`live.ts`, `live-server.ts`);
  *   a person step (`browser_request_human`, `human-step.ts`) holds them the same way, with the live
  *   view or without it (`watch.ts`);
+ * - with a policy in identity.json (`policy.ts`), leaves its disabled tools out of the list and
+ *   refuses them, checks every main-frame navigation against its allowed hosts
+ *   (`policy-guard.ts`), and fails the call that met a blocked one;
  * - masks password and one-time code fields in every page snapshot and hides their values from
  *   every result, whoever typed them, refuses the agent's typing into them (`sensitive.ts`), drops
  *   credential values from network output (`network-redact.ts`), and says when a result ends on
@@ -382,6 +394,8 @@ interface Running {
   cursor?: AgentCursor;
   /** The language of what the person sees in this browser: the identity's (`ui-strings.ts`). */
   locale: UiLocale;
+  /** The policy's domain check, when it has allowedDomains (`policy-guard.ts`). */
+  guard?: NavigationGuard;
 }
 
 class SessionBackend extends EventEmitter implements ServerBackend {
@@ -422,6 +436,8 @@ class SessionBackend extends EventEmitter implements ServerBackend {
       stockTypes: ReadonlyMap<string, string>;
       providers?: Providers;
       live?: LiveServer;
+      /** identity.json `policy` as the server started (`policy.ts`). */
+      policy?: IdentityPolicy;
     },
     private readonly title: (clientInfo: ClientInfo) => string,
   ) {
@@ -509,6 +525,12 @@ class SessionBackend extends EventEmitter implements ServerBackend {
         secret: (value, label) => this.host.redactor.add(value, label),
         ...(identity ? { identity } : {}),
       });
+      // The policy the server started with, against the engine a flag or identity.json picked.
+      const clash = policyEngineClash(launched.engine, this.host.policy);
+      if (clash) {
+        await launched.close().catch(() => {});
+        throw new Error(clash);
+      }
       // Human-like input (off by default): the input tools of this browser run on humanized tabs.
       const input =
         tuning.humanize.level === "off"
@@ -550,6 +572,7 @@ class SessionBackend extends EventEmitter implements ServerBackend {
         }
       };
       const sessionConfig = configForSession(config, cliOptions, tuning);
+      let guard: NavigationGuard | undefined;
       const idle = launched.idleTimer ? new CallIdleTimer(launched.idleTimer, () => launched.isOpen()) : undefined;
       // The agent cursor (on when someone can see this browser): the input tools move it. It wraps
       // the humanized tools, so it is the layer next to the page: humanize's pointer path runs
@@ -592,6 +615,10 @@ class SessionBackend extends EventEmitter implements ServerBackend {
             tuning.resources,
             join(identityStateDir(identity.id, identity.env), "resource-cache"),
           );
+        // Last of the routes, so it runs before every other one (and before the agent's own,
+        // which the policy turns off with the network tools).
+        const patterns = hostPatterns(this.host.policy);
+        if (patterns) guard = await NavigationGuard.install(launched.context, patterns);
         // Never in read or attach mode: the engine refuses traces and screenshots there first.
         const idleLimit = idleMs(sessionConfig);
         if (identity && profile && settings?.record)
@@ -706,6 +733,7 @@ class SessionBackend extends EventEmitter implements ServerBackend {
         ...(input ? { input } : {}),
         ...(cursor ? { cursor } : {}),
         locale,
+        ...(guard ? { guard } : {}),
       };
     })();
     promise.catch(() => {
@@ -730,10 +758,48 @@ class SessionBackend extends EventEmitter implements ServerBackend {
   ): Promise<ToolResult> {
     if (client && session) this.clients.set(session, client);
     const started = performance.now();
+    const refused = this.refusePolicy(name, args);
+    if (refused) return errorResult(refused, !!(args._meta as { json?: boolean } | undefined)?.json);
     let result = await this.callLive(name, args, signal, session, sample, progress);
-    if (this.touchesBrowser(name)) result = await this.afterCall(name, args, result, session, started);
+    if (this.touchesBrowser(name)) {
+      result = await this.afterCall(name, args, result, session, started);
+      result = await this.afterPolicy(result, session, started, !!(args._meta as { json?: boolean } | undefined)?.json);
+    }
     // Every result and error of this server leaves through the redactor.
     return this.host.redactor.result(result);
+  }
+
+  /** Why the identity's policy refuses this call before it runs (`policy.ts`), or undefined. */
+  private refusePolicy(name: string, args: Record<string, unknown>): string | undefined {
+    const { policy, identity } = this.host;
+    if (!policy || !identity) return undefined;
+    return policyRefusal({ id: identity.id, policy, cwd: this.info().cwd, env: identity.env }, name, args);
+  }
+
+  /**
+   * After a browser call: a navigation the domain check stopped during the call makes the call
+   * an error that names the host and the allowed list; one that happened between calls (a page's
+   * own timer) is told in a last section of this result.
+   */
+  private async afterPolicy(
+    result: ToolResult,
+    session: string | undefined,
+    started: number,
+    json: boolean,
+  ): Promise<ToolResult> {
+    const running = await this.current?.catch(() => undefined);
+    const guard = running?.guard;
+    const { policy, identity } = this.host;
+    if (!guard || !policy || !identity) return result;
+    await guard.settled();
+    const seen = guard.take();
+    if (!seen.length) return result;
+    const targets = [...new Set(seen.map((v) => v.target))].join(", ");
+    const page = await this.currentPageOf(session ?? DIRECT_SESSION);
+    const where = page ? ` The tab is on ${page.url()} now.` : "";
+    const message = `${blockedMessage(identity.id, targets, policy)}${where}`;
+    if (seen.some((v) => v.at >= started)) return errorResult(message, json);
+    return withTrailer(result, "Policy", `Before this call: ${message}`, "policy", json);
   }
 
   /**
@@ -919,9 +985,16 @@ class SessionBackend extends EventEmitter implements ServerBackend {
     if (!tool) return await this.callStock(name, args, signal, {}, session);
     const json = !!(args._meta as { json?: boolean } | undefined)?.json;
     // A batch is refused up front when one of its steps would be, before the browser launches.
-    const steps = name === "browser_batch" && Array.isArray(args.actions) ? (args.actions as { tool?: unknown }[]) : [];
-    for (const tool of [name, ...steps.map((s) => s?.tool).filter((t): t is string => typeof t === "string")]) {
-      const refusal = this.host.engine.refuse?.(tool, this.host.identity);
+    const steps =
+      name === "browser_batch" && Array.isArray(args.actions)
+        ? (args.actions as { tool?: unknown; args?: unknown }[])
+        : [];
+    for (const step of [{ tool: name, args: {} }, ...steps]) {
+      if (typeof step?.tool !== "string") continue;
+      const stepArgs =
+        typeof step.args === "object" && step.args !== null ? (step.args as Record<string, unknown>) : {};
+      const refusal =
+        this.host.engine.refuse?.(step.tool, this.host.identity) ?? this.refusePolicy(step.tool, stepArgs);
       if (refusal) return errorResult(refusal, json);
     }
     const parsed = parseArguments(tool, args);
@@ -994,6 +1067,7 @@ class SessionBackend extends EventEmitter implements ServerBackend {
                 ...(this.host.vaultStore ? { store: this.host.vaultStore } : {}),
                 ...(secretHook ? { beforeFill: (page: Page) => secretHook(page) } : {}),
                 ...(input ? { input } : {}),
+                ...(this.host.policy ? { policy: this.host.policy } : {}),
               },
             }
           : {}),
@@ -1030,7 +1104,8 @@ class SessionBackend extends EventEmitter implements ServerBackend {
     options: { snapshot?: boolean; fromSecretStore?: boolean } = {},
     session?: string,
   ): Promise<ToolResult> {
-    const refusal = this.host.engine.refuse?.(name, this.host.identity);
+    // A batch, a replay or an act run calls stock tools here: the policy checks each step.
+    const refusal = this.host.engine.refuse?.(name, this.host.identity) ?? this.refusePolicy(name, args);
     if (refusal) return errorResult(refusal, !!(args._meta as { json?: boolean } | undefined)?.json);
     const running = await this.browser();
     const { governor, tuning, idle, sharing, launched } = running;
@@ -1434,12 +1509,12 @@ async function afterIdentityLaunch(
 }
 
 /**
- * identity.json's opt-in keys as the server starts. The tool list is fixed for the life of the
- * server, so turning a feature on takes a restart; turning it off is honored at the next call,
- * since each opt-in tool reads identity.json again. An invalid file lists nothing extra (the
- * first launch reports the problem).
+ * identity.json as the server starts: its opt-in keys and its policy. The tool list is fixed for
+ * the life of the server, so turning a feature on or changing the policy takes a restart;
+ * turning a feature off is honored at the next call, since each opt-in tool reads identity.json
+ * again. An invalid file lists nothing extra (the first launch reports the problem).
  */
-function optInSettings(identity: IdentityRef | undefined): { act?: unknown; captcha?: unknown } | undefined {
+function startSettings(identity: IdentityRef | undefined): IdentitySettings | undefined {
   if (!identity) return undefined;
   try {
     return readIdentitySettings(identity.id, identity.env);
@@ -1448,14 +1523,42 @@ function optInSettings(identity: IdentityRef | undefined): { act?: unknown; capt
   }
 }
 
+/**
+ * A capability (`--caps`, the config's `capabilities`) whose every tool the policy turns off
+ * would add nothing but a way around it: the server refuses to start with one.
+ */
+function refuseCaps(
+  config: McpConfig,
+  policy: IdentityPolicy | undefined,
+  disabled: ReadonlyMap<string, string>,
+  identity: IdentityRef | undefined,
+): void {
+  if (!policy || !identity) return;
+  const all = upstream().tools.browserTools;
+  for (const cap of config.capabilities ?? []) {
+    const of = all.filter((t) => t.capability === cap);
+    if (of.length && of.every((t) => disabled.has(t.schema.name)))
+      throw new Error(
+        `--caps ${cap} does not go with the policy of browser identity "${identity.id}": it turns off ${of.map((t) => t.schema.name).join(", ")}. Start the server without that capability.`,
+      );
+  }
+}
+
 /** Builds the host for a resolved config: tool list, engine and session factory. */
 export function createHost(options: HostOptions): Host {
   const { tools } = upstream();
   const { config, cliOptions } = options;
-  const stock = tools.filteredTools(config);
+  const atStart = startSettings(options.identity);
+  const policy = options.identity ? atStart?.policy : undefined;
+  // The tools a policy turns off are not listed, and the session's browser does not know them.
+  const disabled = disabledTools(policy);
+  refuseCaps(config, policy, disabled, options.identity);
+  const stock = tools.filteredTools(config).filter((t) => !disabled.has(t.schema.name));
   const stockSchemas = new Map(stock.map((t) => [t.schema.name, t.schema.inputSchema]));
   const stockTypes = new Map(stock.map((t) => [t.schema.name, t.schema.type]));
-  const turnoTools = [...(options.turnoTools ?? TURNO_TOOLS), ...optInTools(optInSettings(options.identity))];
+  const turnoTools = [...(options.turnoTools ?? TURNO_TOOLS), ...optInTools(atStart)].filter(
+    (t) => !disabled.has(t.schema.name),
+  );
   checkTurnoTools(turnoTools, tools.browserTools);
   const turno = new Map(turnoTools.map((t) => [t.schema.name, t]));
   const engine = options.engine ?? createEngine(config, options.engineFlags);
@@ -1485,6 +1588,7 @@ export function createHost(options: HostOptions): Host {
     ...(options.identity ? { identity: options.identity } : {}),
     ...(options.vaultStore ? { vaultStore: options.vaultStore } : {}),
     ...(options.providers ? { providers: options.providers } : {}),
+    ...(policy ? { policy } : {}),
   };
   return {
     config,

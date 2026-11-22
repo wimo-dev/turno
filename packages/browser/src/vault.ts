@@ -5,6 +5,7 @@ import { type SecretStore, requireSecretStore } from "turno-core/secrets";
 import { IdentityError, assertIdentityId, identityDir } from "./ids.js";
 import { type TotpParams, parseTotpSecret } from "./totp.js";
 import { names } from "./names.js";
+import { readIdentitySettings } from "./settings.js";
 
 /**
  * The credential vault of a browser identity: a username, a password and optionally
@@ -220,6 +221,13 @@ export async function vaultAdd(
   if (origins.length > MAX_ORIGINS) throw new VaultError(`at most ${MAX_ORIGINS} origins per site`);
   if (!input.username) throw new VaultError("the username is empty");
   if (!input.password) throw new VaultError("the password is empty");
+  const policy = readIdentitySettings(id, env)?.policy;
+  if (policy?.disabled?.includes("login"))
+    throw new VaultError(
+      `identity "${id}" has "login" in its policy's disabled list: browser_login does not exist for it`,
+    );
+  if (input.totp && policy?.disabled?.includes("totp"))
+    throw new VaultError(`identity "${id}" has "totp" in its policy's disabled list: store the site without --totp`);
   if (/[\0\r\n]/.test(input.username)) throw new VaultError("the username has a line break");
   const totp = input.totp ? parseTotpSecret(input.totp) : undefined;
   const index = readIndex(id, env);
@@ -274,6 +282,10 @@ export function vaultSetSubmit(
   if (submit !== "confirm" && submit !== "auto") throw new VaultError(`submit must be "confirm" or "auto"`);
   if (!existsDir(identityDir(id, env)))
     throw new VaultError(`identity "${id}" does not exist (${names().browser} add ${id})`);
+  if (submit === "auto" && readIdentitySettings(id, env)?.policy?.autoSubmit === false)
+    throw new VaultError(
+      `identity "${id}" has "autoSubmit": false in its policy: browser_login never submits the form`,
+    );
   const index = readIndex(id, env);
   index.submit = submit;
   writeIndex(id, index, env);

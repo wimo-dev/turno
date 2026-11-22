@@ -300,7 +300,7 @@ describe("reading and checking", () => {
   });
 });
 
-describe("resources (format 13)", () => {
+describe("resources and policy (format 13)", () => {
   it("takes normal or low, writes format 13 only while it is set, and keeps an older format otherwise", () => {
     expect(writeIdentitySettings("school", { resources: "low" }, sb.env).version).toBe(13);
     expect(readIdentitySettings("school", sb.env)?.resources).toBe("low");
@@ -309,6 +309,13 @@ describe("resources (format 13)", () => {
     );
     expect(writeIdentitySettings("school", { resources: null, tabs: { max: 2 } }, sb.env).version).toBe(2);
     expect(writeIdentitySettings("fox", { engine: "camoufox" }, sb.env).version).toBe(11);
+  });
+
+  it("writes format 13 while a policy is set, alone or with resources", () => {
+    expect(writeIdentitySettings("shop", { policy: { disabled: ["captcha"] } }, sb.env).version).toBe(13);
+    expect(writeIdentitySettings("shop", { resources: "low" }, sb.env).version).toBe(13);
+    expect(writeIdentitySettings("shop", { policy: null }, sb.env).version).toBe(13);
+    expect(writeIdentitySettings("shop", { resources: null }, sb.env).version).toBe(1);
   });
 });
 
