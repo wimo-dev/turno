@@ -77,6 +77,9 @@ export function publishedManifest(manifest, versions) {
   return out;
 }
 
+/** A folder with `/` between its parts, as on Windows it has `\`; the same length, so indexes carry over. */
+const slashes = (dir) => dir.replaceAll("\\", "/");
+
 /** Declared edges of a manifest: name -> { spec, optional }. Dev dependencies never count. */
 function edgesOf(manifest) {
   const out = new Map();
@@ -96,7 +99,7 @@ function edgesOf(manifest) {
 function locate(dir, name, isRoot) {
   const candidates = [join(dir, "node_modules", name)];
   if (!isRoot) {
-    const i = dir.lastIndexOf("/node_modules/");
+    const i = slashes(dir).lastIndexOf("/node_modules/");
     if (i >= 0) candidates.push(join(dir.slice(0, i), "node_modules", name));
   }
   for (const c of candidates) {
@@ -134,7 +137,7 @@ export function collectGraph(pkgDir, versions = workspaceVersions(pkgDir)) {
       edges.set(name, key);
       if (!nodes.has(key)) {
         // A sibling of the workspace is linked from its own folder, never from a node_modules.
-        const workspace = !at.includes("/node_modules/") && versions.get(m.name) === m.version;
+        const workspace = !slashes(at).includes("/node_modules/") && versions.get(m.name) === m.version;
         const node = { key, name: m.name, version: m.version, dir: at, manifest: m, edges: new Map(), workspace };
         nodes.set(key, node);
         node.edges = resolveEdges(at, m, false, key);

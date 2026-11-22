@@ -70,13 +70,28 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter turno-core --filter turno-browser run build
       - run: pnpm --filter turno-core --filter turno-browser run typecheck
+      - name: Diagnostics (temporary)
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $q = "Get-CimInstance Win32_Process | Out-Null"
+          foreach ($i in 1..2) { "normal: " + (Measure-Command { powershell.exe -NoProfile -NonInteractive -Command $q }).TotalSeconds }
+          $fresh = Join-Path $env:RUNNER_TEMP "fresh"
+          New-Item -ItemType Directory -Force $fresh | Out-Null
+          $old = $env:LOCALAPPDATA
+          $env:LOCALAPPDATA = $fresh
+          foreach ($i in 1..2) { "fresh LOCALAPPDATA: " + (Measure-Command { powershell.exe -NoProfile -NonInteractive -Command $q }).TotalSeconds }
+          $env:LOCALAPPDATA = $old
+          Set-Location packages/browser
+          $probe = "const { chromium } = require(process.argv[1]); chromium.launch({ channel: 'chrome', headless: true, timeout: 30000 }).then((b) => { console.log('started', b.version()); return b.close(); }).catch((e) => { console.error(e.message); process.exit(1); });"
+          "probe, normal env:"; node -e $probe (Resolve-Path node_modules/patchright-core)
+          $home2 = Join-Path $env:RUNNER_TEMP "home2"
+          New-Item -ItemType Directory -Force $home2 | Out-Null
+          $env:USERPROFILE = $home2; $env:LOCALAPPDATA = $home2; $env:APPDATA = $home2; $env:HOME = $home2
+          "probe, redirected home:"; node -e $probe (Resolve-Path node_modules/patchright-core)
       # The secret store tests drive POSIX shell stand-ins for security and secret-tool; the
       # Windows secret store comes with its own tests.
       - run: pnpm --filter turno-core exec vitest run --exclude test/secrets.test.ts
-      - name: Time the process table (diagnostic)
-        shell: pwsh
-        run: |
-          foreach ($i in 1..3) { (Measure-Command { powershell.exe -NoProfile -NonInteractive -Command "Get-CimInstance Win32_Process | Out-Null" }).TotalSeconds }
       - run: pnpm --filter turno-browser exec vitest run --reporter=verbose
         if: ${{ !cancelled() }}
       # What a person gets from npm: the packed packages installed with npm (its .cmd shims),

@@ -24,16 +24,23 @@ const KEEP = new Set([
 ]);
 const LIVE = /^(TURNO_|CLAUDE|CODEX_|CURSOR_|ANTHROPIC_|XDG_)/;
 
-/** The folders the setup itself makes on Windows (above), not counted while they stay empty. */
+/**
+ * What may appear under the guard HOME on Windows: the folders the setup itself makes (above),
+ * and PowerShell's own caches, which every powershell.exe (the process table) writes under
+ * LOCALAPPDATA.
+ */
 const SETUP_DIRS = new Set(["AppData", join("AppData", "Local"), join("AppData", "Roaming")]);
+const POWERSHELL = join("AppData", "Local", "Microsoft", "Windows", "PowerShell");
+const allowed = (p: string) =>
+  SETUP_DIRS.has(p) || POWERSHELL === p || POWERSHELL.startsWith(`${p}${sep}`) || p.startsWith(`${POWERSHELL}${sep}`);
 
 /** Paths written under the guard HOME, relative to it. */
 export function guardFindings(home: string): string[] {
   try {
-    const found = readdirSync(home, { recursive: true }).map(String).sort();
-    return found.filter(
-      (p) => !SETUP_DIRS.has(p) || found.some((q) => q !== p && q.startsWith(`${p}${sep}`) && !SETUP_DIRS.has(q)),
-    );
+    return readdirSync(home, { recursive: true })
+      .map(String)
+      .sort()
+      .filter((p) => !allowed(p));
   } catch {
     return [];
   }
