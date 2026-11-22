@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { windowsPowerShell } from "./secrets.js";
+import { windowsPowerShell, windowsPowerShellEnv } from "./secrets.js";
 
 /**
  * Process helpers shared by turno-cli and turno-browser: whether a PID lives, a signal that
@@ -85,6 +85,7 @@ export function readProcTable(platform: NodeJS.Platform = process.platform): Pro
           encoding: "utf8",
           stdio: ["ignore", "pipe", "ignore"],
           windowsHide: true,
+          env: windowsPowerShellEnv(process.env),
           maxBuffer: 64 * 1024 * 1024,
           timeout: 15_000,
         },

@@ -17,6 +17,11 @@ const CHROME_PATHS: Partial<Record<NodeJS.Platform, string[]>> = {
     .map((d) => join(d, "Google", "Chrome", "Application", "chrome.exe")),
 };
 
+/** The installed Google Chrome these tests start by hand, if there is one. */
+export function chromeExecutable(): string | undefined {
+  return CHROME_PATHS[process.platform]?.find((p) => existsSync(p));
+}
+
 /** Why these tests cannot run here, or undefined when a real Chrome starts. */
 export function chromeUnavailable(): string | undefined {
   if (process.env.TURNO_SKIP_CHROME === "1") return "TURNO_SKIP_CHROME=1";

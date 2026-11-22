@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, onTestFinished } from "vit
 import { addIdentity, identityExists } from "../src/identities.js";
 import { seal } from "../src/sealed.js";
 import { exportSession, importSession, profileOrigins, readSessionExport } from "../src/session-export.js";
-import { keychainArgs, readIdentitySettings, writeIdentitySettings } from "../src/settings.js";
+import { chromeEnv, keychainArgs, readIdentitySettings, writeIdentitySettings } from "../src/settings.js";
 import { vaultAdd } from "../src/vault.js";
 import { chromeUnavailable, stopSandboxProcesses } from "./helpers/chrome.js";
 import { fakeSecretStore } from "./helpers/fake-secret-store.js";
@@ -158,7 +158,7 @@ describe.skipIf(reason !== undefined)(
       const ctx = await chromium.launchPersistentContext(identityDir("source", sb.env), {
         channel: "chrome",
         headless: true,
-        env: sb.env as Record<string, string>,
+        env: chromeEnv(sb.env),
       });
       const page = await ctx.newPage();
       await page.goto(`${web.url}/set`);
@@ -186,7 +186,7 @@ describe.skipIf(reason !== undefined)(
       const ctx2 = await chromium.launchPersistentContext(identityDir("copy", sb.env), {
         channel: "chrome",
         headless: true,
-        env: sb.env as Record<string, string>,
+        env: chromeEnv(sb.env),
       });
       const cookies = await ctx2.cookies(web.url);
       expect(cookies.find((c) => c.name === "sid")?.value === "cookie-value-42").toBe(true);

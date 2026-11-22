@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -31,7 +32,7 @@ const stdio: StdioClientTransport[] = [];
 beforeEach(() => {
   sb = sandbox();
   // A short state folder, so the Unix socket path fits.
-  stateRoot = realpathSync(mkdtempSync("/tmp/tb-"));
+  stateRoot = realpathSync(mkdtempSync(process.platform === "win32" ? join(tmpdir(), "tb-") : "/tmp/tb-"));
   env = { ...sb.env, TURNO_STATE_DIR: stateRoot };
 });
 

@@ -271,10 +271,21 @@ export function dpapiInput(service: string, data: Buffer): Buffer {
 /** Runs one DPAPI call: (operation, stdin) to the process result. Tests pass a stand-in. */
 export type DpapiRunner = (op: DpapiOp, input: Buffer) => Promise<ExecResult>;
 
+/**
+ * The environment Windows PowerShell gets: the caller's, with what it needs when the caller
+ * trimmed it (an agent hands its MCP servers a few variables). SystemRoot it cannot start
+ * without; without PSModulePath it searches for its modules for 20 seconds and more
+ * (measured on windows-latest), so it gets the folder of the modules that come with Windows.
+ */
+export function windowsPowerShellEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const root = env.SystemRoot || env.SYSTEMROOT || process.env.SystemRoot || "C:\\Windows";
+  const modules = env.PSModulePath || env.PSMODULEPATH || `${root}\\System32\\WindowsPowerShell\\v1.0\\Modules`;
+  return { ...env, SystemRoot: root, PSModulePath: modules };
+}
+
 function powershellRunner(env: NodeJS.ProcessEnv): DpapiRunner {
   const bin = windowsPowerShell(env);
-  // PowerShell needs SystemRoot even when the caller passes a trimmed environment.
-  const childEnv = { ...env, SystemRoot: env.SystemRoot || env.SYSTEMROOT || process.env.SystemRoot };
+  const childEnv = windowsPowerShellEnv(env);
   return (op, input) => exec(bin, dpapiArgs(op), childEnv, input, 30_000);
 }
 

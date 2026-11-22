@@ -8,7 +8,7 @@ import type { Browser, CDPSession, Page } from "patchright-core";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { resolveAttachEndpoint } from "../src/engine-attach.js";
 import { playwright } from "../src/upstream.js";
-import { chromeUnavailable, spawnChrome, stopSandboxProcesses, waitFor } from "./helpers/chrome.js";
+import { chromeExecutable, chromeUnavailable, spawnChrome, stopSandboxProcesses, waitFor } from "./helpers/chrome.js";
 import { type Sandbox, sandbox } from "./helpers/sandbox.js";
 
 /**
@@ -27,10 +27,7 @@ import { type Sandbox, sandbox } from "./helpers/sandbox.js";
 const pkg = fileURLToPath(new URL("..", import.meta.url));
 const bin = join(pkg, "dist", "bin", "mcp.js");
 const reason = chromeUnavailable();
-const exe =
-  process.platform === "darwin"
-    ? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
-    : "/opt/google/chrome/chrome";
+const exe = chromeExecutable() ?? "chrome";
 
 const PAGE = `<!doctype html><title>Sign in</title>
 <button id="create">Create a passkey</button>

@@ -12,6 +12,7 @@ import { liveLink, liveStatus } from "../src/live-client.js";
 import { SESSION_META_KEY } from "../src/session.js";
 import { chromeUnavailable, stopSandboxProcesses } from "./helpers/chrome.js";
 import { type Sandbox, sandbox } from "./helpers/sandbox.js";
+import { chromeEnv } from "../src/settings.js";
 
 /**
  * The person step (`browser_request_human`) on a real Google Chrome, headless:
@@ -72,8 +73,7 @@ describe.skipIf(reason)(`the person step's banner on a real Chrome${reason ? ` (
   let home: Sandbox | undefined;
   beforeAll(async () => {
     home = sandbox();
-    const env = Object.fromEntries(Object.entries(home.env).filter((e): e is [string, string] => e[1] !== undefined));
-    browser = await chromium.launch({ channel: "chrome", headless: true, env });
+    browser = await chromium.launch({ channel: "chrome", headless: true, env: chromeEnv(home.env) });
     web = await site();
   });
   afterAll(async () => {

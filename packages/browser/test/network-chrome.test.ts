@@ -12,7 +12,7 @@ import { liveStatus } from "../src/live-client.js";
 import { listRecordings, recordingsDir, zipTexts } from "../src/recordings.js";
 import { writeIdentitySettings } from "../src/settings.js";
 import { chromeUnavailable, stopSandboxProcesses, waitFor } from "./helpers/chrome.js";
-import { type FakeSecretStore, fakeSecretStore } from "./helpers/fake-secret-store.js";
+import { type FakeSecretStore, fakeSecretStore, noFakeSecretStore } from "./helpers/fake-secret-store.js";
 import { localProxy } from "./helpers/local-proxy.js";
 import { type Sandbox, sandbox } from "./helpers/sandbox.js";
 
@@ -219,36 +219,39 @@ describe.skipIf(reason)("identity.json userAgent with a real Chrome", () => {
 });
 
 describe.skipIf(reason)("identity.json proxy with a real Chrome and a local proxy", () => {
-  it("sends the traffic through the proxy with the password from the secret store, which no tool result shows", async () => {
-    const proxy = await localProxy("alice", PASSWORD, listen);
-    store.write("proxy-pass", PASSWORD);
-    addIdentity("px", sb.env);
-    writeIdentitySettings(
-      "px",
-      { proxy: { server: proxy.server, username: "alice", password: "keychain:proxy-pass" } },
-      sb.env,
-    );
-    const site = await probeSite();
-    const client = await start("px");
-    // http://127.0.0.1, not localhost: Playwright sends loopback through the proxy too, and a
-    // plain http:// request carries Proxy-Authorization, the case a header could leak in.
-    const target = site.url.replace("localhost", "127.0.0.1");
-    const results = [await call(client, "browser_navigate", { url: target })];
-    expect(results[0]!.error, results[0]!.text).toBe(false);
-    await site.until(2);
-    expect(proxy.seen.relayed).toContain("/probe");
-    expect(proxy.seen.relayed).toContain("/worker.js");
-    expect(proxy.seen.wrongCredentials).toBe(0);
-    results.push(await call(client, "browser_network_requests", { static: true }));
-    for (let i = 1; i <= 3; i++) results.push(await call(client, "browser_network_request", { index: i }));
-    results.push(await call(client, "browser_snapshot"));
-    results.push(await call(client, "browser_evaluate", { function: "() => document.title" }));
-    const basic = Buffer.from(`alice:${PASSWORD}`).toString("base64");
-    for (const r of results) {
-      expect(r.text.includes(PASSWORD)).toBe(false);
-      expect(r.text.includes(basic)).toBe(false);
-    }
-  });
+  it.skipIf(noFakeSecretStore)(
+    "sends the traffic through the proxy with the password from the secret store, which no tool result shows",
+    async () => {
+      const proxy = await localProxy("alice", PASSWORD, listen);
+      store.write("proxy-pass", PASSWORD);
+      addIdentity("px", sb.env);
+      writeIdentitySettings(
+        "px",
+        { proxy: { server: proxy.server, username: "alice", password: "keychain:proxy-pass" } },
+        sb.env,
+      );
+      const site = await probeSite();
+      const client = await start("px");
+      // http://127.0.0.1, not localhost: Playwright sends loopback through the proxy too, and a
+      // plain http:// request carries Proxy-Authorization, the case a header could leak in.
+      const target = site.url.replace("localhost", "127.0.0.1");
+      const results = [await call(client, "browser_navigate", { url: target })];
+      expect(results[0]!.error, results[0]!.text).toBe(false);
+      await site.until(2);
+      expect(proxy.seen.relayed).toContain("/probe");
+      expect(proxy.seen.relayed).toContain("/worker.js");
+      expect(proxy.seen.wrongCredentials).toBe(0);
+      results.push(await call(client, "browser_network_requests", { static: true }));
+      for (let i = 1; i <= 3; i++) results.push(await call(client, "browser_network_request", { index: i }));
+      results.push(await call(client, "browser_snapshot"));
+      results.push(await call(client, "browser_evaluate", { function: "() => document.title" }));
+      const basic = Buffer.from(`alice:${PASSWORD}`).toString("base64");
+      for (const r of results) {
+        expect(r.text.includes(PASSWORD)).toBe(false);
+        expect(r.text.includes(basic)).toBe(false);
+      }
+    },
+  );
 
   it("refuses to start without the secret, naming the item and never a value", async () => {
     const proxy = await localProxy("alice", PASSWORD, listen);
@@ -269,76 +272,82 @@ describe.skipIf(reason)("identity.json proxy with a real Chrome and a local prox
     expect(site.reports).toEqual([]);
   });
 
-  it("records flows and screenshots behind a proxy with a password, and no recording holds it", async () => {
-    const proxy = await localProxy("alice", PASSWORD, listen);
-    store.write("proxy-pass", PASSWORD);
-    addIdentity("rec", sb.env);
-    writeIdentitySettings(
-      "rec",
-      {
-        proxy: { server: proxy.server, username: "alice", password: "keychain:proxy-pass" },
-        record: { flows: true, screenshots: true },
-      },
-      sb.env,
-    );
-    const site = await probeSite();
-    const client = await start("rec");
-    const target = site.url.replace("localhost", "127.0.0.1");
-    expect((await call(client, "browser_navigate", { url: target })).error).toBe(false);
-    await site.until(2);
-    await call(client, "browser_navigate", { url: `${target}?again` });
-    await call(client, "browser_close");
-    expect(await waitFor(() => listRecordings("rec", sb.env)[0]?.ended !== undefined, 15_000)).toBe(true);
-    expect(proxy.seen.relayed).toContain("/probe");
-    expect(listRecordings("rec", sb.env)[0]?.screenshots).toBeGreaterThan(0);
-    const recorded = allText(recordingsDir("rec", sb.env));
-    const basic = Buffer.from(`alice:${PASSWORD}`).toString("base64");
-    expect(recorded.includes(PASSWORD)).toBe(false);
-    expect(recorded.includes(basic)).toBe(false);
-  });
+  it.skipIf(noFakeSecretStore)(
+    "records flows and screenshots behind a proxy with a password, and no recording holds it",
+    async () => {
+      const proxy = await localProxy("alice", PASSWORD, listen);
+      store.write("proxy-pass", PASSWORD);
+      addIdentity("rec", sb.env);
+      writeIdentitySettings(
+        "rec",
+        {
+          proxy: { server: proxy.server, username: "alice", password: "keychain:proxy-pass" },
+          record: { flows: true, screenshots: true },
+        },
+        sb.env,
+      );
+      const site = await probeSite();
+      const client = await start("rec");
+      const target = site.url.replace("localhost", "127.0.0.1");
+      expect((await call(client, "browser_navigate", { url: target })).error).toBe(false);
+      await site.until(2);
+      await call(client, "browser_navigate", { url: `${target}?again` });
+      await call(client, "browser_close");
+      expect(await waitFor(() => listRecordings("rec", sb.env)[0]?.ended !== undefined, 15_000)).toBe(true);
+      expect(proxy.seen.relayed).toContain("/probe");
+      expect(listRecordings("rec", sb.env)[0]?.screenshots).toBeGreaterThan(0);
+      const recorded = allText(recordingsDir("rec", sb.env));
+      const basic = Buffer.from(`alice:${PASSWORD}`).toString("base64");
+      expect(recorded.includes(PASSWORD)).toBe(false);
+      expect(recorded.includes(basic)).toBe(false);
+    },
+  );
 
-  it("keeps the proxy credentials out of the act model's prompt and the live view's tab list", async () => {
-    const proxy = await localProxy("alice", PASSWORD, listen);
-    store.write("proxy-pass", PASSWORD);
-    addIdentity("act", sb.env);
-    writeIdentitySettings(
-      "act",
-      {
-        proxy: { server: proxy.server, username: "alice", password: "keychain:proxy-pass" },
-        act: {},
-        live: { enabled: true },
-      },
-      sb.env,
-    );
-    // A page that shows the credentials, as a page that echoed them would.
-    const basic = Buffer.from(`alice:${PASSWORD}`).toString("base64");
-    const shown = PASSWORD.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-    const port = await listen(
-      createServer((_req, res) => {
-        res.setHeader("content-type", "text/html");
-        res.end(`<title>echo ${shown}</title><p>alice:${shown}</p><p>${basic}</p><button>Go</button>`);
-      }),
-    );
-    const prompts: string[] = [];
-    const client = await start("act", (prompt) => {
-      prompts.push(prompt);
-      return JSON.stringify({ done: true, success: true, summary: "read the page" });
-    });
-    const nav = await call(client, "browser_navigate", { url: `http://127.0.0.1:${port}/echo` });
-    expect(nav.error, nav.text).toBe(false);
-    expect(proxy.seen.relayed).toContain("/echo");
-    const acted = await call(client, "browser_act", { instruction: "Read the page" });
-    expect(acted.error, acted.text).toBe(false);
-    expect(prompts.length).toBeGreaterThan(0);
-    const status = JSON.stringify(await liveStatus("act", sb.env));
-    expect(status).toContain("/echo");
-    for (const text of [...prompts, acted.text, nav.text, status]) {
-      expect(text.includes(PASSWORD)).toBe(false);
-      expect(text.includes(basic)).toBe(false);
-    }
-  });
+  it.skipIf(noFakeSecretStore)(
+    "keeps the proxy credentials out of the act model's prompt and the live view's tab list",
+    async () => {
+      const proxy = await localProxy("alice", PASSWORD, listen);
+      store.write("proxy-pass", PASSWORD);
+      addIdentity("act", sb.env);
+      writeIdentitySettings(
+        "act",
+        {
+          proxy: { server: proxy.server, username: "alice", password: "keychain:proxy-pass" },
+          act: {},
+          live: { enabled: true },
+        },
+        sb.env,
+      );
+      // A page that shows the credentials, as a page that echoed them would.
+      const basic = Buffer.from(`alice:${PASSWORD}`).toString("base64");
+      const shown = PASSWORD.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      const port = await listen(
+        createServer((_req, res) => {
+          res.setHeader("content-type", "text/html");
+          res.end(`<title>echo ${shown}</title><p>alice:${shown}</p><p>${basic}</p><button>Go</button>`);
+        }),
+      );
+      const prompts: string[] = [];
+      const client = await start("act", (prompt) => {
+        prompts.push(prompt);
+        return JSON.stringify({ done: true, success: true, summary: "read the page" });
+      });
+      const nav = await call(client, "browser_navigate", { url: `http://127.0.0.1:${port}/echo` });
+      expect(nav.error, nav.text).toBe(false);
+      expect(proxy.seen.relayed).toContain("/echo");
+      const acted = await call(client, "browser_act", { instruction: "Read the page" });
+      expect(acted.error, acted.text).toBe(false);
+      expect(prompts.length).toBeGreaterThan(0);
+      const status = JSON.stringify(await liveStatus("act", sb.env));
+      expect(status).toContain("/echo");
+      for (const text of [...prompts, acted.text, nav.text, status]) {
+        expect(text.includes(PASSWORD)).toBe(false);
+        expect(text.includes(basic)).toBe(false);
+      }
+    },
+  );
 
-  it("works with userAgent coherent, humanize and tab sharing on one identity", async () => {
+  it.skipIf(noFakeSecretStore)("works with userAgent coherent, humanize and tab sharing on one identity", async () => {
     const proxy = await localProxy("alice", PASSWORD, listen);
     store.write("proxy-pass", PASSWORD);
     addIdentity("all", sb.env);

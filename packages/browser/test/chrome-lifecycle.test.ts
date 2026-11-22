@@ -11,7 +11,7 @@ import { findBrowser } from "../src/browsers.js";
 import { runDoctor } from "../src/doctor.js";
 import { readHealth } from "../src/health.js";
 import { createHost, serve } from "../src/host.js";
-import { readLockPid } from "../src/lifecycle.js";
+import { findProfileChrome, readLockPid } from "../src/lifecycle.js";
 import { readChallenges } from "../src/reputation.js";
 import { readRuntimeLock } from "../src/runtime-lock.js";
 import { writeIdentitySettings } from "../src/settings.js";
@@ -107,9 +107,10 @@ function textOf(res: unknown): string {
   return ((res as { content: { text?: string }[] }).content ?? []).map((c) => c.text ?? "").join("\n");
 }
 
+/** The browser process on the identity's profile: its SingletonLock, or on Windows its lockfile and the process table. */
 function chromePid(id: string): number {
-  const pid = readLockPid(profileDir(id));
-  expect(pid, "Chrome holds the profile's SingletonLock").toBeDefined();
+  const pid = process.platform === "win32" ? findProfileChrome(profileDir(id))?.pid : readLockPid(profileDir(id));
+  expect(pid, "Chrome holds the profile").toBeDefined();
   return pid!;
 }
 
@@ -131,19 +132,24 @@ describe.skipIf(reason !== undefined)(reason ? `real Chrome (skipped: ${reason})
     expect(await waitFor(() => !alive(second), 5_000), "Chrome closed with stdin").toBe(true);
   }, 60_000);
 
-  it("stops a Chrome that does not close in time when the server gets SIGTERM", async () => {
-    const r = await start("stuck");
-    await navigate(r);
-    const pid = chromePid("stuck");
-    // A Chrome that cannot answer: the graceful close upstream would wait 15 seconds for it.
-    process.kill(pid, "SIGSTOP");
-    const t0 = Date.now();
-    process.kill(r.pid, "SIGTERM");
-    expect(await waitFor(() => !alive(r.pid) && !alive(pid), 10_000)).toBe(true);
-    // Within the 4 seconds mcpd gives a server between closing stdin and SIGKILL.
-    expect(Date.now() - t0).toBeLessThan(4_000);
-    expect(sandboxProcesses(sb.home)).toEqual([]);
-  }, 60_000);
+  // SIGSTOP freezes Chrome here; Windows has no way to stop a process like it.
+  it.skipIf(process.platform === "win32")(
+    "stops a Chrome that does not close in time when the server gets SIGTERM",
+    async () => {
+      const r = await start("stuck");
+      await navigate(r);
+      const pid = chromePid("stuck");
+      // A Chrome that cannot answer: the graceful close upstream would wait 15 seconds for it.
+      process.kill(pid, "SIGSTOP");
+      const t0 = Date.now();
+      process.kill(r.pid, "SIGTERM");
+      expect(await waitFor(() => !alive(r.pid) && !alive(pid), 10_000)).toBe(true);
+      // Within the 4 seconds mcpd gives a server between closing stdin and SIGKILL.
+      expect(Date.now() - t0).toBeLessThan(4_000);
+      expect(sandboxProcesses(sb.home)).toEqual([]);
+    },
+    60_000,
+  );
 
   it("does not let a server killed with SIGKILL block the next start", async () => {
     const r = await start("killed");
@@ -158,28 +164,33 @@ describe.skipIf(reason !== undefined)(reason ? `real Chrome (skipped: ${reason})
     expect(chromePid("killed")).not.toBe(pid);
   }, 60_000);
 
-  it("sweeps an orphaned Chrome of the same identity on start", async () => {
-    const r = await start("orphan");
-    await navigate(r);
-    const pid = chromePid("orphan");
-    // Freeze Chrome so it cannot notice its pipe closing, then kill the server the way the
-    // MCP SDK does after its grace periods: Chrome is left running with no parent.
-    process.kill(pid, "SIGSTOP");
-    process.kill(r.pid, "SIGKILL");
-    expect(await waitFor(() => !alive(r.pid), 5_000)).toBe(true);
-    expect(
-      await waitFor(() => sandboxProcesses(sb.home).some((p) => p.pid === pid && p.ppid !== r.pid), 5_000),
-      "Chrome reparented",
-    ).toBe(true);
+  // SIGSTOP freezes Chrome here; Windows has no way to stop a process like it.
+  it.skipIf(process.platform === "win32")(
+    "sweeps an orphaned Chrome of the same identity on start",
+    async () => {
+      const r = await start("orphan");
+      await navigate(r);
+      const pid = chromePid("orphan");
+      // Freeze Chrome so it cannot notice its pipe closing, then kill the server the way the
+      // MCP SDK does after its grace periods: Chrome is left running with no parent.
+      process.kill(pid, "SIGSTOP");
+      process.kill(r.pid, "SIGKILL");
+      expect(await waitFor(() => !alive(r.pid), 5_000)).toBe(true);
+      expect(
+        await waitFor(() => sandboxProcesses(sb.home).some((p) => p.pid === pid && p.ppid !== r.pid), 5_000),
+        "Chrome reparented",
+      ).toBe(true);
 
-    const next = await start("orphan");
-    await navigate(next);
-    // The old Chrome was signalled before the new one started; on a busy runner its exit can
-    // still be on its way.
-    expect(await waitFor(() => !alive(pid), 5_000)).toBe(true);
-    expect(sandboxProcesses(sb.home).filter((p) => p.pgid === pid)).toEqual([]);
-    expect(next.stderr()).toMatch(new RegExp(`closed a Chrome .*pid ${pid}`));
-  }, 60_000);
+      const next = await start("orphan");
+      await navigate(next);
+      // The old Chrome was signalled before the new one started; on a busy runner its exit can
+      // still be on its way.
+      expect(await waitFor(() => !alive(pid), 5_000)).toBe(true);
+      expect(sandboxProcesses(sb.home).filter((p) => p.pgid === pid)).toEqual([]);
+      expect(next.stderr()).toMatch(new RegExp(`closed a Chrome .*pid ${pid}`));
+    },
+    60_000,
+  );
 
   it("drives stock tools end to end through the host: navigate and snapshot a data: page", async () => {
     const r = await start("e2e");

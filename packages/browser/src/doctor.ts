@@ -673,7 +673,7 @@ async function networkRows(id: string, env: NodeJS.ProcessEnv, opts: DoctorOptio
   });
   const refs = [proxy.username, proxy.password].filter((r): r is string => r?.startsWith("keychain:") === true);
   if (!refs.length) return out;
-  const store = opts.secrets ?? secretStore(env);
+  const store = opts.secrets ?? secretStore(env, opts.platform ?? process.platform);
   if (!store) {
     out.push({
       area,
@@ -703,7 +703,7 @@ async function vaultRows(id: string, env: NodeJS.ProcessEnv, opts: DoctorOptions
   const sites = vaultSummary(id, env)?.sites ?? [];
   if (!sites.length) return [];
   const area = `identity ${id}`;
-  const store = opts.secrets ?? secretStore(env);
+  const store = opts.secrets ?? secretStore(env, opts.platform ?? process.platform);
   if (!store)
     return [
       {

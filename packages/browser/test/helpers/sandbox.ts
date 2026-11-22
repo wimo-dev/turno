@@ -48,7 +48,8 @@ export function sandbox(): Sandbox {
       return file;
     },
     cleanup() {
-      rmSync(home, { recursive: true, force: true });
+      // Windows keeps a file busy for a moment after the Chrome that had it open exits.
+      rmSync(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
     },
   };
 }

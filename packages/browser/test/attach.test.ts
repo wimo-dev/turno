@@ -7,7 +7,14 @@ import type { Browser } from "patchright-core";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { resolveAttachEndpoint } from "../src/engine-attach.js";
 import { playwright } from "../src/upstream.js";
-import { alive, chromeUnavailable, spawnChrome, stopSandboxProcesses, waitFor } from "./helpers/chrome.js";
+import {
+  alive,
+  chromeExecutable,
+  chromeUnavailable,
+  spawnChrome,
+  stopSandboxProcesses,
+  waitFor,
+} from "./helpers/chrome.js";
 import { type Sandbox, sandbox } from "./helpers/sandbox.js";
 
 /**
@@ -24,8 +31,7 @@ import { type Sandbox, sandbox } from "./helpers/sandbox.js";
 const pkg = fileURLToPath(new URL("..", import.meta.url));
 const bin = join(pkg, "dist", "bin", "mcp.js");
 const reason = chromeUnavailable();
-const CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
-const exe = process.platform === "darwin" ? CHROME : "/opt/google/chrome/chrome";
+const exe = chromeExecutable() ?? "chrome";
 
 const USER_PAGE = "data:text/html,<title>User tab</title><p>the user's own page</p>";
 

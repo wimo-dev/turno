@@ -9,6 +9,7 @@ import {
   signalProcess,
   treeKillCommand,
 } from "../src/process.js";
+import { windowsPowerShellEnv } from "../src/secrets.js";
 
 describe("process helpers", () => {
   it("parses ps output with process groups and skips other lines", () => {
@@ -58,5 +59,16 @@ describe("process helpers", () => {
     await exited;
     expect(pidAlive(pid)).toBe(false);
     expect(() => signalProcess(pid, "SIGTERM")).not.toThrow();
+  });
+});
+
+describe("Windows PowerShell's environment", () => {
+  it("fills in SystemRoot and the modules folder a trimmed environment leaves out, and keeps the caller's", () => {
+    expect(windowsPowerShellEnv({ SystemRoot: "D:\\Win", PATH: "x" })).toEqual({
+      SystemRoot: "D:\\Win",
+      PSModulePath: "D:\\Win\\System32\\WindowsPowerShell\\v1.0\\Modules",
+      PATH: "x",
+    });
+    expect(windowsPowerShellEnv({ SystemRoot: "D:\\Win", PSModulePath: "E:\\m" }).PSModulePath).toBe("E:\\m");
   });
 });

@@ -11,7 +11,7 @@ import { addIdentity } from "../src/identities.js";
 import { readSolves, reputationPath } from "../src/reputation.js";
 import { writeIdentitySettings } from "../src/settings.js";
 import { chromeUnavailable, stopSandboxProcesses } from "./helpers/chrome.js";
-import { type FakeSecretStore, fakeSecretStore } from "./helpers/fake-secret-store.js";
+import { type FakeSecretStore, fakeSecretStore, noFakeSecretStore } from "./helpers/fake-secret-store.js";
 import { type Sandbox, sandbox } from "./helpers/sandbox.js";
 
 /**
@@ -255,88 +255,96 @@ describe.skipIf(reason !== undefined)(
       expect((await call(client, "browser_snapshot")).text).toContain("keys 3");
     }, 90_000);
 
-    it("extracts data through a configured provider, its key read from the secret store and never shown", async () => {
-      const site = await web(() =>
-        JSON.stringify({
-          data: [
-            { name: "Apple", price: "1 USD" },
-            { name: "Pear", price: "2 USD" },
-          ],
-        }),
-      );
-      onTestFinished(() => site.close());
-      store.write("act-model", MODEL_KEY);
-      addIdentity("reader", sb.env);
-      writeIdentitySettings(
-        "reader",
-        {
-          act: {
-            sampling: false,
-            provider: "chat-completions",
-            endpoint: `${site.url}/llm/v1`,
-            model: "fake-model",
-            key: "keychain:act-model",
+    it.skipIf(noFakeSecretStore)(
+      "extracts data through a configured provider, its key read from the secret store and never shown",
+      async () => {
+        const site = await web(() =>
+          JSON.stringify({
+            data: [
+              { name: "Apple", price: "1 USD" },
+              { name: "Pear", price: "2 USD" },
+            ],
+          }),
+        );
+        onTestFinished(() => site.close());
+        store.write("act-model", MODEL_KEY);
+        addIdentity("reader", sb.env);
+        writeIdentitySettings(
+          "reader",
+          {
+            act: {
+              sampling: false,
+              provider: "chat-completions",
+              endpoint: `${site.url}/llm/v1`,
+              model: "fake-model",
+              key: "keychain:act-model",
+            },
           },
-        },
-        sb.env,
-      );
-      const client = await start("reader");
-      await call(client, "browser_navigate", { url: `${site.url}/form` });
-      const out = await call(client, "browser_extract", { instruction: "each fruit and its price" });
-      expect(out.error, out.text).toBe(false);
-      expect(out.text).toMatch(/Model: chat-completions fake-model at 127\.0\.0\.1:\d+/);
-      expect(out.text).toContain('"name": "Pear"');
-      expect(out.text).toMatch(/### Budget\nabout 940 of 50,000 tokens/);
-      expect(site.llm.auth.length).toBe(1);
-      expect(site.llm.auth[0] === `Bearer ${MODEL_KEY}`, "the provider got the stored key").toBe(true);
-      expect(out.text.includes(MODEL_KEY), "key in the result").toBe(false);
-      expect(site.llm.prompts[0]!.includes(PAGE_SECRET), "page secret in the prompt").toBe(false);
-      expect(site.llm.prompts[0]).toContain("Apple 1 USD");
-    }, 90_000);
+          sb.env,
+        );
+        const client = await start("reader");
+        await call(client, "browser_navigate", { url: `${site.url}/form` });
+        const out = await call(client, "browser_extract", { instruction: "each fruit and its price" });
+        expect(out.error, out.text).toBe(false);
+        expect(out.text).toMatch(/Model: chat-completions fake-model at 127\.0\.0\.1:\d+/);
+        expect(out.text).toContain('"name": "Pear"');
+        expect(out.text).toMatch(/### Budget\nabout 940 of 50,000 tokens/);
+        expect(site.llm.auth.length).toBe(1);
+        expect(site.llm.auth[0] === `Bearer ${MODEL_KEY}`, "the provider got the stored key").toBe(true);
+        expect(out.text.includes(MODEL_KEY), "key in the result").toBe(false);
+        expect(site.llm.prompts[0]!.includes(PAGE_SECRET), "page secret in the prompt").toBe(false);
+        expect(site.llm.prompts[0]).toContain("Apple 1 USD");
+      },
+      90_000,
+    );
 
-    it("solves a captcha widget through the configured solver, puts the token in the page and logs it", async () => {
-      const site = await web(() => "");
-      onTestFinished(() => site.close());
-      store.write("captcha-solver", SOLVER_KEY);
-      addIdentity("shop", sb.env);
-      writeIdentitySettings(
-        "shop",
-        { captcha: { provider: "task-api", endpoint: `${site.url}/solver`, key: "keychain:captcha-solver" } },
-        sb.env,
-      );
-      const client = await start("shop");
-      expect((await client.listTools()).tools.map((t) => t.name)).toContain("browser_solve_captcha");
-      await call(client, "browser_navigate", { url: `${site.url}/captcha` });
-      const solved = await call(client, "browser_solve_captcha");
-      expect(solved.error, solved.text).toBe(false);
-      expect(solved.text).toContain("Widget: reCAPTCHA v2");
-      expect(solved.text).toContain("Token put into the page (1 response field); the widget's callback onToken ran.");
-      expect(solved.text.includes(SOLVER_KEY), "key in the result").toBe(false);
+    it.skipIf(noFakeSecretStore)(
+      "solves a captcha widget through the configured solver, puts the token in the page and logs it",
+      async () => {
+        const site = await web(() => "");
+        onTestFinished(() => site.close());
+        store.write("captcha-solver", SOLVER_KEY);
+        addIdentity("shop", sb.env);
+        writeIdentitySettings(
+          "shop",
+          { captcha: { provider: "task-api", endpoint: `${site.url}/solver`, key: "keychain:captcha-solver" } },
+          sb.env,
+        );
+        const client = await start("shop");
+        expect((await client.listTools()).tools.map((t) => t.name)).toContain("browser_solve_captcha");
+        await call(client, "browser_navigate", { url: `${site.url}/captcha` });
+        const solved = await call(client, "browser_solve_captcha");
+        expect(solved.error, solved.text).toBe(false);
+        expect(solved.text).toContain("Widget: reCAPTCHA v2");
+        expect(solved.text).toContain("Token put into the page (1 response field); the widget's callback onToken ran.");
+        expect(solved.text.includes(SOLVER_KEY), "key in the result").toBe(false);
 
-      const value = await call(client, "browser_evaluate", {
-        function: "() => document.getElementById('g-recaptcha-response').value === '" + TOKEN + "' && document.title",
-      });
-      expect(value.text).toContain(`solved ${TOKEN.length}`);
-      const task = site.solver.bodies[0] as { clientKey: string; task: Record<string, unknown> };
-      expect(task.clientKey === SOLVER_KEY, "the solver got the stored key").toBe(true);
-      expect(task.task).toEqual({
-        type: "RecaptchaV2TaskProxyless",
-        websiteURL: `${site.url}/captcha`,
-        websiteKey: "test-site-key-123",
-      });
+        const value = await call(client, "browser_evaluate", {
+          function: "() => document.getElementById('g-recaptcha-response').value === '" + TOKEN + "' && document.title",
+        });
+        expect(value.text).toContain(`solved ${TOKEN.length}`);
+        const task = site.solver.bodies[0] as { clientKey: string; task: Record<string, unknown> };
+        expect(task.clientKey === SOLVER_KEY, "the solver got the stored key").toBe(true);
+        expect(task.task).toEqual({
+          type: "RecaptchaV2TaskProxyless",
+          websiteURL: `${site.url}/captcha`,
+          websiteKey: "test-site-key-123",
+        });
 
-      expect(readSolves("shop", sb.env)).toEqual([
-        {
-          ts: expect.any(String),
-          site: "127.0.0.1",
-          kind: "solve",
-          widget: "recaptcha",
-          provider: "task-api",
-          ok: true,
-        },
-      ]);
-      const log = readFileSync(reputationPath("shop", sb.env), "utf8");
-      expect(log.includes(TOKEN) || log.includes(SOLVER_KEY), "token or key in the log").toBe(false);
-    }, 90_000);
+        expect(readSolves("shop", sb.env)).toEqual([
+          {
+            ts: expect.any(String),
+            site: "127.0.0.1",
+            kind: "solve",
+            widget: "recaptcha",
+            provider: "task-api",
+            ok: true,
+          },
+        ]);
+        const log = readFileSync(reputationPath("shop", sb.env), "utf8");
+        expect(log.includes(TOKEN) || log.includes(SOLVER_KEY), "token or key in the log").toBe(false);
+      },
+      90_000,
+    );
   },
 );
