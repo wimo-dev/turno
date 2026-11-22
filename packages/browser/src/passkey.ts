@@ -255,6 +255,8 @@ export interface PasskeyDeps {
   handoff(page: Page, settle: StepSettle): Promise<StepRun | { error: string }>;
   /** Whether the request is still pending in what `frame` shows now (`installPasskeyProbe`). */
   pending: PasskeyPending;
+  /** A step started; `done` resolves once it ended and its note is kept. */
+  opened?(done: Promise<void>): void;
 }
 
 /**
@@ -343,6 +345,7 @@ export class PasskeyWatch {
         if (c.outcome) this.drop(c);
       });
     this.step = step;
+    this.deps.opened?.(step);
   }
 
   private finish(c: Ceremony & { forget(): void }, outcome: PasskeyOutcome): void {

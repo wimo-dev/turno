@@ -95,6 +95,14 @@ or a text message, a second factor, accepting terms or giving consent. For those
   the agent (Resume in the view, or `turno-browser resume`), or the timeout: 5 minutes by
   default, up to 10 (`until.timeoutMs`). That is longer than the live wait, because typing a
   password and solving a captcha, or fetching a code from your email, takes minutes.
+- The agent's call waits for the step at most `waitMs`: 50 seconds by default, up to 4 minutes.
+  If the step has not ended by then, the call says the step is still open (with its id) and the
+  step goes on: the banner stays up and every other call keeps waiting. The agent then calls
+  `browser_request_human` with `{ "continue": true }` (or the step's id) to wait another piece.
+  The timeout counts from when the step began. This keeps each call under the time limit MCP
+  clients give a tool call, which is often 60 seconds. A call with a new instruction while a step
+  is open is refused, with the open step's id and instruction: the banner shows only the first
+  instruction, so the agent waits for that step and asks for the next one after it.
 - Done counts only a click the browser made from real input (your mouse or keys, or the live
   view's), never one a page script dispatches. With `requireHumanClick` the result says whether
   your own click landed on the target.
@@ -117,8 +125,9 @@ that tells you to use your passkey in that window:
   `"required"`). Passkey autofill (`mediation: "conditional"`), which sign-in pages start on load
   and which waits until you pick a passkey in a field's suggestions, never stops the agent.
 - The step ends when the request settles, when the page navigates away from it, when you press
-  Done, or after 5 minutes. The agent's call that clicked "Sign in with a passkey" (or its next
-  call) says how it went: the passkey was created or used, you cancelled it or it timed out (pages
+  Done, or after 5 minutes. The agent's call that clicked "Sign in with a passkey" waits for it in
+  the same pieces (50 seconds, then the agent continues with `browser_request_human`), and that
+  call (or the one that continues it) says how it went: the passkey was created or used, you cancelled it or it timed out (pages
   get the same `NotAllowedError` for both), the page left it, or it failed with the error's name.
   It never gets the credential or what the page asked for. With a
   [policy](/docs/browser/policy), a page that sends you to a host the policy does not allow is

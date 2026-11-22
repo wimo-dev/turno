@@ -33,10 +33,21 @@ import { AgentCursor, CursorInput, cursorTools, resolveCursor } from "./agent-cu
 import { HumanInput, adaptiveSites, humanizeTools } from "./human-input.js";
 import { identityStateDir } from "./ids.js";
 import { idleMs } from "./idle-timer.js";
-import { DEFAULT_STEP_TIMEOUT_MS, HUMAN_STEP_TOOL, parseStepParams, runHumanStep, runStep } from "./human-step.js";
+import {
+  DEFAULT_STEP_TIMEOUT_MS,
+  HUMAN_STEP_TOOL,
+  type StepParams,
+  parseStepCall,
+  runStep,
+  stepBusyMessage,
+  stepRunResult,
+  stillWaiting,
+  stillWaitingResult,
+} from "./human-step.js";
 import {
   type LiveFlags,
   describeChanges,
+  formatPause,
   pausedWhileRunningNote,
   resolveLive,
   resumeNote,
@@ -91,6 +102,7 @@ import {
   optInTools,
   parseArguments,
 } from "./tools.js";
+import { DEFAULT_STEP_WAIT_MS, type OpenStep, StepTable } from "./step-wait.js";
 import { type Tuning, type TuningFlags, resolveTuning } from "./tuning.js";
 import { type UiLocale, uiLocale, uiStrings } from "./ui-strings.js";
 import { vaultHasSites } from "./vault.js";
@@ -420,6 +432,8 @@ class SessionBackend extends EventEmitter implements ServerBackend {
   private readonly challenges = new WeakMap<Page, Promise<Omit<ChallengeEvent, "ts"> | undefined>>();
   /** The pause gate and the tabs of this browser: the live server, or a plain watch without it. */
   private readonly watch: BrowserWatch;
+  /** The person step a call waits for in pieces (`step-wait.ts`), with the watch's pause. */
+  private readonly steps: StepTable<StepResultOf>;
 
   constructor(
     private readonly host: {
@@ -446,6 +460,7 @@ class SessionBackend extends EventEmitter implements ServerBackend {
   ) {
     super();
     this.watch = host.live ?? new PlainWatch();
+    this.steps = stepTableOf(this.watch);
   }
 
   async initialize(clientInfo: ClientInfo): Promise<void> {
@@ -931,6 +946,10 @@ class SessionBackend extends EventEmitter implements ServerBackend {
     const step = name === HUMAN_STEP_TOOL;
     const json = !!(args._meta as { json?: boolean } | undefined)?.json;
     const key = session ?? DIRECT_SESSION;
+    // A step call while a step is open (to wait for it, or to be told one is open) is not held
+    // behind the step it is about.
+    if (step && (this.steps.running || (args.continue !== undefined && args.continue !== false)))
+      return await this.callAny(name, args, signal, session, sample, progress);
     const outcome = await watch.gate.wait(watch.waitMs, signal);
     if (outcome.kind === "timeout")
       return errorResult(
@@ -943,11 +962,18 @@ class SessionBackend extends EventEmitter implements ServerBackend {
       if (outcome.kind === "open") {
         const result = await this.callAny(name, args, signal, session, sample, progress);
         const passkey = step ? undefined : (await this.current?.catch(() => undefined))?.passkeys?.running;
-        if (passkey) {
+        const open = passkey ? this.steps.running : undefined;
+        if (open) {
           // Done first: the person's step waits for the calls in flight before it shows its banner.
           end();
-          await waitFor(passkey, progress, "Waiting for the person to answer the page's passkey prompt", signal);
-          return result;
+          // As a step call waits: one piece, then the agent continues with browser_request_human.
+          const waited = await this.steps.wait(open, DEFAULT_STEP_WAIT_MS, {
+            ...(signal ? { signal } : {}),
+            ...(progress ? { progress: stepProgress(progress) } : {}),
+          });
+          if (waited.kind === "ended") return result;
+          const { text, data } = stillWaiting(open, waited.elapsedMs);
+          return withNote(result, text, json, "step", json ? data : text);
         }
         const paused = watch.gate.paused;
         if (!paused || step) return result;
@@ -1390,6 +1416,13 @@ class SessionBackend extends EventEmitter implements ServerBackend {
     let pending: PasskeyPending | undefined;
     const passkeys = new PasskeyWatch({
       pending: async (frame, id) => (pending ? await pending(frame, id) : true),
+      // Its step waits in pieces like browser_request_human's, and `continue` reaches it.
+      opened: (done) => {
+        this.steps.open(
+          { by: "a passkey prompt", instruction: strings.instruction, timeoutMs: DEFAULT_STEP_TIMEOUT_MS },
+          done.then(() => passkeyStepResult),
+        );
+      },
       unseen: () => (headless ? passkeyUnseenReason(this.host.identity?.id) : undefined),
       paused: () => this.watch.gate.paused !== undefined,
       handoff: async (page, settle) =>
@@ -1443,14 +1476,39 @@ class SessionBackend extends EventEmitter implements ServerBackend {
     signal: AbortSignal | undefined,
     progress: Progress | undefined,
   ): Promise<ToolResult> {
-    const params = parseStepParams(raw);
-    if ("error" in params) return errorResult(params.error, json);
+    const parsed = parseStepCall(raw);
+    if ("error" in parsed) return errorResult(parsed.error, json);
+    // A cancelled call (the agent stopped) ends the step: nobody is left to wait for it.
+    const wait = async (step: OpenStep<StepResultOf>) => {
+      const waited = await this.steps.wait(step, parsed.waitMs, {
+        cancelOnAbort: true,
+        ...(signal ? { signal } : {}),
+        ...(progress ? { progress: stepProgress(progress) } : {}),
+      });
+      return waited.kind === "ended" ? waited.result(json) : stillWaitingResult(step, waited.elapsedMs, json);
+    };
+    if (parsed.kind === "continue") {
+      const step = this.steps.find(parsed.step);
+      if (!step)
+        return errorResult(
+          parsed.step === true
+            ? "no person step is open (a call already returned how the last one ended)"
+            : `no person step ${parsed.step} is open (it may have ended, and a call returned how)`,
+          json,
+        );
+      return await wait(step);
+    }
+    const busy = this.steps.running;
+    if (busy) return errorResult(stepBusyMessage(busy, Date.now() - busy.began), json);
+    const { params } = parsed;
     const page = stock.currentPage();
     if (!page) return errorResult("no page is open; navigate to the page of the step first", json);
     const { launched } = running;
     const headless = this.host.config.browser?.launchOptions?.headless === true && !launched.userBrowser;
     const unseen = headless ? unseenReason(this.host.live, this.host.identity?.id) : undefined;
-    return await runHumanStep(params, {
+    // The step runs on its own: a call that stops waiting leaves it up for the next one.
+    const stop = new AbortController();
+    const run = runStep(params, {
       page,
       watch: this.watch,
       guard: this.host.guard,
@@ -1458,11 +1516,17 @@ class SessionBackend extends EventEmitter implements ServerBackend {
       ...(unseen ? { unseen } : {}),
       window: !headless && !launched.userBrowser,
       json,
-      ...(signal ? { signal } : {}),
-      ...(progress ? { progress } : {}),
+      signal: stop.signal,
       currentPage: () => stock.currentPage(),
       locale: running.locale,
     });
+    const step = this.steps.open(
+      { by: HUMAN_STEP_TOOL, instruction: params.instruction, timeoutMs: params.timeoutMs },
+      settledStep(params, run),
+      () => stop.abort(),
+    );
+    if ("busy" in step) return errorResult(stepBusyMessage(step.busy, Date.now() - step.busy.began), json);
+    return await wait(step);
   }
 
   /**
@@ -2014,30 +2078,36 @@ function withPasskeyNotes(result: ToolResult, notes: readonly PasskeyNote[], jso
   return withNote(result, text, json, "passkey", json ? data : text);
 }
 
-/** Waits for `done` (or the call's cancel), telling a client that asked for progress that the call still waits. */
-async function waitFor(
-  done: Promise<void>,
-  progress: Progress | undefined,
-  message: string,
-  signal: AbortSignal | undefined,
-): Promise<void> {
-  const began = Date.now();
-  const timer = progress ? setInterval(() => progress(Date.now() - began, message), 15_000) : undefined;
-  let onAbort: (() => void) | undefined;
-  try {
-    await Promise.race([
-      done,
-      new Promise<void>((r) => {
-        const stop = () => r();
-        onAbort = stop;
-        if (signal?.aborted) stop();
-        else signal?.addEventListener("abort", stop, { once: true });
-      }),
-    ]);
-  } finally {
-    clearInterval(timer);
-    if (onAbort) signal?.removeEventListener("abort", onAbort);
-  }
+/** How a step ended, for a call that asked as text or as JSON. */
+type StepResultOf = (json: boolean) => ToolResult;
+
+/** The step table of a watch: every session of one browser shares its pause, and its step. */
+const STEP_TABLES = new WeakMap<BrowserWatch, StepTable<StepResultOf>>();
+function stepTableOf(watch: BrowserWatch): StepTable<StepResultOf> {
+  const table = STEP_TABLES.get(watch) ?? new StepTable<StepResultOf>();
+  STEP_TABLES.set(watch, table);
+  return table;
+}
+
+/** A step's run as a result; a step that threw still ends (and its pause with it). */
+function settledStep(params: StepParams, run: ReturnType<typeof runStep>): Promise<StepResultOf> {
+  return run.then(
+    (r) => (json: boolean) => stepRunResult(params, r, json),
+    (error: unknown) => (json: boolean) => errorResult(`the person step failed: ${(error as Error).message}`, json),
+  );
+}
+
+/** A passkey prompt's step ended: the passkey note this call carries says how. */
+function passkeyStepResult(json: boolean): ToolResult {
+  const text = "The person step for the page's passkey prompt has ended; the passkey section says how it went.";
+  return {
+    content: [{ type: "text", text: json ? JSON.stringify({ ended: true }, null, 2) : `### Person step\n${text}` }],
+  };
+}
+
+/** Progress for a call that waits for a step, as a client that asked for it hears it. */
+function stepProgress(progress: Progress): (elapsedMs: number) => void {
+  return (ms) => progress(ms, `Waiting for the person (${formatPause(ms)})`);
 }
 
 /** Why the person cannot see a headless Chrome now, or undefined when the live view shows it. */
