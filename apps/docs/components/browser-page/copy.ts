@@ -24,7 +24,6 @@ export const CMD = {
   live: "turno-browser live school",
   setup: "turno-browser setup claude-code",
   doSnapshot: "turno-browser do school snapshot",
-  doctor: "turno-browser doctor",
   act: "turno-browser set school --act",
   captcha:
     "turno-browser set school --captcha-provider task-api --captcha-endpoint https://solver.example.com --captcha-key keychain:captcha-solver",
@@ -313,6 +312,12 @@ const en: BrowserCopy = {
         more: { text: "The agent cursor", href: `${DOCS}/agent-cursor` },
       },
       {
+        title: "The agent asks you for the step that is yours",
+        text: "For a password, a captcha, an emailed code or a second factor, the agent calls `browser_request_human`. The tab comes to the front with the instruction and a Done button, and every call waits. The agent learns that you finished, never what you typed.",
+        run: "browser_request_human",
+        more: { text: "When the agent asks for you", href: `${DOCS}/live-view#when-the-agent-asks-for-you` },
+      },
+      {
         title: "Fewer round trips, clearer errors",
         text: "`browser_batch` runs up to 20 actions in one call and returns one line per action. A click that fails says which element covers the target, or that it is hidden or disabled, and what to try next.",
         run: "browser_batch",
@@ -335,12 +340,6 @@ const en: BrowserCopy = {
         text: "`turno-browser do` runs one tool call from your terminal: open a page, read its tree, click a ref.",
         run: CMD.doSnapshot,
         more: { text: "From the shell", href: `${DOCS}/actions#from-the-shell` },
-      },
-      {
-        title: "A doctor and a reputation log",
-        text: "`doctor` checks Chrome and every identity, with a fix for each problem. The log counts the captchas and \"verify it's you\" pages each identity met, per site.",
-        run: CMD.doctor,
-        more: { text: "Doctor", href: `${DOCS}/identities#doctor` },
       },
     ],
   },
@@ -610,6 +609,12 @@ const es: BrowserCopy = {
         more: { text: "El cursor del agente", href: `${DOCS}/agent-cursor` },
       },
       {
+        title: "El agente te pide el paso que te toca a ti",
+        text: "Para una contraseña, un captcha, un código por correo o un segundo factor, el agente llama `browser_request_human`. La pestaña pasa al frente con la instrucción y un botón de listo, y todas las llamadas esperan. El agente se entera de que terminaste, nunca de lo que escribiste.",
+        run: "browser_request_human",
+        more: { text: "Cuando el agente te necesita", href: `${DOCS}/live-view#when-the-agent-asks-for-you` },
+      },
+      {
         title: "Menos idas y vueltas, errores más claros",
         text: "`browser_batch` corre hasta 20 acciones en una llamada y devuelve una línea por acción. Un clic que falla dice qué elemento tapa el objetivo, o que está oculto o deshabilitado, y qué intentar después.",
         run: "browser_batch",
@@ -632,12 +637,6 @@ const es: BrowserCopy = {
         text: "`turno-browser do` corre una llamada de herramienta desde tu terminal: abre una página, lee su árbol, haz clic en una referencia.",
         run: CMD.doSnapshot,
         more: { text: "Desde la terminal", href: `${DOCS}/actions#from-the-shell` },
-      },
-      {
-        title: "Un diagnóstico y un registro de reputación",
-        text: "`doctor` revisa Chrome y cada identidad, con un arreglo para cada problema. El registro cuenta los captchas y las páginas de \"verifica que eres tú\" que encontró cada identidad, por sitio.",
-        run: CMD.doctor,
-        more: { text: "Diagnóstico", href: `${DOCS}/identities#doctor` },
       },
     ],
   },

@@ -54,6 +54,7 @@ On from the start:
 | [From the shell](https://turno.wimo.dev/docs/browser/actions#from-the-shell) | `turno-browser do <id> open`, `snapshot`, `click`, `type`, `read`: the same browser and rules, as shell commands |
 | [Steps only you may do](https://turno.wimo.dev/docs/browser/live-view#when-the-agent-asks-for-you) | `browser_request_human` brings the tab to you with a banner for a password, a captcha, a code or consent; the agent waits, and never gets what you typed |
 | [The agent cursor](https://turno.wimo.dev/docs/browser/agent-cursor) | when you can see the browser, a named cursor and a badge show where the agent is working; the model never sees it |
+| [A step for the person](https://turno.wimo.dev/docs/browser/live-view#when-the-agent-asks-for-you) | `browser_request_human`: the agent asks you for a password, a captcha or a second factor, waits, and never gets what you typed |
 | [Health, reputation and doctor](https://turno.wimo.dev/docs/browser/identities#session-health) | a signed-out identity says so, each site's challenges are counted, and `doctor` checks Chrome and every identity |
 
 Off until you turn it on, per identity:
