@@ -77,6 +77,8 @@ Use it with your own accounts, on sites whose terms allow automated access by yo
 
 Two capabilities send page content to a third party you pick, and both are off unless you turn them on per identity: [natural language actions](/docs/browser/natural-language-and-captchas#natural-language-actions) send the instruction and a snapshot of the page to a model (vault values and sensitive fields hidden), and [captcha solving](/docs/browser/natural-language-and-captchas#captcha-solving) sends the page address and the captcha to a solver service, which may break a site's terms and is meant for your own accounts. Their keys live only in the secret store, as `keychain:` references, and every solve is logged in the identity's reputation log.
 
+Everything the browser package can send off your machine, and what stays Chrome's own traffic, is listed in [What leaves your machine](/docs/browser/what-leaves-your-machine).
+
 ## When turno goes online
 
 Interactive commands ask the npm registry for a newer version at most once a day, sending only the package name. Turn it off with `update_check = false` in config.toml, `DO_NOT_TRACK=1`, `NO_UPDATE_NOTIFIER=1`, `TURNO_NO_UPDATE_CHECK=1` or `TURNO_NO_UPDATE_NOTIFIER=1`; it is also off in CI and outside a terminal.
