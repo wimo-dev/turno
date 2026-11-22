@@ -31,7 +31,10 @@ pnpm check              # typecheck, lint and format check (Biome, knip), tests,
 ```
 
 Tests never touch your real setup: they run with a temporary `HOME` (see
-`packages/turno/test/helpers`). Keep it that way in new tests. The end-to-end tests drive the
+`packages/turno/test/helpers`). Keep it that way in new tests. A Chrome that a test or an
+experiment starts outside Playwright goes through `spawnChrome` in
+`packages/browser/test/helpers/chrome.ts`, or passes `--use-mock-keychain --password-store=basic`
+itself, so macOS never shows a Keychain dialog for it. The end-to-end tests drive the
 real agents (a signed-in `claude`, Codex, Cursor) when they are installed; set
 `TURNO_SKIP_E2E=1` to skip them. The Cursor one needs the network, so `pnpm check` skips it and
 `pnpm test:e2e` runs it.

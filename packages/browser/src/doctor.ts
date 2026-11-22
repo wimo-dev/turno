@@ -20,7 +20,7 @@ import {
 import { profileHasCookies, readLoginRecord } from "./login.js";
 import { readHealth } from "./health.js";
 import { identityDir, isValidIdentityId } from "./ids.js";
-import { defaultChromeUserDataDir, parseAttachTarget, resolveAttachEndpoint } from "./engine-attach.js";
+import { defaultChromeUserDataDir, parseAttachTarget, readAttachEndpoint } from "./engine-attach.js";
 import {
   type LightpandaInfo,
   findLightpanda,
@@ -504,7 +504,7 @@ function engineRows(id: string, settings: IdentitySettings, env: NodeJS.ProcessE
   const target = parseAttachTarget(settings.attach);
   if ("error" in target) return [];
   try {
-    const endpoint = resolveAttachEndpoint(target, env);
+    const endpoint = readAttachEndpoint(target, env);
     return [
       {
         level: "ok",

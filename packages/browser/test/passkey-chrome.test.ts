@@ -1,5 +1,4 @@
-import { type ChildProcess, spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import type { ChildProcess } from "node:child_process";
 import { type Server, createServer } from "node:http";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -9,7 +8,7 @@ import type { Browser, CDPSession, Page } from "patchright-core";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { resolveAttachEndpoint } from "../src/engine-attach.js";
 import { playwright } from "../src/upstream.js";
-import { chromeUnavailable, stopSandboxProcesses, waitFor } from "./helpers/chrome.js";
+import { chromeUnavailable, spawnChrome, stopSandboxProcesses, waitFor } from "./helpers/chrome.js";
 import { type Sandbox, sandbox } from "./helpers/sandbox.js";
 
 /**
@@ -114,21 +113,9 @@ describe.skipIf(reason)(`a page's passkey prompt on a real Chrome${reason ? ` (s
     // WebAuthn needs a secure context and a domain for its RP ID: localhost is both.
     origin = `http://localhost:${(web.address() as { port: number }).port}`;
     const dir = join(sb.home, "chrome");
-    chrome = spawn(
-      exe,
-      [
-        "--headless=new",
-        `--user-data-dir=${dir}`,
-        "--remote-debugging-port=0",
-        "--no-first-run",
-        // A Chrome with a sandbox HOME otherwise waits on the macOS Keychain before its first request.
-        "--use-mock-keychain",
-        "--password-store=basic",
-        "about:blank",
-      ],
-      { stdio: "ignore", env },
-    );
-    expect(await waitFor(() => existsSync(join(dir, "DevToolsActivePort")), 20_000)).toBe(true);
+    chrome = spawnChrome(exe, dir, ["--headless=new", "--remote-debugging-port=0", "about:blank"], env);
+    // Chrome creates the file before it writes the port and path into it: wait for both.
+    const endpoint = await resolveAttachEndpoint({ kind: "dir", dir }, env, process.platform, 20_000);
     transport = new StdioClientTransport({
       command: process.execPath,
       args: [bin, "--attach", dir],
@@ -140,7 +127,7 @@ describe.skipIf(reason)(`a page's passkey prompt on a real Chrome${reason ? ` (s
     await client.connect(transport);
     // The server opens a tab of its own; find it by the page it loads, and give it the authenticator.
     await call("browser_navigate", { url: `${origin}/?agent` });
-    watcher = await playwright().chromium.connectOverCDP(resolveAttachEndpoint({ kind: "dir", dir }));
+    watcher = await playwright().chromium.connectOverCDP(endpoint);
     const agentTab = () =>
       watcher!
         .contexts()[0]!
