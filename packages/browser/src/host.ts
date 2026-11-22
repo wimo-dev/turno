@@ -291,7 +291,7 @@ function withTrailer(result: ToolResult, title: string, note: string, key: strin
 }
 
 /** What the agent reads when the page it ended on is a challenge (`reputation.ts`). */
-export function challengeNote(event: Omit<ChallengeEvent, "ts">): string {
+function challengeNote(event: Omit<ChallengeEvent, "ts">): string {
   const what =
     event.kind === "captcha"
       ? "a captcha"

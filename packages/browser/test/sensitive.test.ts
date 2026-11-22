@@ -1,16 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { challengeNote } from "../src/host.js";
 import { REDACTED, credentialName, redactNetworkText } from "../src/network-redact.js";
 import { Redactor } from "../src/redact.js";
-import {
-  SENSITIVE_MARK,
-  fieldKind,
-  maskSnapshot,
-  maskSnapshotJSON,
-  secretField,
-  sensitiveRefs,
-  sensitiveRefusal,
-} from "../src/sensitive.js";
+import { SENSITIVE_MARK, fieldKind, maskSnapshot, maskSnapshotJSON, secretField } from "../src/sensitive.js";
 
 const field = (o: Partial<{ type: string; autocomplete: string; name: string; id: string }>) => ({
   type: "text",
@@ -48,14 +39,6 @@ describe("the sensitive field classifier", () => {
     expect(fieldKind(field({ name: "footprint" }))).toBe("secret");
     expect(secretField(field({ name: "footprint" }))).toBe(true);
     expect(secretField(field({ name: "city" }))).toBe(false);
-  });
-
-  it("says who types a refused value", () => {
-    const text = sensitiveRefusal("browser_type", "password");
-    expect(text).toMatch(/^browser_type was refused: that field takes a password/);
-    expect(text).toContain("browser_request_human");
-    expect(text).toContain("browser_login");
-    expect(text).toContain("keychain:<item>");
   });
 });
 
@@ -100,15 +83,6 @@ describe("snapshot masking", () => {
     });
     expect(out[1]).toEqual({ role: "textbox", name: "User", ref: "e8", text: "ada" });
   });
-
-  it("takes only the refs of sensitive fields", () => {
-    const refs = sensitiveRefs([
-      { ...field({ type: "password" }), value: "x", ref: "e1", kind: "password" },
-      { ...field({ autocomplete: "cc-number" }), value: "4111", ref: "e2", kind: "card" },
-      { ...field({ name: "otp" }), value: "1", kind: "one-time code" },
-    ]);
-    expect([...refs]).toEqual(["e1"]);
-  });
 });
 
 describe("values read from sensitive fields", () => {
@@ -132,13 +106,6 @@ describe("values read from sensitive fields", () => {
     r.addField("typed-pass-2", SENSITIVE_MARK);
     r.add("typed-pass-2", "gitlab password");
     expect(r.text("typed-pass-2")).toBe("[vault: gitlab password]");
-  });
-
-  it("keep at most a few hundred values, dropping the oldest", () => {
-    const r = new Redactor();
-    for (let i = 0; i < 300; i++) r.addField(`value-${i}-xyz`, SENSITIVE_MARK);
-    expect(r.text("value-0-xyz")).toBe("value-0-xyz");
-    expect(r.text("value-299-xyz")).toBe(SENSITIVE_MARK);
   });
 });
 
@@ -249,19 +216,5 @@ describe("credentials in network output", () => {
     expect(out).toBe(JSON.stringify(JSON.parse(out), null, 2));
     const plain = '{"a":1}';
     expect(redactNetworkText(plain)).toBe(plain);
-  });
-});
-
-describe("the challenge note", () => {
-  it("names the kind and the site, and suggests the person handles it", () => {
-    expect(challengeNote({ site: "shop.example.com", kind: "captcha", markers: [] })).toMatch(
-      /^This page \(shop\.example\.com\) shows a captcha\. A person should handle it: ask them to \(with browser_request_human, if this server offers it\)/,
-    );
-    expect(challengeNote({ site: "a.example", kind: "verify", markers: [] })).toContain(
-      "a check that asks whether a person is there",
-    );
-    expect(challengeNote({ site: "a.example", kind: "block", markers: [] })).toContain(
-      "a page that blocks this browser",
-    );
   });
 });

@@ -178,7 +178,7 @@ export function maskSnapshotJSON<T>(json: T, refs: ReadonlySet<string>): T {
 }
 
 /** The refs of the sensitive fields among `fields`. */
-export function sensitiveRefs(fields: readonly PageField[]): Set<string> {
+function sensitiveRefs(fields: readonly PageField[]): Set<string> {
   return new Set(fields.filter((f) => sensitiveKind(f.kind) && f.ref && REF.test(f.ref)).map((f) => f.ref!));
 }
 
