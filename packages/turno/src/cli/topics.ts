@@ -73,6 +73,10 @@ const ENVIRONMENT: readonly { title: string; rows: readonly (readonly [string, s
       ["TURNO_SESSION_CWD_B64", "the agent's folder (base64url), sent to the gateway"],
       ["TURNO_MCPD_TOKEN", "the profile's gateway token, for agents that read headers from the environment"],
       ["TURNO_MCPD_SERVICE", "set by the mcpd service file (LaunchAgent or systemd unit)"],
+      [
+        "TURNO_BROWSER_PROMPTED_PARAMS",
+        "set by turno browser replay for the server it starts: the parameters typed at its hidden prompt",
+      ],
     ],
   },
   {
