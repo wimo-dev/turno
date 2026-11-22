@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import type { Io } from "turno-core/cli";
+import type { ExecCommand } from "../agent-mcp.js";
 import type { BrowserFunctions } from "../api.js";
 import type { ServedIdentity } from "../doctor.js";
 import type { SettingsPatch } from "../settings.js";
@@ -66,6 +67,11 @@ export interface CliDeps {
   stdin?: () => Promise<string>;
   /** Runs an agent's `mcp add` command for `init` (default: spawn it on this terminal). */
   run?: (command: string, args: readonly string[], io: Io) => Promise<number>;
+  /**
+   * Runs an agent's `mcp add` or `mcp remove` with its output captured: `init --yes` without a
+   * terminal and `remove` (default: spawn it). Tests pass a fake, never the real agent.
+   */
+  exec?: ExecCommand;
 }
 
 /** Everything a command gets: the host and the dependencies. */

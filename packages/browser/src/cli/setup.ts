@@ -12,6 +12,7 @@ import {
   str,
 } from "turno-core/cli";
 import { findOnPath } from "turno-core/paths";
+import { AGENTS, serverName } from "../agent-mcp.js";
 import type { Ctx } from "./context.js";
 
 /**
@@ -60,7 +61,7 @@ function shellWord(word: string): string {
   return /^[\w@%+=:,./-]+$/.test(word) ? word : `'${word.replace(/'/g, `'\\''`)}'`;
 }
 
-function line(words: readonly string[]): string {
+export function shellLine(words: readonly string[]): string {
   return words.map(shellWord).join(" ");
 }
 
@@ -79,7 +80,7 @@ export function mcpCommand(env: NodeJS.ProcessEnv): { command: string; onPath: b
 
 /** The config of `agent` for identity `id`, run as `command`. */
 export function setupConfig(agent: SetupAgent, id: string, command: string): SetupConfig {
-  const server = `browser-${id}`;
+  const server = serverName(id);
   const args = ["--identity", id];
   const base = { agent, identity: id, server, command, args };
   const stdio = { command, args };
@@ -88,7 +89,7 @@ export function setupConfig(agent: SetupAgent, id: string, command: string): Set
       return {
         ...base,
         file: null,
-        shell: line(["claude", "mcp", "add", "--scope", "user", server, "--", command, ...args]),
+        shell: shellLine(AGENTS["claude-code"].add!(server, command, args)),
         config: null,
         notes: ["--scope user adds it to every project; leave it out to add it to the current folder only."],
       };
@@ -96,7 +97,7 @@ export function setupConfig(agent: SetupAgent, id: string, command: string): Set
       return {
         ...base,
         file: "~/.codex/config.toml",
-        shell: line(["codex", "mcp", "add", server, "--", command, ...args]),
+        shell: shellLine(AGENTS.codex.add!(server, command, args)),
         config: `[mcp_servers.${server}]\ncommand = ${JSON.stringify(command)}\nargs = ${JSON.stringify(args).replace(/","/g, '", "')}`,
         notes: [],
       };
@@ -112,7 +113,7 @@ export function setupConfig(agent: SetupAgent, id: string, command: string): Set
       return {
         ...base,
         file: "~/.copilot/mcp-config.json",
-        shell: line(["copilot", "mcp", "add", server, "--", command, ...args]),
+        shell: shellLine(AGENTS.copilot.add!(server, command, args)),
         config: json({ mcpServers: { [server]: { type: "local", ...stdio, tools: ["*"] } } }),
         notes: [`When the file has other servers, add the "${server}" entry to its mcpServers.`],
       };
@@ -120,7 +121,7 @@ export function setupConfig(agent: SetupAgent, id: string, command: string): Set
       return {
         ...base,
         file: "~/.gemini/settings.json (or .gemini/settings.json in a project)",
-        shell: line(["gemini", "mcp", "add", "-s", "user", server, command, "--", ...args]),
+        shell: shellLine(AGENTS.gemini.add!(server, command, args)),
         config: json({ mcpServers: { [server]: stdio } }),
         notes: [`When the file has other settings, add the "${server}" entry to its mcpServers.`],
       };
@@ -136,11 +137,11 @@ export function setupConfig(agent: SetupAgent, id: string, command: string): Set
 }
 
 export const AGENT_NAMES: Record<SetupAgent, string> = {
-  "claude-code": "Claude Code",
-  codex: "Codex",
-  cursor: "Cursor",
-  copilot: "GitHub Copilot CLI",
-  gemini: "Gemini CLI",
+  "claude-code": AGENTS["claude-code"].label,
+  codex: AGENTS.codex.label,
+  cursor: AGENTS.cursor.label,
+  copilot: AGENTS.copilot.label,
+  gemini: AGENTS.gemini.label,
   json: "any MCP client",
 };
 

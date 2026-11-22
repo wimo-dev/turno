@@ -99,7 +99,7 @@ turno-browser help <command> prints the same as turno-browser <command> --help.
 Usage:
   turno-browser init [--identity <id>] [--agent
       <claude-code|codex|cursor|copilot|gemini|json|none>] [--url <url>]
-      [--no-login] [--yes] [--dry-run]
+      [--no-login] [--yes] [--dry-run] [--json]
     set up step by step: an identity, a sign-in by hand, and your agent (asks
     first)
 
@@ -110,8 +110,14 @@ Sets up a browser identity and gives it to your agent, asking at each step:
      and an agent without one (cursor, json) gets the block to paste
 
 --yes answers yes to every step, --no-login skips the sign-in, --agent none skips the agent.
-Without a terminal (--no-input, a pipe or an agent session) it needs --identity and --agent,
-skips the sign-in and prints the agent's command instead of running it.
+Without a terminal (--no-input, a pipe or an agent session) it needs --identity and --agent and
+skips the sign-in; it prints the agent's command, or with --yes runs it. An agent that already
+has the identity's server is left as it is, so running init again changes nothing.
+
+--json prints one report (what was created, the sign-in, the agent's registration with the
+command it ran, its exit code and output) and never asks; it needs --identity and --agent.
+Exit codes: 0 done, 1 the agent's command failed, 2 a missing answer, 127 --yes and the agent's
+program is not on the PATH.
 ```
 
 ## turno-browser list

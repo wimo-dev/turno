@@ -28,7 +28,7 @@ import { vaultCommand } from "./vault.js";
 import { BACKGROUND_JSON, backgroundCommand } from "./background.js";
 import { secretCommand } from "./secret.js";
 import { SETUP_DETAILS, SETUP_JSON, setup } from "./setup.js";
-import { INIT_DETAILS, INIT_SYNOPSIS, init } from "./init.js";
+import { INIT_DETAILS, INIT_JSON, INIT_SYNOPSIS, init } from "./init.js";
 import { loginSummary } from "./login-summary.js";
 
 /**
@@ -320,7 +320,8 @@ function subcommands(c: Ctx): Record<string, Sub> {
           summary: "set up step by step: an identity, a sign-in by hand, and your agent (asks first)",
           synopsis: INIT_SYNOPSIS,
           details: INIT_DETAILS,
-          flags: ["--identity", "--agent", "--url", "--no-login", "--yes", "--dry-run"],
+          flags: ["--identity", "--agent", "--url", "--no-login", "--yes", "--dry-run", "--json"],
+          json: INIT_JSON,
           run: (args, io) => init(c, args, io, c.deps.run),
         },
         setup: {
