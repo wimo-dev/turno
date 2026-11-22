@@ -31,7 +31,8 @@ afterEach(() => sb.cleanup());
 /** A value with every character the `security -i` quoting has to handle. */
 const VALUE = `v4l"ue\\ with spaces 'and' $HOME`;
 
-describe("secret store, against the fake security and secret-tool", () => {
+// The fakes are POSIX scripts found on PATH; the Windows store has its own tests below.
+describe.skipIf(process.platform === "win32")("secret store, against the fake security and secret-tool", () => {
   for (const platform of ["darwin", "linux"] as const) {
     it(`stores, reads, checks and deletes on ${platform}, value never in argv`, async () => {
       const fake = fakeSecretStore(sb);
@@ -213,6 +214,10 @@ describe.runIf(process.platform === "win32")("Windows store: a real DPAPI round 
       expect(store.kind).toBe("dpapi");
       expect(store.location).toBe(join(local, "turno", "secrets"));
       let t = performance.now();
+      await store.set(name, "first value");
+      const firstMs = performance.now() - t;
+      // A second set replaces the file in place.
+      t = performance.now();
       await store.set(name, BIG);
       const setMs = performance.now() - t;
       t = performance.now();
@@ -232,7 +237,7 @@ describe.runIf(process.platform === "win32")("Windows store: a real DPAPI round 
       expect(await store.get(name)).toBeUndefined();
       expect(readdirSync(dir)).toEqual([]);
       console.log(
-        `DPAPI round trip of ${Buffer.byteLength(BIG)} bytes: set ${setMs.toFixed(0)} ms, get ${getMs.toFixed(0)} ms`,
+        `DPAPI on this runner: first set ${firstMs.toFixed(0)} ms, then for ${Buffer.byteLength(BIG)} bytes set ${setMs.toFixed(0)} ms and get ${getMs.toFixed(0)} ms`,
       );
     } finally {
       rmSync(local, { recursive: true, force: true });
