@@ -73,8 +73,57 @@ jobs:
       # The secret store tests drive POSIX shell stand-ins for security and secret-tool; the
       # Windows secret store comes with its own tests.
       - run: pnpm --filter turno-core exec vitest run --exclude test/secrets.test.ts
-      - run: pnpm --filter turno-browser run test
+      - name: Time the process table (diagnostic)
+        shell: pwsh
+        run: |
+          foreach ($i in 1..3) { (Measure-Command { powershell.exe -NoProfile -NonInteractive -Command "Get-CimInstance Win32_Process | Out-Null" }).TotalSeconds }
+      - run: pnpm --filter turno-browser exec vitest run --reporter=verbose
         if: ${{ !cancelled() }}
+      # What a person gets from npm: the packed packages installed with npm (its .cmd shims),
+      # then install-browser and a smoke launch of Chrome through doctor, in a scratch turno folder.
+      - name: Install the packed packages with npm and run them
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $pack = Join-Path $env:RUNNER_TEMP "pack"
+          $app = Join-Path $env:RUNNER_TEMP "app"
+          New-Item -ItemType Directory -Force $pack, $app | Out-Null
+          foreach ($pkg in "core", "browser") {
+            Push-Location "packages/$pkg"; pnpm pack --pack-destination $pack; Pop-Location
+            if ($LASTEXITCODE) { exit 1 }
+          }
+          $core = (Get-ChildItem $pack -Filter "turno-core-*.tgz").FullName
+          $browser = (Get-ChildItem $pack -Filter "turno-browser-*.tgz").FullName
+          @{ private = $true; dependencies = @{ "turno-browser" = "file:$browser" }; overrides = @{ "turno-core" = "file:$core" } } |
+            ConvertTo-Json | Set-Content (Join-Path $app "package.json")
+          Set-Location $app
+          npm install --no-audit --no-fund
+          if ($LASTEXITCODE) { exit 1 }
+          $env:TURNO_CONFIG_DIR = Join-Path $env:RUNNER_TEMP "turno\config"
+          $env:TURNO_STATE_DIR = Join-Path $env:RUNNER_TEMP "turno\state"
+          $env:TURNO_DATA_DIR = Join-Path $env:RUNNER_TEMP "turno\data"
+          $env:Path = "$app\node_modules\.bin;$env:Path"
+          cmd /c "turno-browser --version"
+          if ($LASTEXITCODE) { exit 1 }
+          cmd /c "turno-browser add smoke"
+          if ($LASTEXITCODE) { exit 1 }
+          cmd /c "turno-browser setup claude-code --identity smoke"
+          # Chrome for Testing goes to %LOCALAPPDATA%\ms-playwright: no admin rights needed.
+          cmd /c "turno-browser install-browser"
+          if ($LASTEXITCODE) { exit 1 }
+          $doctor = cmd /c "turno-browser doctor --json" | Out-String
+          Write-Output $doctor
+          $checks = $doctor | ConvertFrom-Json
+          $checks = $checks.checks
+          if (-not ($checks | Where-Object { $_.status -eq "ok" -and $_.text -like "smoke launch:*" })) {
+            Write-Error "doctor did not start and close Chrome"
+          }
+          if (-not ($checks | Where-Object { $_.status -eq "ok" -and $_.text -like "Chrome for Testing *" })) {
+            Write-Error "doctor did not find the Chrome for Testing install-browser downloaded"
+          }
+          cmd /c "turno-browser remove smoke --yes"
+          if ($LASTEXITCODE) { exit 1 }
 
   pull-request:
     name: pull request rules

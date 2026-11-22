@@ -9,6 +9,7 @@ import {
   writeHealth,
 } from "../src/health.js";
 import { type Sandbox, sandbox } from "./helpers/sandbox.js";
+import { slashes } from "./helpers/programs.js";
 
 /**
  * Session health: a URL plus a text or selector that only a signed-in page shows. The check
@@ -113,7 +114,7 @@ describe("health record", () => {
   it("is stored per identity and cleared after a login", () => {
     expect(readHealth("school", sb.env)).toBeUndefined();
     writeHealth("school", sb.env, { status: "needs_auth", url: check.url, checkedAt: NOW.toISOString(), detail: "x" });
-    expect(healthPath("school", sb.env)).toMatch(/state\/turno\/browser\/identities\/school\/health\.json$/);
+    expect(slashes(healthPath("school", sb.env))).toMatch(/state\/turno\/browser\/identities\/school\/health\.json$/);
     expect(readHealth("school", sb.env)).toMatchObject({ status: "needs_auth" });
     clearHealth("school", sb.env);
     expect(readHealth("school", sb.env)).toBeUndefined();

@@ -14,6 +14,8 @@ npm install --global turno-browser
 turno-browser init
 ```
 
+It runs on macOS, Linux and Windows 10 and 11 (x64).
+
 `init` asks a name for the identity, opens Chrome so you sign in by hand once, and gives the
 identity to your agent. Each step is also a command of its own: `turno-browser add`, `login` and
 `setup`.

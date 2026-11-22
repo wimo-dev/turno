@@ -17,7 +17,19 @@ turno-browser login school
 turno-browser list
 ```
 
-Identities live under `~/.local/share/turno/browser/`. They hold live cookies of the sites you signed into: treat that folder as credentials.
+Identities live under `~/.local/share/turno/browser/` (on Windows, `%LOCALAPPDATA%\turno\data\browser\`). They hold live cookies of the sites you signed into: treat that folder as credentials.
+
+### On Windows
+
+| What | Where |
+|---|---|
+| Identities, profiles, flows, recordings | `%LOCALAPPDATA%\turno\data\browser` |
+| Settings | `%APPDATA%\turno` |
+| Runtime locks, background server state, logs | `%LOCALAPPDATA%\turno\state` |
+
+`TURNO_DATA_DIR`, `TURNO_CONFIG_DIR` and `TURNO_STATE_DIR` (or `XDG_DATA_HOME`, `XDG_CONFIG_HOME` and `XDG_STATE_HOME`) move them as on macOS and Linux.
+
+The background server listens on a named pipe, `\\.\pipe\turno-browser-<id>-<hash>`, instead of a socket file. By default Windows lets only your user, the administrators and the system account write to a pipe like it, so nobody else can send it a request. The hash comes from the state folder, so two turno folders never share a pipe. When another program already holds that name, the server listens on `127.0.0.1` instead, with a bearer token kept in your state folder. Windows has no signals, so `background stop` asks the server to stop over its own pipe, and a holder that does not answer is ended with `taskkill /PID <pid> /T /F`, which ends its Chrome with it.
 
 ## Settings that do not change
 
@@ -84,7 +96,10 @@ turno-browser doctor
 tools, the [live view](/docs/browser/live-view)'s picture and the [agent cursor](/docs/browser/agent-cursor)
 worked, with cookies kept from one start to the next. Arc and Dia are Chromium builds turno has
 not tested: give their path if you want to try one. On Linux turno looks in the packages' usual
-places (`/opt/google/chrome`, `/opt/microsoft/msedge`, `/opt/brave.com/brave`, `/usr/bin`).
+places (`/opt/google/chrome`, `/opt/microsoft/msedge`, `/opt/brave.com/brave`, `/usr/bin`). On
+Windows it looks in `Program Files`, `Program Files (x86)` and `%LOCALAPPDATA%` (where a browser
+installed for your user alone goes), and reads the version from the folder next to the browser
+instead of starting it.
 
 When Google Chrome is not installed, `add` and `init` pick the first browser they find and write
 it to `identity.json`, so the profile never changes browser by itself. A server's own `--browser`
@@ -99,8 +114,8 @@ turno-browser set school --browser chrome-for-testing
 
 `install-browser` downloads Chrome for Testing, the Chrome build Google publishes for automation,
 with the installer of the Playwright build turno-browser uses: about 190 MB into your user cache
-(`~/Library/Caches/ms-playwright` on macOS, `~/.cache/ms-playwright` on Linux, or
-`PLAYWRIGHT_BROWSERS_PATH`). It needs no admin password and changes nothing outside that folder.
+(`~/Library/Caches/ms-playwright` on macOS, `~/.cache/ms-playwright` on Linux,
+`%LOCALAPPDATA%\ms-playwright` on Windows, or `PLAYWRIGHT_BROWSERS_PATH`). It needs no admin password and changes nothing outside that folder.
 Its limits: it does not update itself (run the command again after you update turno-browser), it
 can be a version behind Chrome, and Google publishes it for testing, not as an everyday browser.
 Google's sign-in page loaded in it as in Chrome and Brave when turno tried it.

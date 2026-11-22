@@ -57,7 +57,8 @@ describe("in use detection", () => {
     expect(parseSingletonLock("garbage")).toBeUndefined();
   });
 
-  it("is in use when the lock points to a live PID", () => {
+  // SingletonLock is POSIX; on Windows Chrome holds a lockfile no Node process can hold the same way.
+  it.skipIf(process.platform === "win32")("is in use when the lock points to a live PID", () => {
     const { dir } = addIdentity("work", sb.env);
     expect(isInUse("work", sb.env)).toBe(false);
     symlinkSync(`${hostname()}-${process.pid}`, join(dir, "SingletonLock"));

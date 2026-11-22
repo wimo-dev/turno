@@ -37,7 +37,8 @@ function runWith(args: string[], extra: NodeJS.ProcessEnv, input = "") {
     input,
     timeout: 30_000,
   });
-  return { code: r.status, out: r.stdout, err: r.stderr };
+  // A run that timed out has no exit code: its error says so.
+  return { code: r.status, out: r.stdout, err: r.error ? `${r.stderr}${r.error.message}` : r.stderr };
 }
 
 /** How an agent starts turno-browser-mcp found on the PATH: through cmd.exe on Windows, where npm installs a `.cmd`. */
@@ -344,7 +345,7 @@ describe("onboarding and offboarding without a terminal", () => {
     expect(refused.err).toContain("pass --yes");
 
     const removed = runWith(["remove", "school", "--yes", "--json"], env);
-    expect(removed.code).toBe(0);
+    expect(removed.code, removed.err).toBe(0);
     const r = JSON.parse(removed.out);
     expect(r).toMatchObject({ complete: true, failed: [], left: [] });
     expect(r.deleted.map((d: { kind: string }) => d.kind)).toContain("mcp");

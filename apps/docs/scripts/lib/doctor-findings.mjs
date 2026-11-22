@@ -28,6 +28,9 @@ function render(node, sf) {
     return out;
   }
   if (ts.isParenthesizedExpression(node)) return render(node.expression, sf);
+  // A platform branch (`platform === "win32" ? windows : general`): the page shows the general
+  // side, and its fix text covers the other.
+  if (ts.isConditionalExpression(node) && node.condition.getText(sf).includes('"win32"')) return render(node.whenFalse, sf);
   return undefined;
 }
 

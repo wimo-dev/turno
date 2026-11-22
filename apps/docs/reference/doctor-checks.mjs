@@ -496,7 +496,7 @@ export const DOCTOR_CHECKS = [
     match: "the proxy credentials are in the secret store, and this machine has none",
     title: "No secret store for the proxy credentials",
     why: "An identity's proxy signs in with a keychain: reference, and this machine has neither the macOS Keychain tool nor secret-tool (libsecret), so turno cannot read the password and the browser does not start.",
-    fix: "Install libsecret (secret-tool) on Linux, or use a proxy without a password.",
+    fix: "Install libsecret (secret-tool) on Linux, or use a proxy without a password. On Windows turno-browser has no secret store yet, so only a proxy without a password works there.",
   },
   {
     id: "browser-proxy-secret-missing",
@@ -511,7 +511,7 @@ export const DOCTOR_CHECKS = [
     match: "credential<s> in the secret store, and this machine has none",
     title: "No secret store for the vault",
     why: "The identity's vault keeps each site's credentials in the secret store, and this machine has neither the macOS Keychain tool nor secret-tool (libsecret), so browser_login cannot sign in anywhere.",
-    fix: "Install libsecret (secret-tool) on Linux, then add the credentials again with turno browser vault add.",
+    fix: "Install libsecret (secret-tool) on Linux, then add the credentials again with turno browser vault add. On Windows turno-browser has no secret store yet, so the vault does not work there.",
   },
   {
     id: "browser-vault-store-no-answer",

@@ -28,7 +28,7 @@ import {
 } from "../src/client.js";
 import type { Engine, LaunchRequest } from "../src/engine.js";
 import { createHost, serve } from "../src/host.js";
-import { runtimeLockPath } from "../src/runtime-lock.js";
+import { runtimeLockPath, stopCommand } from "../src/runtime-lock.js";
 import type { SharingMode } from "../src/sharing.js";
 import { type TurnoTool, turnoZod } from "../src/tools.js";
 import { upstream } from "../src/upstream.js";
@@ -419,10 +419,12 @@ describe("the background server in process", () => {
         socket: backgroundSocketPath(ID, env),
       }),
     );
-    writeFileSync(backgroundSocketPath(ID, env), "");
+    // A socket file stays behind a killed server; Windows removes a pipe with its process.
+    const staleSocket = () => process.platform !== "win32" && writeFileSync(backgroundSocketPath(ID, env), "");
+    staleSocket();
     expect(backgroundStatus(ID, { env })).toBeUndefined();
     expect(existsSync(backgroundStatePath(ID, env))).toBe(false);
-    writeFileSync(backgroundSocketPath(ID, env), "");
+    staleSocket();
     const server = await startInProcess();
     expect(server.state.pid).toBe(process.pid);
     const s = await openBackgroundSession(ID, { env, start: false });
@@ -472,7 +474,7 @@ describe("the background server as a program, through the client", () => {
     const res = await client.callTool({ name: "browser_snapshot", arguments: {} });
     expect(res.isError).toBe(true);
     expect(textOf(res)).toContain(
-      `browser identity "${ID}" is served by its background server (pid ${state.pid}) since ${state.startedAt}, which owns the identity's browser while it runs. Stop it with \`turno-browser background stop ${ID}\` (or \`kill ${state.pid}\`; it closes its Chrome first), or wait: it exits after 15m without a request; then try again.`,
+      `browser identity "${ID}" is served by its background server (pid ${state.pid}) since ${state.startedAt}, which owns the identity's browser while it runs. Stop it with \`turno-browser background stop ${ID}\` (or \`${stopCommand(state.pid)}\`; ${process.platform === "win32" ? "that ends its Chrome with it" : "it closes its Chrome first"}), or wait: it exits after 15m without a request; then try again.`,
     );
     expect(engine.launches).toEqual([]);
     // A tool that needs no browser still answers.

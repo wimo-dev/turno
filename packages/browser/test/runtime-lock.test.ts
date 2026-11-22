@@ -78,7 +78,7 @@ describe("runtime lock", () => {
       expect(message).toContain(
         `browser identity "school" is in use by turno-browser-mcp (pid ${other.pid}, Chrome pid 777) since ${T0.toISOString()}`,
       );
-      expect(message).toContain(`kill ${other.pid}`);
+      expect(message).toContain(stopCommand(other.pid!));
       expect(JSON.parse(readFileSync(file, "utf8")).nodePid).toBe(other.pid);
     } finally {
       other.kill();

@@ -64,7 +64,8 @@ describe("process table", () => {
   });
 });
 
-describe("findProfileChrome", () => {
+// SingletonLock and process groups are POSIX; the Windows branch has its own tests at the end.
+describe.skipIf(process.platform === "win32")("findProfileChrome", () => {
   const alive = () => true;
 
   it("finds nothing without a lock or when the lock points at another program", () => {
@@ -148,7 +149,7 @@ describe("findProfileChrome", () => {
   });
 });
 
-describe("stopChrome", () => {
+describe.skipIf(process.platform === "win32")("stopChrome", () => {
   function fakeProcs(dieOn: NodeJS.Signals | "never") {
     const sent: [number, NodeJS.Signals][] = [];
     let dead = false;
@@ -219,7 +220,7 @@ describe("stopChrome", () => {
   });
 });
 
-describe("sweepOrphan", () => {
+describe.skipIf(process.platform === "win32")("sweepOrphan", () => {
   it("leaves a Chrome that another live process owns", async () => {
     lock(500);
     const t = table([

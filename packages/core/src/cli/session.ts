@@ -19,15 +19,20 @@ export interface Owner {
 }
 
 const SHELLS = new Set(["sh", "bash", "zsh", "dash", "fish", "ksh", "mksh", "ash", "csh", "tcsh"]);
+/** Windows' shells: `cmd /c` (an npm `.cmd` shim, a command an agent runs) and PowerShell's `-Command`. */
+const WINDOWS_SHELLS = new Set(["cmd", "powershell", "pwsh"]);
 const WRAPPERS = new Set(["env", "timeout", "gtimeout", "nice", "nohup", "stdbuf", "time", "xargs"]);
 const RUNNERS = /^(pnpm|pnpx|npm|npx|yarn|bunx|corepack)(\.c?js)?$|^(npm|npx)-cli\.js$/;
 
+/** The words of a command line; a Windows path with a space comes in double quotes. */
 function words(command: string): string[] {
-  return command.trim().split(/\s+/);
+  return [...command.trim().matchAll(/"([^"]*)"|(\S+)/g)].map((m) => m[1] ?? m[2]!);
 }
 
+/** A program's name: no folder (either separator), no login dash, and on Windows no `.exe`, in lower case. */
 function program(word: string | undefined): string {
-  return basename(word ?? "").replace(/^-/, "");
+  const name = basename((word ?? "").replace(/\\/g, "/")).replace(/^-/, "");
+  return /\.exe$/i.test(name) ? name.slice(0, -4).toLowerCase() : name;
 }
 
 /**
@@ -40,6 +45,8 @@ export function passesOn(command: string): boolean {
   const [first, ...rest] = words(command);
   const name = program(first);
   if (SHELLS.has(name)) return rest.some((w) => /^-[a-zA-Z]*c[a-zA-Z]*$/.test(w));
+  if (WINDOWS_SHELLS.has(name.toLowerCase()))
+    return rest.some((w) => /^\/c$/i.test(w) || /^-(c|command|encodedcommand|ec)$/i.test(w));
   if (WRAPPERS.has(name)) return true;
   if (RUNNERS.test(name)) return true;
   if (name === "node" || name === "bun") return RUNNERS.test(program(rest[0]));
