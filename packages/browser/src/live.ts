@@ -275,7 +275,7 @@ export function resumeNote(o: {
   lines: readonly string[];
   tool: string;
   ran: boolean;
-  /** The pause was a person step another call asked for (`browser_request_human`). */
+  /** The pause was a person step (`browser_request_human`, or a page's passkey prompt). */
   step?: boolean;
   /** A flow is being recorded: what the user did is not in it. */
   recordingFlow?: boolean;
@@ -285,7 +285,7 @@ export function resumeNote(o: {
   const out = o.step
     ? [
         "### Waited for the person",
-        `A call asked the person to do a step in this browser (${o.by}); it took ${formatPause(o.pausedMs)} and has ended.`,
+        `The browser was handed to the person for a step (${o.by}); it took ${formatPause(o.pausedMs)} and has ended.`,
       ]
     : [
         "### Paused by the user",
@@ -307,7 +307,7 @@ export function resumeNote(o: {
 /** The note of a call that was running when a pause started. */
 export function pausedWhileRunningNote(step: boolean): string {
   return step
-    ? "### Waited for the person\nA call asked the person to do a step in this browser while this call ran. Your next call waits until the step ends."
+    ? "### Waited for the person\nThe browser was handed to the person for a step while this call ran. Your next call waits until the step ends."
     : "### Paused by the user\nThe user paused this browser while this call ran. Your next call waits until they resume.";
 }
 
