@@ -216,13 +216,4 @@ describe("vault", () => {
       expect(io.lines.join("\n")).toMatch(/Examples:[\s\S]*turno-browser vault/);
     }
   });
-
-  it("clears the vault before removing the identity", async () => {
-    const { browser, order, cleared } = setup();
-    const io = fakeIo(sb.env);
-    expect(await browser.run(["remove", "work"], io)).toBe(0);
-    expect(cleared).toEqual(["work"]);
-    expect(order).toEqual(["clear", "remove"]);
-    expect(io.lines.join("\n")).toMatch(/deleted 2 vault credentials/);
-  });
 });

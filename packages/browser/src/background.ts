@@ -23,6 +23,7 @@ import {
 } from "./background-state.js";
 import type { IdentityRef } from "./engine.js";
 import { type Host, type SharedHost, shareHost } from "./host.js";
+import { touchLastUsed } from "./last-used.js";
 import { inUseMessage, readRuntimeLock, runtimeLockAlive } from "./runtime-lock.js";
 import { SESSION_META_KEY } from "./session.js";
 import type { SharingMode } from "./sharing.js";
@@ -376,6 +377,7 @@ export async function serveBackground(host: Host, options: BackgroundOptions): P
           return;
         }
         s.inflight.add(message.id);
+        touchLastUsed(id, env);
         const params = (message.params ?? {}) as { _meta?: Record<string, unknown> };
         message.params = { ...params, _meta: { ...(params._meta ?? {}), [SESSION_META_KEY]: s.key } };
       }

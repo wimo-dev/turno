@@ -25,6 +25,7 @@ const IDENTITY_FIRST = new Set([
   "resume",
   "do",
   "reputation",
+  "status",
 ]);
 
 /** Commands with their own subcommands, and whether an identity follows the subcommand. */

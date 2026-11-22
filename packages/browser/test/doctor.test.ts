@@ -3,6 +3,8 @@ import { existsSync, mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { hostname } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { SecretStore } from "turno-core/secrets";
+import { browserEntries, recordRegistration } from "../src/agent-mcp.js";
 import { backgroundDir } from "../src/background-state.js";
 import { type DoctorCheck, chromeVersionFromPlist, runDoctor } from "../src/doctor.js";
 import { writeHealth } from "../src/health.js";
@@ -10,6 +12,7 @@ import { addIdentity, identityDir } from "../src/identities.js";
 import { recordChallenge } from "../src/reputation.js";
 import { acquireRuntimeLock, runtimeLockPath } from "../src/runtime-lock.js";
 import { identitySettingsPath, systemTimezone } from "../src/settings.js";
+import { vaultAdd, vaultItem } from "../src/vault.js";
 import { type Sandbox, sandbox } from "./helpers/sandbox.js";
 
 /**
@@ -314,5 +317,139 @@ describe("browser doctor: mcp.toml against the identity's sharing", () => {
     expect(await warned([{ ...shared(), identity: "school" }])).toBeUndefined();
     writeFileSync(identitySettingsPath("work", sb.env), JSON.stringify({ format: 7, sharing: "tabs" }));
     expect(await warned([shared()])).toBeUndefined();
+  });
+});
+
+/** A secret store in memory: lookups only, as the doctor makes them. */
+function memoryStore(items: string[], fail = false): SecretStore {
+  const have = new Set(items);
+  return {
+    kind: "keychain",
+    label: "macOS Keychain",
+    get: async () => {
+      throw new Error("the doctor never reads a value");
+    },
+    has: async (s) => {
+      if (fail) throw new Error("User interaction is not allowed.");
+      return have.has(s);
+    },
+    set: async () => {
+      throw new Error("the doctor never writes");
+    },
+    remove: async () => {
+      throw new Error("the doctor never deletes");
+    },
+  };
+}
+
+describe("browser doctor: the vault's credentials in the secret store", () => {
+  async function withVault() {
+    addIdentity("school", sb.env);
+    const store = memoryStore([]);
+    const fake = { ...store, set: async () => undefined, remove: async () => false };
+    for (const site of ["canvas", "github"])
+      await vaultAdd(
+        "school",
+        site,
+        { urls: [`https://${site}.example.com/login`], username: "u", password: "p" },
+        {
+          env: sb.env,
+          store: fake,
+        },
+      );
+  }
+
+  it("is quiet for an empty vault, ok when every item is there, fails for a missing one or no store, warns when locked", async () => {
+    addIdentity("empty", sb.env);
+    const none = await doctor({ secrets: memoryStore([]) });
+    expect(none.checks.filter((c) => /vault/.test(c.text))).toEqual([]);
+    await withVault();
+    const all = await doctor({ secrets: memoryStore([vaultItem("school", "canvas"), vaultItem("school", "github")]) });
+    expect(
+      find(all.checks, "identity school", /^vault: macOS Keychain has the credentials of canvas, github$/)?.level,
+    ).toBe("ok");
+    const some = await doctor({ secrets: memoryStore([vaultItem("school", "canvas")]) });
+    const missing = find(some.checks, "identity school", /no item for the credentials of github/);
+    expect(missing).toMatchObject({ level: "fail", fix: expect.stringContaining("vault add school github") });
+    const locked = await doctor({ secrets: memoryStore([], true) });
+    expect(find(locked.checks, "identity school", /did not answer for the vault: User interaction/)?.level).toBe(
+      "warn",
+    );
+    const linux = await doctor({ platform: "linux", env: { ...sb.env, PATH: "/nonexistent" } });
+    expect(find(linux.checks, "identity school", /the vault has 2 credentials .* this machine has none/)?.level).toBe(
+      "fail",
+    );
+  });
+});
+
+describe("browser doctor: the agents that have each identity", () => {
+  const agents = () => browserEntries(sb.env);
+
+  it("names each agent with the identity, and the ones without", async () => {
+    addIdentity("school", sb.env);
+    addIdentity("work", sb.env);
+    sb.write(
+      ".claude.json",
+      JSON.stringify({
+        mcpServers: { "browser-school": { command: "turno-browser-mcp", args: ["--identity", "school"] } },
+      }),
+    );
+    const bin = join(sb.home, "bin");
+    mkdirSync(bin);
+    writeFileSync(join(bin, "turno-browser-mcp"), "#!/bin/sh\n", { mode: 0o755 });
+    const env = { ...sb.env, PATH: `${bin}:${sb.env.PATH}` };
+    const { checks } = await doctor({ env, agents: browserEntries(env) });
+    expect(find(checks, "identity school", /^Claude Code has it \(browser-school in ~\/\.claude\.json\)$/)?.level).toBe(
+      "ok",
+    );
+    expect(find(checks, "identity work", /no agent here has browser-work/)?.level).toBe("info");
+  });
+
+  it("warns about a server whose command is gone, one whose identity is gone, and a broken config", async () => {
+    addIdentity("school", sb.env);
+    sb.write(
+      ".claude.json",
+      JSON.stringify({
+        mcpServers: {
+          "browser-school": { command: "/gone/turno-browser-mcp", args: ["--identity", "school"] },
+          "browser-old": { command: "turno-browser-mcp", args: ["--identity", "old"] },
+          "browser-use": { command: "uvx", args: ["browser-use"] },
+        },
+      }),
+    );
+    sb.write(".cursor/mcp.json", "{ not json");
+    const { checks } = await doctor({ agents: agents() });
+    expect(
+      find(checks, "identity school", /runs browser-school with \/gone\/turno-browser-mcp, which is not there/),
+    ).toMatchObject({
+      level: "warn",
+      fix: "turno-browser setup claude-code --identity school",
+    });
+    expect(find(checks, "agents", /still has the MCP server browser-old .* no identity "old"/)).toMatchObject({
+      level: "warn",
+      fix: "claude mcp remove --scope user browser-old",
+    });
+    expect(find(checks, "agents", /could not read Cursor's config ~\/\.cursor\/mcp\.json: not valid JSON/)?.level).toBe(
+      "warn",
+    );
+    // browser-use is not turno's: no identity "use" is asked about.
+    expect(checks.some((c) => /browser-use/.test(c.text))).toBe(false);
+  });
+
+  it("warns when an agent lost a server init registered", async () => {
+    addIdentity("school", sb.env);
+    recordRegistration("school", sb.env, {
+      agent: "claude-code",
+      server: "browser-school",
+      file: join(sb.home, ".claude.json"),
+      at: NOW.toISOString(),
+    });
+    sb.write(".claude.json", JSON.stringify({ mcpServers: {} }));
+    const { checks } = await doctor({ agents: agents() });
+    expect(
+      find(checks, "identity school", /Claude Code no longer has browser-school, which init registered/),
+    ).toMatchObject({
+      level: "warn",
+    });
   });
 });

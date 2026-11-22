@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { browserPaths as paths } from "turno-core/paths";
+import { browserPaths as paths, tildify } from "turno-core/paths";
 import { type ProcTable, readProcTable, signalProcess } from "turno-core/process";
 import { type SecretStore, secretStore } from "turno-core/secrets";
 import { backgroundAlive, readBackgroundState } from "./background-state.js";
@@ -31,6 +31,16 @@ import { readChallenges, summarizeChallenges } from "./reputation.js";
 import { inUseMessage, readRuntimeLock, runtimeLockAlive, runtimeLockPath } from "./runtime-lock.js";
 import { type IdentitySettings, acceptLanguages, checkIdentitySettings, systemTimezone } from "./settings.js";
 import { names } from "./names.js";
+import {
+  AGENTS,
+  type AgentServers,
+  type McpEntry,
+  entryCommandFound,
+  entryIdentity,
+  readRegistrations,
+  serverName,
+} from "./agent-mcp.js";
+import { vaultItem, vaultSummary } from "./vault.js";
 
 /**
  * `turno browser doctor`: what a browser identity needs to work, one check per row,
@@ -42,8 +52,12 @@ import { names } from "./names.js";
  *   optional; a failure only when an identity uses them), and a Lightpanda an earlier server
  *   left running.
  * - Per identity: identity.json, who holds it (runtime lock and Chrome's profile lock), session
- *   health, challenges in the last 7 days, and the opt-in network settings (`proxy`: whether
- *   the secret store has its credentials, never their value; `userAgent`).
+ *   health, challenges in the last 7 days, the opt-in network settings (`proxy`: whether
+ *   the secret store has its credentials, never their value; `userAgent`), and whether the
+ *   secret store has an item for each vault credential (a lookup, never a read of the value).
+ * - Agents (turno-browser on its own): which agents' configs have each identity's server, a
+ *   server whose command is gone, one whose identity is gone, and a config file that cannot be
+ *   read. The files are only read.
  *
  * `--fix` removes runtime locks whose process is gone and stops a Chrome an earlier run left
  * behind on an identity's profile (the same sweep a server start does), and stops a Lightpanda
@@ -90,6 +104,12 @@ export interface DoctorOptions {
   procTable?: () => ProcTable | undefined;
   /** The mcp.toml servers that run turno-browser-mcp for an identity (turno-cli reads mcp.toml). */
   servers?: readonly ServedIdentity[];
+  /**
+   * The turno-browser servers in the agents' config files, for the registration checks
+   * (`browserEntries`): turno-browser on its own passes them; inside turno, mcp sync writes the
+   * agents' configs and checks them.
+   */
+  agents?: { entries: readonly McpEntry[]; errors: readonly AgentServers[] };
   now?: Date;
 }
 
@@ -581,6 +601,110 @@ async function networkRows(id: string, env: NodeJS.ProcessEnv, opts: DoctorOptio
   return out;
 }
 
+/** Whether the secret store has an item for each credential of the vault: lookups only, never a value. */
+async function vaultRows(id: string, env: NodeJS.ProcessEnv, opts: DoctorOptions): Promise<DoctorCheck[]> {
+  const sites = vaultSummary(id, env)?.sites ?? [];
+  if (!sites.length) return [];
+  const area = `identity ${id}`;
+  const store = opts.secrets ?? secretStore(env);
+  if (!store)
+    return [
+      {
+        area,
+        level: "fail",
+        text: `the vault has ${sites.length} credential${sites.length === 1 ? "" : "s"} in the secret store, and this machine has none`,
+        manual: "install libsecret (secret-tool), then add them again with turno browser vault add",
+      },
+    ];
+  const missing: string[] = [];
+  for (const site of sites) {
+    try {
+      if (!(await store.has(vaultItem(id, site)))) missing.push(site);
+    } catch (err) {
+      return [
+        {
+          area,
+          level: "warn",
+          text: `the ${store.label} did not answer for the vault: ${firstLine(err)}`,
+          manual: "unlock the keychain (or the Secret Service) and run doctor again",
+        },
+      ];
+    }
+  }
+  const out: DoctorCheck[] = [];
+  if (missing.length < sites.length)
+    out.push({
+      area,
+      level: "ok",
+      text: `vault: ${store.label} has the credentials of ${sites.filter((s) => !missing.includes(s)).join(", ")}`,
+    });
+  for (const site of missing)
+    out.push({
+      area,
+      level: "fail",
+      text: `vault: ${store.label} has no item for the credentials of ${site}, so browser_login cannot sign in there`,
+      fix: `turno browser vault add ${id} ${site} --url <sign-in page> --username <name>`,
+    });
+  return out;
+}
+
+/** Which agents have each identity's server, and the servers that point nowhere. */
+function agentRows(ids: readonly string[], env: NodeJS.ProcessEnv, agents: NonNullable<DoctorOptions["agents"]>) {
+  const out: DoctorCheck[] = [];
+  for (const e of agents.errors)
+    out.push({
+      area: "agents",
+      level: "warn",
+      text: `could not read ${AGENTS[e.agent].label}'s config ${tildify(e.file, env)}: ${e.error}`,
+      manual: "fix the file by hand; doctor only reads it, to see which identities the agent has",
+    });
+  for (const e of agents.entries) {
+    const id = entryIdentity(e);
+    if (id === undefined || ids.includes(id)) continue;
+    const remove = AGENTS[e.agent].remove?.(e.server);
+    out.push({
+      area: "agents",
+      level: "warn",
+      text: `${AGENTS[e.agent].label} still has the MCP server ${e.server} (${tildify(e.file, env)}), and there is no identity "${id}"`,
+      ...(remove
+        ? { fix: remove.join(" ") }
+        : { manual: `delete the "${e.server}" entry from ${tildify(e.file, env)}` }),
+    });
+  }
+  for (const id of ids) {
+    const area = `identity ${id}`;
+    const mine = agents.entries.filter((e) => entryIdentity(e) === id);
+    for (const e of mine) {
+      const label = AGENTS[e.agent].label;
+      if (entryCommandFound(e, env))
+        out.push({ area, level: "ok", text: `${label} has it (${e.server} in ${tildify(e.file, env)})` });
+      else
+        out.push({
+          area,
+          level: "warn",
+          text: `${label} runs ${e.server} with ${e.command ?? "no command"}, which is not there`,
+          fix: `turno browser setup ${e.agent} --identity ${id}`,
+        });
+    }
+    for (const r of readRegistrations(id, env))
+      if (!mine.some((e) => e.agent === r.agent && e.server === r.server) && r.file === AGENTS[r.agent].file(env))
+        out.push({
+          area,
+          level: "warn",
+          text: `${AGENTS[r.agent].label} no longer has ${r.server}, which init registered in ${tildify(r.file, env)}`,
+          fix: `turno browser setup ${r.agent} --identity ${id}`,
+        });
+    if (!mine.length)
+      out.push({
+        area,
+        level: "info",
+        text: `no agent here has ${serverName(id)} in its config`,
+        fix: `turno browser setup <agent> --identity ${id}`,
+      });
+  }
+  return out;
+}
+
 /** Every identity id, including profile dirs with an identity.json only. */
 function identityIds(env: NodeJS.ProcessEnv): string[] {
   try {
@@ -645,7 +769,12 @@ async function collect(
       fix: "turno identity add browser:<id>",
     });
   for (const id of ids)
-    checks.push(...identityChecks(id, env, now, opts.servers), ...(await networkRows(id, env, opts)));
+    checks.push(
+      ...identityChecks(id, env, now, opts.servers),
+      ...(await networkRows(id, env, opts)),
+      ...(await vaultRows(id, env, opts)),
+    );
+  if (opts.agents) checks.push(...agentRows(ids, env, opts.agents));
   return checks;
 }
 

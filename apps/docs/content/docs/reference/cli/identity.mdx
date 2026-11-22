@@ -42,9 +42,10 @@ Usage:
                                 change a browser identity's identity.json:
                                 place, languages, health check, tabs, blocking,
                                 cache
-  turno identity remove <id> [--dry-run]
+  turno identity remove <id> [--dry-run] | browser:<id> [--yes] [--dry-run]
+      [--json]
                                 remove a service account, or delete a browser
-                                identity and its logins
+                                identity and everything it left (asks first)
   turno identity login browser:<id> [--url <url>]
                                 open a browser identity's Chrome to sign in by
                                 hand once
@@ -244,8 +245,10 @@ Examples:
 
 ```text
 Usage:
-  turno identity remove <id> [--dry-run]
-    remove a service account, or delete a browser identity and its logins
+  turno identity remove <id> [--dry-run] | browser:<id> [--yes] [--dry-run]
+      [--json]
+    remove a service account, or delete a browser identity and everything it
+    left (asks first)
 
 Examples:
   $ turno identity remove linear:work --dry-run

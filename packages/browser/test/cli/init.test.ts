@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Io } from "turno-core/cli";
+import { readRegistrations } from "../../src/agent-mcp.js";
 import type { BrowserFunctions } from "../../src/api.js";
 import { localTime } from "../../src/cli/identity.js";
 import { detectAgents, init, shellWords } from "../../src/cli/init.js";
@@ -11,7 +12,7 @@ import { errorHint } from "../../src/cli/do.js";
 import { formatIdle } from "../../src/cli/do-background.js";
 import { unknownAgent } from "../../src/cli/setup.js";
 import { siteOf, welcomePage } from "../../src/login.js";
-import { ctx, fakeIo, real } from "./helpers.js";
+import { ctx, fakeAgentCli, fakeIo, real } from "./helpers.js";
 
 /** A sandbox: turno's folders, a HOME, and a PATH with only the agents a test puts there. */
 function sandbox() {
@@ -136,6 +137,10 @@ describe("turno-browser init", () => {
     const io = fakeIo(sb.env);
     const c = ctx(api);
     await expect(init(c, [], io, run)).rejects.toThrow(/--identity and --agent/);
+    // --json needs them too, even on a terminal.
+    await expect(init(ctx(api, { interactive: () => true }), ["--json"], asking(sb.env, []), run)).rejects.toThrow(
+      /--identity and --agent/,
+    );
     expect(await init(c, ["--identity", "school", "--agent", "claude-code"], io, run)).toBe(0);
     expect(logins).toEqual([]);
     expect(runs).toEqual([]);
@@ -165,6 +170,118 @@ describe("turno-browser init", () => {
     sb.agent("gemini");
     mkdirSync(join(sb.env.HOME!, ".cursor"));
     expect(detectAgents(sb.env)).toEqual(["codex", "cursor", "gemini"]);
+  });
+});
+
+describe("turno-browser init without a terminal", () => {
+  let sb: ReturnType<typeof sandbox>;
+  let api: BrowserFunctions;
+  beforeEach(async () => {
+    sb = sandbox();
+    api = await real();
+  });
+  afterEach(() => sb.done());
+
+  const report = (io: { lines: string[] }) => JSON.parse(io.lines.join("\n"));
+  const flags = ["--identity", "school", "--agent", "claude-code", "--yes", "--json"];
+
+  it("--yes runs the agent's command, reports it as JSON and records it; a second run changes nothing", async () => {
+    sb.agent("claude");
+    const agent = fakeAgentCli(sb.env);
+    const c = ctx(api, { exec: agent.exec });
+    const io = fakeIo(sb.env);
+    expect(await init(c, flags, io)).toBe(0);
+    const first = report(io);
+    expect(first).toMatchObject({
+      schemaVersion: 1,
+      dryRun: false,
+      identity: { id: "school", created: true, existed: false },
+      login: { status: "skipped", reason: "no terminal: only a person can sign in" },
+      mcp: {
+        status: "added",
+        agent: "claude-code",
+        server: "browser-school",
+        file: "~/.claude.json",
+        exitCode: 0,
+        output: "add browser-school",
+      },
+    });
+    expect(first.mcp.register.slice(0, 6)).toEqual(["claude", "mcp", "add", "--scope", "user", "browser-school"]);
+    expect(first.mcp.run.slice(-2)).toEqual(["--identity", "school"]);
+    expect(first.next.join("\n")).toContain("turno-browser login school");
+    expect(agent.calls).toHaveLength(1);
+    expect(agent.config().mcpServers["browser-school"]!.args).toEqual(["--identity", "school"]);
+    expect(readRegistrations("school", sb.env)).toMatchObject([
+      { agent: "claude-code", server: "browser-school", file: join(sb.env.HOME!, ".claude.json") },
+    ]);
+
+    const again = fakeIo(sb.env);
+    expect(await init(c, flags, again)).toBe(0);
+    expect(report(again)).toMatchObject({
+      identity: { created: false, existed: true },
+      mcp: { status: "already", exitCode: null },
+    });
+    expect(agent.calls).toHaveLength(1);
+    expect(readRegistrations("school", sb.env)).toHaveLength(1);
+    expect(Object.keys(agent.config().mcpServers)).toEqual(["browser-school"]);
+  });
+
+  it("leaves a server of the same name with another command as it is", async () => {
+    sb.agent("claude");
+    writeFileSync(
+      join(sb.env.HOME!, ".claude.json"),
+      JSON.stringify({ mcpServers: { "browser-school": { command: "/old/mcp.js", args: ["--identity", "school"] } } }),
+    );
+    const agent = fakeAgentCli(sb.env);
+    const io = fakeIo(sb.env);
+    expect(await init(ctx(api, { exec: agent.exec }), flags, io)).toBe(0);
+    const r = report(io);
+    expect(r.mcp.status).toBe("differs");
+    expect(agent.calls).toEqual([]);
+  });
+
+  it.each([
+    { code: 1, output: "MCP server browser-school already exists in user config", exit: 0, status: "already" },
+    { code: 3, output: "not signed in", exit: 1, status: "failed" },
+  ])("reports the agent's exit $code as $status and exits $exit", async ({ code, output, exit, status }) => {
+    sb.agent("claude");
+    const agent = fakeAgentCli(sb.env, { code, output });
+    const io = fakeIo(sb.env);
+    expect(await init(ctx(api, { exec: agent.exec }), flags, io)).toBe(exit);
+    expect(report(io).mcp).toMatchObject({ status, exitCode: code, output });
+    expect(io.errors).toEqual([]);
+    expect(readRegistrations("school", sb.env)).toHaveLength(exit === 0 ? 1 : 0);
+  });
+
+  it("exits 127 when --yes names an agent whose program is not on the PATH", async () => {
+    const agent = fakeAgentCli(sb.env);
+    const io = fakeIo(sb.env);
+    expect(await init(ctx(api, { exec: agent.exec }), flags, io)).toBe(127);
+    expect(report(io).mcp).toMatchObject({ status: "not_installed", exitCode: null });
+    expect(agent.calls).toEqual([]);
+  });
+
+  it("reports the block to paste for an agent without an add command", async () => {
+    const io = fakeIo(sb.env);
+    expect(await init(ctx(api), ["--identity", "school", "--agent", "cursor", "--yes", "--json"], io)).toBe(0);
+    const r = report(io);
+    expect(r.mcp).toMatchObject({ status: "manual", register: null, file: "~/.cursor/mcp.json" });
+    expect(JSON.parse(r.mcp.config).mcpServers["browser-school"].args).toEqual(["--identity", "school"]);
+  });
+
+  it("--json --dry-run creates nothing and says what it would run", async () => {
+    sb.agent("claude");
+    const agent = fakeAgentCli(sb.env);
+    const io = fakeIo(sb.env);
+    expect(await init(ctx(api, { exec: agent.exec }), [...flags, "--dry-run"], io)).toBe(0);
+    expect(report(io)).toMatchObject({
+      dryRun: true,
+      identity: { created: false, existed: false },
+      login: { status: "skipped" },
+      mcp: { status: "would_add" },
+    });
+    expect(api.identityExists("school", sb.env)).toBe(false);
+    expect(agent.calls).toEqual([]);
   });
 });
 

@@ -873,6 +873,7 @@ const SECTIONS: [string, (area: string) => boolean][] = [
   ["System", (a) => a === "system"],
   ["Engines", (a) => a === "engines"],
   ["Identities", (a) => a === "identities" || a.startsWith("identity ")],
+  ["Agents", (a) => a === "agents"],
 ];
 
 export async function doctor(c: Ctx, args: string[], io: Io): Promise<number> {
@@ -884,6 +885,7 @@ export async function doctor(c: Ctx, args: string[], io: Io): Promise<number> {
     fix: bool(p, "fix"),
     launch: !bool(p, "no-launch"),
     servers: c.host.servers?.(io.env) ?? [],
+    ...(c.host.agents ? { agents: c.host.agents(io.env) } : {}),
   });
   const failed = report.checks.some((c) => c.level === "fail");
   const exit = failed ? Exit.failure : Exit.ok;

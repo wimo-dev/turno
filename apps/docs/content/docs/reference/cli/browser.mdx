@@ -7,15 +7,15 @@ description: "Developer tool: compare browser engines (needs turno-browser)"
 
 ```text title="turno browser --help"
 Usage:
-  turno browser identities [--json]   list browser identities and whether they
-                                      are in use
+  turno browser identities [--json]     list browser identities and whether they
+                                        are in use
   turno browser add <id> [--timezone <zone>] [--locale <tag>] [--languages
       <tag,...>] [--region <CC>] [--health-url <url> --health-text <text>]
       [--dry-run]
-                                      create an identity (pinned to this time
-                                      zone) and print its mcp.toml block
-  turno browser show <id> [--json]    an identity's settings, session health and
-                                      who holds it
+                                        create an identity (pinned to this time
+                                        zone) and print its mcp.toml block
+  turno browser show <id> [--json]      an identity's settings, session health
+                                        and who holds it
   turno browser set <id> [--timezone <zone>] [--locale <tag>] [--languages
       <tag,...>] [--region <CC>] [--health-url <url>] [--health-text <text>]
       [--health-selector <css>] [--no-health] [--tabs-max <n>] [--tabs-popups
@@ -37,64 +37,67 @@ Usage:
       true|false] [--live-wait <duration>] [--no-live] [--user-agent coherent]
       [--proxy-server <url>] [--proxy-username <name|keychain:item>]
       [--proxy-password keychain:<item>] [--no-proxy] [--dry-run] [--json]
-                                      change an identity's identity.json (an
-                                      empty value removes a setting)
+                                        change an identity's identity.json (an
+                                        empty value removes a setting)
+  turno browser status [<id>] [--json]  each identity at a glance: settings,
+                                        sign-ins, last use, which agents have it
   turno browser doctor [--fix] [--no-launch] [--json]
-                                      check Chrome, a test launch and every
-                                      identity (settings, lock, sign-in), with
-                                      fixes
+                                        check Chrome, a test launch and every
+                                        identity (settings, lock, sign-in), with
+                                        fixes
   turno browser reputation [<id>] [--json]
-                                      challenges each identity met per site
-                                      (captcha, verify it's you, block) and
-                                      their trend
+                                        challenges each identity met per site
+                                        (captcha, verify it's you, block) and
+                                        their trend
   turno browser vault add|list|remove|submit <id> ...
-                                      credentials browser_login fills without
-                                      showing them to the agent
+                                        credentials browser_login fills without
+                                        showing them to the agent
   turno browser record <id> [--flows] [--traces] [--screenshots] [--max-size
       <size>] [--off] [--dry-run] [--json]
-                                      what an identity records (flows, traces,
-                                      screenshots); turn it on or off
+                                        what an identity records (flows, traces,
+                                        screenshots); turn it on or off
   turno browser flows <id> [<flow>] [--remove] [--dry-run] [--json]
-                                      an identity's saved flows; name one to see
-                                      its steps, --remove to delete it
+                                        an identity's saved flows; name one to
+                                        see its steps, --remove to delete it
   turno browser replay <id> <flow> [--param <name=value>]... [--from <step>]
       [--headless] [--json]
-                                      run a saved flow on the identity's Chrome,
-                                      without an agent
+                                        run a saved flow on the identity's
+                                        Chrome, without an agent
   turno browser traces <id> [<recording>] [--open] [--segment <n>] [--json]
-                                      an identity's recordings (traces,
-                                      screenshots); --open shows a trace in the
-                                      viewer
+                                        an identity's recordings (traces,
+                                        screenshots); --open shows a trace in
+                                        the viewer
   turno browser live <id> [--no-open] [--json]
-                                      watch the agent in an identity's browser
-                                      and take the controls (opens the live
-                                      view)
-  turno browser pause <id> [--json]   pause the agent in an identity's browser:
-                                      its next call waits until you resume
-  turno browser resume <id> [--json]  give the browser back to the agent; each
-                                      waiting call is told what changed
+                                        watch the agent in an identity's browser
+                                        and take the controls (opens the live
+                                        view)
+  turno browser pause <id> [--json]     pause the agent in an identity's
+                                        browser: its next call waits until you
+                                        resume
+  turno browser resume <id> [--json]    give the browser back to the agent; each
+                                        waiting call is told what changed
   turno browser export <id> --out <file> [--expires 7d] [--force]
-                                      write an identity's cookies and site
-                                      storage to a file encrypted with a
-                                      passphrase
+                                        write an identity's cookies and site
+                                        storage to a file encrypted with a
+                                        passphrase
   turno browser import <file> [--as <id>] [--yes] [--dry-run]
-                                      replace an identity's session with an
-                                      export (asks first), or create it
-  turno browser remove <id> [--dry-run]
-                                      delete an identity, its saved logins and
-                                      its vault
+                                        replace an identity's session with an
+                                        export (asks first), or create it
+  turno browser remove <id> [--yes] [--dry-run] [--json]
+                                        delete an identity and everything it
+                                        left on this machine (asks first)
   turno browser login <id> [--url <url>]
-                                      open the identity's Chrome to sign in by
-                                      hand once
+                                        open the identity's Chrome to sign in by
+                                        hand once
   turno browser do <id> <action> [args] [--session <name>] [--json]
-                                      one action on an identity's browser from
-                                      the shell: open, snapshot, click, type,
-                                      read...
+                                        one action on an identity's browser from
+                                        the shell: open, snapshot, click, type,
+                                        read...
   turno browser bench [--engine <name>]... [--url <url>]... [--only-urls]
       [--yes] [--json]
-                                      check how each browser engine loads
-                                      reference test pages and your URLs (asks
-                                      first)
+                                        check how each browser engine loads
+                                        reference test pages and your URLs (asks
+                                        first)
 
 A developer diagnostic for browser engine compatibility. It needs the separate
 turno-browser package (npm install --global turno-browser).
@@ -114,6 +117,7 @@ Examples:
   $ turno browser set school --humanize light
   $ turno browser set school --sharing tabs
   $ turno browser login school --url https://example.com
+  $ turno browser status --json
   $ turno browser doctor --fix
   $ turno browser reputation school --json
   $ turno browser vault add school mail --url https://mail.example.com --username alice
@@ -128,6 +132,7 @@ Examples:
   $ turno browser export school --out school.session --expires 2d
   $ turno browser import school.session --as school-laptop
   $ turno browser remove school --dry-run
+  $ turno browser remove school --yes --json
   $ turno browser bench --only-urls --url https://example.com --yes
   $ turno browser do school open https://example.com
   $ turno browser do school snapshot
@@ -296,6 +301,22 @@ Examples:
   $ turno browser set school --humanize light
   $ turno browser set school --sharing tabs
   $ turno browser set school --live true
+```
+
+### turno browser status
+
+```text
+Usage:
+  turno browser status [<id>] [--json]  each identity at a glance: settings,
+                                        sign-ins, last use, which agents have it
+
+Only reads. For each identity: its profile, a summary of identity.json, who holds it, the
+vault's sites, the last sign-in by hand, the host names the profile holds cookies for (never their
+values; not read while Chrome has the profile open), when it last served a tool call, and the
+agents whose config has it.
+
+Examples:
+  $ turno browser status --json
 ```
 
 ### turno browser doctor
@@ -500,11 +521,26 @@ Examples:
 
 ```text
 Usage:
-  turno browser remove <id> [--dry-run]
-    delete an identity, its saved logins and its vault
+  turno browser remove <id> [--yes] [--dry-run] [--json]
+    delete an identity and everything it left on this machine (asks first)
+
+Deletes everything turno-browser keeps for the identity, after it shows the list and asks:
+  - it stops the identity's background server, a Chrome on its profile and the
+    turno-browser-mcp processes started for it (nothing is deleted while one still runs)
+  - it takes the identity's MCP server out of each agent that has it, with the agent's own
+    command (claude mcp remove --scope user browser-<id>, codex mcp remove ...)
+  - it deletes the vault's credentials and the keychain: items identity.json references from
+    the secret store, unless another identity or turno's mcp.toml uses them too
+  - it deletes the profile, identity.json, the vault index, the state folder, saved flows and
+    the session exports it wrote
+
+--yes deletes without asking; without a terminal it is required. --dry-run shows the list.
+Afterwards it checks that nothing is left. Exit codes: 0 all gone, 1 something is left (--json
+lists it under left, with the step that removes it), 2 no terminal and no --yes.
 
 Examples:
   $ turno browser remove school --dry-run
+  $ turno browser remove school --yes --json
 ```
 
 ### turno browser login

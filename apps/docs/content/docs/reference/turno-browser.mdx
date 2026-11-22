@@ -36,7 +36,8 @@ Identities
   set         change an identity's identity.json (an empty value removes a
               setting)
   login       open the identity's Chrome to sign in by hand once
-  remove      delete an identity, its saved logins and its vault
+  remove      delete an identity and everything it left on this machine (asks
+              first)
 
 Connect an agent
   setup       print the MCP config that gives an agent an identity (Claude Code,
@@ -74,6 +75,8 @@ From the shell
   background  the background server do starts per identity: status, start, stop
 
 Checks
+  status      each identity at a glance: settings, sign-ins, last use, which
+              agents have it
   doctor      check Chrome, a test launch and every identity (settings, lock,
               sign-in), with fixes
   reputation  challenges each identity met per site (captcha, verify it's you,
@@ -99,7 +102,7 @@ turno-browser help <command> prints the same as turno-browser <command> --help.
 Usage:
   turno-browser init [--identity <id>] [--agent
       <claude-code|codex|cursor|copilot|gemini|json|none>] [--url <url>]
-      [--no-login] [--yes] [--dry-run]
+      [--no-login] [--yes] [--dry-run] [--json]
     set up step by step: an identity, a sign-in by hand, and your agent (asks
     first)
 
@@ -110,8 +113,14 @@ Sets up a browser identity and gives it to your agent, asking at each step:
      and an agent without one (cursor, json) gets the block to paste
 
 --yes answers yes to every step, --no-login skips the sign-in, --agent none skips the agent.
-Without a terminal (--no-input, a pipe or an agent session) it needs --identity and --agent,
-skips the sign-in and prints the agent's command instead of running it.
+Without a terminal (--no-input, a pipe or an agent session) it needs --identity and --agent and
+skips the sign-in; it prints the agent's command, or with --yes runs it. An agent that already
+has the identity's server is left as it is, so running init again changes nothing.
+
+--json prints one report (what was created, the sign-in, the agent's registration with the
+command it ran, its exit code and output) and never asks; it needs --identity and --agent.
+Exit codes: 0 done, 1 the agent's command failed, 2 a missing answer, 127 --yes and the agent's
+program is not on the PATH.
 ```
 
 ## turno-browser list
@@ -287,11 +296,26 @@ Examples:
 
 ```text
 Usage:
-  turno-browser remove <id> [--dry-run]
-    delete an identity, its saved logins and its vault
+  turno-browser remove <id> [--yes] [--dry-run] [--json]
+    delete an identity and everything it left on this machine (asks first)
+
+Deletes everything turno-browser keeps for the identity, after it shows the list and asks:
+  - it stops the identity's background server, a Chrome on its profile and the
+    turno-browser-mcp processes started for it (nothing is deleted while one still runs)
+  - it takes the identity's MCP server out of each agent that has it, with the agent's own
+    command (claude mcp remove --scope user browser-<id>, codex mcp remove ...)
+  - it deletes the vault's credentials and the keychain: items identity.json references from
+    the secret store, unless another identity or turno's mcp.toml uses them too
+  - it deletes the profile, identity.json, the vault index, the state folder, saved flows and
+    the session exports it wrote
+
+--yes deletes without asking; without a terminal it is required. --dry-run shows the list.
+Afterwards it checks that nothing is left. Exit codes: 0 all gone, 1 something is left (--json
+lists it under left, with the step that removes it), 2 no terminal and no --yes.
 
 Examples:
   $ turno-browser remove school --dry-run
+  $ turno-browser remove school --yes --json
 ```
 
 ## turno-browser setup
@@ -741,6 +765,22 @@ Usage:
 
 Examples:
   $ turno-browser background stop school
+```
+
+## turno-browser status
+
+```text
+Usage:
+  turno-browser status [<id>] [--json]  each identity at a glance: settings,
+                                        sign-ins, last use, which agents have it
+
+Only reads. For each identity: its profile, a summary of identity.json, who holds it, the
+vault's sites, the last sign-in by hand, the host names the profile holds cookies for (never their
+values; not read while Chrome has the profile open), when it last served a tool call, and the
+agents whose config has it.
+
+Examples:
+  $ turno-browser status --json
 ```
 
 ## turno-browser doctor

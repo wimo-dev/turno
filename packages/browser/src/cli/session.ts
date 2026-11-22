@@ -2,6 +2,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { DRY_RUN, type Io, bool, fail, needsAnswer, noInputReason, parseFlags, str } from "turno-core/cli";
 import { tildify } from "turno-core/paths";
+import { recordExportFile } from "../session-export.js";
 import type { Ctx, VaultInput } from "./context.js";
 import { terminalInput } from "./vault.js";
 
@@ -61,6 +62,11 @@ export async function exportSession(c: Ctx, args: string[], io: Io): Promise<num
     if ((err as NodeJS.ErrnoException).code === "EEXIST")
       return fail(`${tildify(file, io.env)} exists; pass --force to replace it`);
     throw err;
+  }
+  try {
+    recordExportFile(id, file, io.env);
+  } catch {
+    /* only a hint for remove, which deletes the exports it knows of */
   }
   io.out(
     `exported the session of "${id}" (${summary.cookies} cookies, storage of ${summary.origins} sites) to ${tildify(file, io.env)}`,

@@ -14,8 +14,11 @@ import {
   paint,
   parseFlags,
   str,
+  style,
 } from "turno-core/cli";
 import { tildify } from "turno-core/paths";
+import { execCommand } from "../agent-mcp.js";
+import { type RemovalItem, type RemovalReport, planRemoval, runRemoval } from "../destroy.js";
 import type { BrowserFunctions } from "../api.js";
 import { useNames } from "../names.js";
 import { type BrowserCliHost, type CliDeps, type Ctx, context } from "./context.js";
@@ -28,7 +31,8 @@ import { vaultCommand } from "./vault.js";
 import { BACKGROUND_JSON, backgroundCommand } from "./background.js";
 import { secretCommand } from "./secret.js";
 import { SETUP_DETAILS, SETUP_JSON, setup } from "./setup.js";
-import { INIT_DETAILS, INIT_SYNOPSIS, init } from "./init.js";
+import { STATUS_JSON, status } from "./status.js";
+import { INIT_DETAILS, INIT_JSON, INIT_SYNOPSIS, init } from "./init.js";
 import { loginSummary } from "./login-summary.js";
 
 /**
@@ -152,23 +156,114 @@ function add(c: Ctx, args: string[], io: Io): number {
   return 0;
 }
 
+/** `remove --json`: what was deleted, what failed, what is still here and what was kept on purpose. */
+const REMOVE_JSON = jsonOutput(["identity", "dryRun", "complete", "planned", "deleted", "failed", "left", "kept"]);
+
+const REMOVE_FLAGS: FlagSpec = { ...DRY_RUN, ...JSON_FLAG, yes: { type: "boolean", short: "y" } };
+
+const REMOVE_DETAILS = `Deletes everything turno-browser keeps for the identity, after it shows the list and asks:
+  - it stops the identity's background server, a Chrome on its profile and the
+    turno-browser-mcp processes started for it (nothing is deleted while one still runs)
+  - it takes the identity's MCP server out of each agent that has it, with the agent's own
+    command (claude mcp remove --scope user browser-<id>, codex mcp remove ...)
+  - it deletes the vault's credentials and the keychain: items identity.json references from
+    the secret store, unless another identity or turno's mcp.toml uses them too
+  - it deletes the profile, identity.json, the vault index, the state folder, saved flows and
+    the session exports it wrote
+
+--yes deletes without asking; without a terminal it is required. --dry-run shows the list.
+Afterwards it checks that nothing is left. Exit codes: 0 all gone, 1 something is left (--json
+lists it under left, with the step that removes it), 2 no terminal and no --yes.`;
+
+/** One line about a removal item, for people. */
+function describeItem(item: RemovalItem, env: NodeJS.ProcessEnv): string {
+  switch (item.kind) {
+    case "path":
+      return `${tildify(item.path!, env)} (${item.what})`;
+    case "keychain":
+      return `keychain:${item.item} (${item.what})`;
+    case "process":
+      return `${item.what}, pid ${item.pid}`;
+    case "mcp":
+      return `${item.what} in ${tildify(item.file!, env)}`;
+  }
+}
+
+/** A removal item as `remove --json` prints it: paths with ~, nothing that is not set. */
+function itemJson(item: RemovalItem, env: NodeJS.ProcessEnv): Record<string, unknown> {
+  return {
+    ...item,
+    ...(item.path ? { path: tildify(item.path, env) } : {}),
+    ...(item.file ? { file: tildify(item.file, env) } : {}),
+  };
+}
+
 async function remove(c: Ctx, args: string[], io: Io): Promise<number> {
-  const mod = c.api;
-  const p = parseFlags(args, DRY_RUN, 1);
+  const p = parseFlags(args, REMOVE_FLAGS, 1);
   const id = checkId(c, p.positionals[0], "remove");
-  if (bool(p, "dry-run")) {
-    io.out(`(dry run) would delete browser identity "${id}", its saved logins and its vault credentials`);
+  const json = bool(p, "json");
+  const dry = bool(p, "dry-run");
+  const options = { env: io.env, exec: c.deps.exec ?? execCommand };
+  const plan = await planRemoval(id, options);
+  if (!plan.exists) return fail(`identity "${id}" does not exist`);
+  const env = io.env;
+  const asJson = (report: Partial<Omit<RemovalReport, "complete">> & { complete: boolean | null }) =>
+    emit(io, p, REMOVE_JSON, {
+      identity: id,
+      dryRun: dry,
+      complete: report.complete,
+      planned: plan.items.map((i) => itemJson(i, env)),
+      deleted: (report.deleted ?? []).map((i) => itemJson(i, env)),
+      failed: (report.failed ?? []).map((i) => itemJson(i, env)),
+      left: (report.left ?? plan.left).map((i) => itemJson(i, env)),
+      kept: (report.kept ?? plan.kept).map((i) => itemJson(i, env)),
+    });
+  const planLines = () => {
+    const out = [`This deletes browser identity "${id}":`];
+    for (const item of plan.items) out.push(`  ${describeItem(item, env)}`);
+    for (const item of plan.left)
+      out.push(`  ${describeItem(item, env)}: cannot be removed here (${item.reason}); by hand: ${item.command ?? ""}`);
+    for (const item of plan.kept) out.push(`  kept: ${describeItem(item, env)}, ${item.reason}`);
+    return out;
+  };
+  if (dry) {
+    if (json) asJson({ complete: null });
+    else for (const l of planLines()) io.out(`(dry run) ${l}`);
     return 0;
   }
-  if (mod.isInUse(id, io.env)) return fail(`identity "${id}" is in use by a running Chrome; close it first`);
-  // The vault's secret store items first: removeIdentity refuses while they exist.
-  const cleared = await mod.vaultClear(id, { env: io.env });
-  if (cleared)
-    io.out(`deleted ${cleared} vault credential${cleared === 1 ? "" : "s"} of "${id}" from the secret store`);
-  mod.removeIdentity(id, io.env);
-  io.out(`removed identity "${id}" and its saved browser data`);
-  c.host.removed?.(id, io);
-  return 0;
+  if (!bool(p, "yes")) {
+    // Deleting needs a yes from a person: --json is not one.
+    if (json || !c.deps.interactive(io)) {
+      if (!json) for (const l of planLines()) io.err(l);
+      return needsAnswer(`${c.names.subject}remove`);
+    }
+    for (const l of planLines()) io.out(l);
+    if (!(await c.deps.confirm("Delete all of this? [y/N] ", io))) {
+      io.err("Cancelled; nothing was deleted.");
+      return 1;
+    }
+  }
+  const report = await runRemoval(plan, options);
+  if (json) asJson(report);
+  else {
+    const s = style(io);
+    for (const item of report.deleted) io.out(s.note("ok", `deleted ${describeItem(item, env)}`));
+    for (const item of report.kept) io.out(s.note("info", `kept ${describeItem(item, env)}: ${item.reason}`));
+    for (const item of report.failed)
+      io.out(s.note("err", `could not delete ${describeItem(item, env)}: ${item.error}`));
+    for (const item of report.left)
+      io.out(
+        s.note(
+          "warn",
+          `left ${describeItem(item, env)}: ${item.reason}${item.command ? `; to remove it: ${item.command}` : ""}`,
+        ),
+      );
+    if (report.complete) io.out(`removed identity "${id}" and its saved browser data`);
+    else io.err(`identity "${id}" is not completely removed; see the lines above`);
+  }
+  // The host's note (turno: the mcp.toml block) goes to stderr under --json: stdout is the report.
+  if (!c.api.identityExists(id, env)) c.host.removed?.(id, json ? { ...io, out: io.err } : io);
+  return report.complete ? 0 : 1;
 }
 
 async function login(c: Ctx, args: string[], io: Io): Promise<number> {
@@ -208,6 +303,7 @@ async function dispatch(c: Ctx, sub: string, rest: string[], io: Io): Promise<nu
         return add(c, rest, io);
       case "remove":
       case "rm":
+      case "destroy":
         return await remove(c, rest, io);
       case "login":
         return await login(c, rest, io);
@@ -241,6 +337,8 @@ async function dispatch(c: Ctx, sub: string, rest: string[], io: Io): Promise<nu
         return await liveCmd.resume(c, rest, io);
       case "setup":
         return setup(c, rest, io);
+      case "status":
+        return await status(c, rest, io);
       default:
         return fail(`unknown ${c.names.subject}command "${sub}"`);
     }
@@ -282,6 +380,7 @@ function examples(c: Ctx): string[] {
     `${b} set school --humanize light`,
     `${b} set school --sharing tabs`,
     `${b} login school --url https://example.com`,
+    `${b} status --json`,
     `${b} doctor --fix`,
     `${b} reputation school --json`,
     `${b} vault add school mail --url https://mail.example.com --username alice`,
@@ -296,6 +395,7 @@ function examples(c: Ctx): string[] {
     `${b} export school --out school.session --expires 2d`,
     `${b} import school.session --as school-laptop`,
     `${b} remove school --dry-run`,
+    `${b} remove school --yes --json`,
     `${b} bench --only-urls --url https://example.com --yes`,
     `${b} do school open https://example.com`,
     `${b} do school snapshot`,
@@ -320,7 +420,8 @@ function subcommands(c: Ctx): Record<string, Sub> {
           summary: "set up step by step: an identity, a sign-in by hand, and your agent (asks first)",
           synopsis: INIT_SYNOPSIS,
           details: INIT_DETAILS,
-          flags: ["--identity", "--agent", "--url", "--no-login", "--yes", "--dry-run"],
+          flags: ["--identity", "--agent", "--url", "--no-login", "--yes", "--dry-run", "--json"],
+          json: INIT_JSON,
           run: (args, io) => init(c, args, io, c.deps.run),
         },
         setup: {
@@ -386,6 +487,17 @@ function subcommands(c: Ctx): Record<string, Sub> {
       flags: ident.SET_FLAG_NAMES,
       json: ident.SET_JSON,
       run: run("set"),
+    },
+    status: {
+      summary: "each identity at a glance: settings, sign-ins, last use, which agents have it",
+      synopsis: "[<id>] [--json]",
+      details: `Only reads. For each identity: its profile, a summary of identity.json, who holds it, the
+vault's sites, the last sign-in by hand, the host names the profile holds cookies for (never their
+values; not read while Chrome has the profile open), when it last served a tool call, and the
+agents whose config has it.`,
+      flags: ["--json"],
+      json: STATUS_JSON,
+      run: run("status"),
     },
     doctor: {
       summary: "check Chrome, a test launch and every identity (settings, lock, sign-in), with fixes",
@@ -501,12 +613,15 @@ changed, a call that does more than read does not run, and the agent gets a fres
       run: run("import"),
     },
     remove: {
-      summary: "delete an identity, its saved logins and its vault",
-      synopsis: "<id> [--dry-run]",
-      flags: ["--dry-run"],
+      summary: "delete an identity and everything it left on this machine (asks first)",
+      synopsis: "<id> [--yes] [--dry-run] [--json]",
+      details: REMOVE_DETAILS,
+      flags: ["--yes", "--dry-run", "--json"],
+      json: REMOVE_JSON,
       run: run("remove"),
     },
-    rm: { summary: "same as remove", hidden: true, run: run("remove") },
+    rm: { summary: "same as remove", hidden: true, json: REMOVE_JSON, run: run("remove") },
+    destroy: { summary: "same as remove", hidden: true, json: REMOVE_JSON, run: run("remove") },
     login: {
       summary: "open the identity's Chrome to sign in by hand once",
       synopsis: "<id> [--url <url>]",

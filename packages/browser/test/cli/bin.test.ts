@@ -272,6 +272,66 @@ describe("turno-browser", () => {
   });
 });
 
+/**
+ * A `claude` on the sandbox PATH that does what `claude mcp add|remove --scope user` does to
+ * ~/.claude.json, and logs each call. Never the real agent.
+ */
+function fakeClaude(): { log: string; config: () => Record<string, unknown> } {
+  const dir = join(sb.home, "agentbin");
+  mkdirSync(dir, { recursive: true });
+  const log = join(sb.home, "claude.log");
+  const config = join(sb.home, ".claude.json");
+  writeFileSync(
+    join(dir, "claude"),
+    `#!${process.execPath}
+const fs = require("node:fs");
+const args = process.argv.slice(2);
+fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify(args) + "\\n");
+const file = ${JSON.stringify(config)};
+const c = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) : { mcpServers: {} };
+const name = args[4];
+if (args[1] === "add") { const rest = args.slice(args.indexOf("--") + 1); c.mcpServers[name] = { type: "stdio", command: rest[0], args: rest.slice(1) }; }
+else if (args[1] === "remove") { if (!c.mcpServers[name]) { console.error("not found"); process.exit(1); } delete c.mcpServers[name]; }
+fs.writeFileSync(file, JSON.stringify(c));
+console.log(args[1] + " " + name);
+`,
+    { mode: 0o755 },
+  );
+  return {
+    log,
+    config: () => (existsSync(config) ? (JSON.parse(readFileSync(config, "utf8")) as Record<string, unknown>) : {}),
+  };
+}
+
+describe("onboarding and offboarding without a terminal", () => {
+  it("init --yes --json registers the agent, remove --yes --json takes everything out again", () => {
+    const claude = fakeClaude();
+    const env = { PATH: `${join(sb.home, "agentbin")}:${onPath().PATH}` };
+    const first = runWith(["init", "--identity", "school", "--agent", "claude-code", "--yes", "--json"], env);
+    expect(first.code).toBe(0);
+    const report = JSON.parse(first.out);
+    expect(report.mcp).toMatchObject({ status: "added", exitCode: 0, output: "add browser-school" });
+    expect(claude.config()).toEqual({
+      mcpServers: { "browser-school": { type: "stdio", command: "turno-browser-mcp", args: ["--identity", "school"] } },
+    });
+    const again = runWith(["init", "--identity", "school", "--agent", "claude-code", "--yes", "--json"], env);
+    expect(JSON.parse(again.out).mcp.status).toBe("already");
+    expect(readFileSync(claude.log, "utf8").trim().split("\n")).toHaveLength(1);
+
+    const refused = runWith(["remove", "school"], env);
+    expect(refused.code).toBe(2);
+    expect(refused.err).toContain("pass --yes");
+
+    const removed = runWith(["remove", "school", "--yes", "--json"], env);
+    expect(removed.code).toBe(0);
+    const r = JSON.parse(removed.out);
+    expect(r).toMatchObject({ complete: true, failed: [], left: [] });
+    expect(r.deleted.map((d: { kind: string }) => d.kind)).toContain("mcp");
+    expect(claude.config()).toEqual({ mcpServers: {} });
+    expect(existsSync(settingsFile("school"))).toBe(false);
+  });
+});
+
 describe("shell completion", () => {
   const complete = (...words: string[]) =>
     run(["__complete", "--", ...words])

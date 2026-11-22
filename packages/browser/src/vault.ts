@@ -350,3 +350,16 @@ function existsDir(dir: string): boolean {
     return false;
   }
 }
+
+/** The vault's sites and submit policy from the index alone (the store is never read); undefined when the index is unreadable. */
+export function vaultSummary(
+  id: string,
+  env: NodeJS.ProcessEnv = process.env,
+): { sites: string[]; submit: SubmitPolicy } | undefined {
+  try {
+    const index = readIndex(id, env);
+    return { sites: Object.keys(index.sites).sort(), submit: index.submit };
+  } catch {
+    return undefined;
+  }
+}
