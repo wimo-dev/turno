@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import type { BrowserContext, Page } from "patchright-core";
+import type { BrowserContext, Frame, Page } from "patchright-core";
 import type { StepRun, StepSettle } from "./human-step.js";
 import { formatPause } from "./live.js";
 
@@ -31,6 +31,11 @@ import { formatPause } from "./live.js";
  *   wrapper therefore looks the binding up when it reports, and holds reports until it is there.
  * - A raw CDP `Runtime.addBinding` (in the main world or a named isolated world) never reached a
  *   new document without `Runtime.enable`, which patchright leaves off on purpose.
+ *
+ * A document that goes away (the page navigates, to an identity provider say, or a policy takes
+ * the tab back) drops its pending request without settling it. So when the frame of a ceremony
+ * navigates, the host asks the wrapper there whether the request is still pending: a navigation
+ * within the document keeps it, a new document has none, and the ceremony ends as `left`.
  */
 
 export type PasskeyOp = "create" | "get";
@@ -76,7 +81,8 @@ export function passkeyKind(o: { publicKey?: boolean; mediation?: string }): "mo
 
 /** How a ceremony ended, from its op and how its promise settled. */
 export interface PasskeyOutcome {
-  kind: "created" | "used" | "cancelled" | "aborted" | "failed";
+  /** `left`: the document that asked went away (a navigation) before the request settled. */
+  kind: "created" | "used" | "cancelled" | "aborted" | "failed" | "left";
   /** The error's name when it rejected. */
   error?: string;
 }
@@ -115,6 +121,8 @@ function passkeyProbe(binding: string): void {
     .CredentialsContainer?.prototype;
   if (!proto) return;
   const mark = Symbol.for(binding);
+  // The ids of this document's requests not settled yet: the host reads them after a navigation.
+  const pending = new Set<string>();
   const queue: unknown[] = [];
   let waiting = 0;
   const flush = (): void => {
@@ -146,7 +154,7 @@ function passkeyProbe(binding: string): void {
     if (typeof original !== "function" || (original as unknown as Record<symbol, unknown>)[mark]) continue;
     proto[op] = new Proxy(original, {
       get(target, key, receiver) {
-        return key === mark ? true : Reflect.get(target, key, receiver);
+        return key === mark ? pending : Reflect.get(target, key, receiver);
       },
       apply(target, self, args) {
         const result = Reflect.apply(target, self, args) as Promise<unknown>;
@@ -154,15 +162,18 @@ function passkeyProbe(binding: string): void {
         if (!options || typeof options !== "object" || !result || typeof result.then !== "function") return result;
         const id = `${Date.now().toString(36)}${(++seq).toString(36)}${Math.random().toString(36).slice(2, 8)}`;
         const mediation = typeof options.mediation === "string" ? options.mediation : undefined;
+        pending.add(id);
         report({ id, op, phase: "start", publicKey: !!options.publicKey, ...(mediation ? { mediation } : {}) });
         // The page gets the promise this returns, so a rejection it leaves unhandled stays unhandled.
         return result.then(
           (value) => {
+            pending.delete(id);
             report({ id, op, phase: "settle", ok: true });
             return value;
           },
           (error: unknown) => {
             const name = error && typeof (error as Error).name === "string" ? (error as Error).name : "Error";
+            pending.delete(id);
             report({ id, op, phase: "settle", ok: false, error: name });
             throw error;
           },
@@ -172,32 +183,46 @@ function passkeyProbe(binding: string): void {
   }
 }
 
-/** Puts the probe in every frame of `context`, now and on every new document. */
+/** Whether the request `id` is still pending in the document `frame` shows now. */
+export type PasskeyPending = (frame: Frame, id: string) => Promise<boolean>;
+
+/**
+ * Puts the probe in every frame of `context`, now and on every new document. Returns how to ask
+ * a frame whether a request is still pending there.
+ */
 export async function installPasskeyProbe(
   context: BrowserContext,
-  onReport: (report: PasskeyReport, page: Page) => void,
+  onReport: (report: PasskeyReport, page: Page, frame: Frame) => void,
   existing: (page: Page) => boolean = () => true,
-): Promise<void> {
+): Promise<PasskeyPending> {
   // A name no page can guess, in patchright's own form for callback names.
   const binding = `f${randomBytes(16).toString("hex")}`;
   // patchright's client installs a catch-all route before its first init script or binding;
   // marking the context as routed skips it (see the module comment for what it costs).
   (context as unknown as { routeInjecting?: boolean }).routeInjecting = true;
-  await context.exposeBinding(binding, (source: { page?: Page }, raw: unknown) => {
+  await context.exposeBinding(binding, (source: { page?: Page; frame?: Frame }, raw: unknown) => {
     const report = parseReport(raw);
-    if (report && source.page) onReport(report, source.page);
+    if (report && source.page && source.frame) onReport(report, source.page, source.frame);
   });
   const script = `(${passkeyProbe.toString()})(${JSON.stringify(binding)});`;
   await context.addInitScript(script);
   // Documents open now (the first blank tab) started before the init script.
   for (const page of context.pages().filter(existing))
     for (const frame of page.frames()) await frame.evaluate(script, undefined, undefined, false).catch(() => {});
+  const ask = `([mark, id]) => {
+    const set = globalThis.CredentialsContainer?.prototype.get?.[Symbol.for(mark)];
+    return set instanceof Set && set.has(id);
+  }`;
+  // The main world, where the wrapper is; a frame that is gone has nothing pending.
+  return async (frame, id) => (await frame.evaluate(ask, [binding, id], undefined, false).catch(() => false)) === true;
 }
 
 interface Ceremony {
   id: string;
   op: PasskeyOp;
   page: Page;
+  /** The frame that asked: when it navigates, the request may be gone with its document. */
+  frame: Frame;
   origin: string;
   outcome?: PasskeyOutcome;
   wakes: Set<() => void>;
@@ -228,6 +253,8 @@ export interface PasskeyDeps {
   paused(): boolean;
   /** Hands the browser to the person on `page` until `settle` settles; how it went. */
   handoff(page: Page, settle: StepSettle): Promise<StepRun | { error: string }>;
+  /** Whether the request is still pending in what `frame` shows now (`installPasskeyProbe`). */
+  pending: PasskeyPending;
 }
 
 /**
@@ -235,7 +262,7 @@ export interface PasskeyDeps {
  * ceremony settles, and keeps what the agent should read until a call takes it.
  */
 export class PasskeyWatch {
-  private readonly ceremonies = new Map<string, Ceremony>();
+  private readonly ceremonies = new Map<string, Ceremony & { forget(): void }>();
   private notes: PasskeyNote[] = [];
   private step: Promise<void> | undefined;
 
@@ -253,20 +280,41 @@ export class PasskeyWatch {
     return out;
   }
 
-  report(r: PasskeyReport, page: Page): void {
+  report(r: PasskeyReport, page: Page, frame: Frame): void {
     if (r.phase === "settle") {
-      this.settle(r, page);
+      const c = this.ceremonies.get(r.id);
+      if (c && c.page === page) this.finish(c, passkeyOutcome(c.op, r.ok === true, r.error));
       return;
     }
     if (passkeyKind(r) !== "modal" || this.ceremonies.has(r.id)) return;
-    const c: Ceremony = { id: r.id, op: r.op, page, origin: originOf(page), wakes: new Set(), mode: "none" };
+    const base: Ceremony = { id: r.id, op: r.op, page, frame, origin: originOf(page), wakes: new Set(), mode: "none" };
     const unseen = this.deps.unseen();
     if (unseen) {
-      this.notes.push(unseenNote(c, unseen));
+      this.notes.push(unseenNote(base, unseen));
       return;
     }
+    // A navigation of its frame may take the request with the document; a removed frame does.
+    const navigated = (f: Frame) => {
+      if (f === frame)
+        void this.deps.pending(frame, r.id).then((still) => {
+          if (!still) this.finish(c, { kind: "left" });
+        });
+    };
+    const detached = (f: Frame) => {
+      if (f === frame) this.finish(c, { kind: "left" });
+    };
+    const closed = () => this.drop(c);
+    page.on("framenavigated", navigated);
+    page.on("framedetached", detached);
+    page.on("close", closed);
+    const c = Object.assign(base, {
+      forget: () => {
+        page.off("framenavigated", navigated);
+        page.off("framedetached", detached);
+        page.off("close", closed);
+      },
+    });
     this.ceremonies.set(r.id, c);
-    page.once("close", () => this.ceremonies.delete(r.id));
     if (this.step || this.deps.paused()) {
       // The person has the browser already: say how it ended once it does.
       c.mode = "settle";
@@ -292,20 +340,25 @@ export class PasskeyWatch {
       )
       .finally(() => {
         if (this.step === step) this.step = undefined;
-        if (c.outcome) this.ceremonies.delete(c.id);
+        if (c.outcome) this.drop(c);
       });
     this.step = step;
   }
 
-  private settle(r: PasskeyReport, page: Page): void {
-    const c = this.ceremonies.get(r.id);
-    if (!c || c.page !== page || c.outcome) return;
-    c.outcome = passkeyOutcome(c.op, r.ok === true, r.error);
+  private finish(c: Ceremony & { forget(): void }, outcome: PasskeyOutcome): void {
+    if (c.outcome || this.ceremonies.get(c.id) !== c) return;
+    c.outcome = outcome;
     for (const wake of c.wakes) wake();
     if (c.mode === "settle") {
       this.notes.push(stepNote(c, undefined));
-      this.ceremonies.delete(c.id);
-    } else if (!this.step) this.ceremonies.delete(c.id);
+      this.drop(c);
+    } else if (!this.step) this.drop(c);
+  }
+
+  private drop(c: Ceremony & { forget(): void }): void {
+    if (this.ceremonies.get(c.id) !== c) return;
+    this.ceremonies.delete(c.id);
+    c.forget();
   }
 }
 
@@ -331,6 +384,8 @@ function outcomeText(o: PasskeyOutcome): string {
       return "The page withdrew the request (AbortError).";
     case "failed":
       return `It failed (${o.error}).`;
+    case "left":
+      return "The page navigated away before it finished, so the request went with it.";
   }
 }
 

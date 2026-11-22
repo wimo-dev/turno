@@ -1,4 +1,4 @@
-import type { Page } from "patchright-core";
+import type { Frame, Page } from "patchright-core";
 import { describe, expect, it } from "vitest";
 import type { StepRun, StepSettle } from "../src/human-step.js";
 import { PasskeyWatch, parseReport, passkeyKind, passkeyOutcome } from "../src/passkey.js";
@@ -41,8 +41,19 @@ describe("parseReport", () => {
   });
 });
 
-function fakePage(url = "https://example.com/login"): Page {
-  return { url: () => url, once: () => {} } as unknown as Page;
+/** A page with a main frame, whose frame events a test emits. */
+function fakePage(url = "https://example.com/login"): Page & { frame: Frame; emit(event: string, f: Frame): void } {
+  const frame = {} as Frame;
+  const on = new Map<string, Set<(f: Frame) => void>>();
+  return {
+    url: () => url,
+    frame,
+    on: (event: string, fn: (f: Frame) => void) => on.set(event, (on.get(event) ?? new Set()).add(fn)),
+    off: (event: string, fn: (f: Frame) => void) => on.get(event)?.delete(fn),
+    emit: (event: string, f: Frame) => {
+      for (const fn of on.get(event) ?? []) fn(f);
+    },
+  } as unknown as Page & { frame: Frame; emit(event: string, f: Frame): void };
 }
 
 const run = (ended: StepRun["ended"]): StepRun => ({
@@ -61,18 +72,19 @@ describe("PasskeyWatch", () => {
     const watch = new PasskeyWatch({
       unseen: () => undefined,
       paused: () => false,
+      pending: async () => true,
       handoff: (_page, settle) => {
         steps.push(settle);
         return new Promise((resolve) => settle.onSettle(() => resolve(run("settled"))));
       },
     });
     const page = fakePage();
-    watch.report({ id: "c1", op: "get", phase: "start", publicKey: true, mediation: "conditional" }, page);
+    watch.report({ id: "c1", op: "get", phase: "start", publicKey: true, mediation: "conditional" }, page, page.frame);
     expect(steps).toHaveLength(0);
-    watch.report({ id: "m1", op: "create", phase: "start", publicKey: true }, page);
+    watch.report({ id: "m1", op: "create", phase: "start", publicKey: true }, page, page.frame);
     expect(steps).toHaveLength(1);
     expect(watch.running).toBeDefined();
-    watch.report({ id: "m1", op: "create", phase: "settle", ok: true }, page);
+    watch.report({ id: "m1", op: "create", phase: "settle", ok: true }, page, page.frame);
     await watch.running;
     const notes = watch.takeNotes();
     expect(notes.map((n) => n.data)).toEqual([
@@ -87,18 +99,41 @@ describe("PasskeyWatch", () => {
       handoffs++;
       return new Promise<StepRun>(() => {});
     };
-    const unseen = new PasskeyWatch({ unseen: () => "it has no window.", paused: () => false, handoff });
-    unseen.report({ id: "m1", op: "get", phase: "start", publicKey: true }, fakePage());
+    const pending = async () => true;
+    const page0 = fakePage();
+    const unseen = new PasskeyWatch({ unseen: () => "it has no window.", paused: () => false, pending, handoff });
+    unseen.report({ id: "m1", op: "get", phase: "start", publicKey: true }, page0, page0.frame);
     expect(unseen.takeNotes().map((n) => n.data)).toEqual([{ op: "get", origin: "https://example.com", unseen: true }]);
 
-    const held = new PasskeyWatch({ unseen: () => undefined, paused: () => true, handoff });
+    const held = new PasskeyWatch({ unseen: () => undefined, paused: () => true, pending, handoff });
     const page = fakePage();
-    held.report({ id: "m2", op: "get", phase: "start", publicKey: true }, page);
+    held.report({ id: "m2", op: "get", phase: "start", publicKey: true }, page, page.frame);
     expect(held.takeNotes()).toEqual([]);
-    held.report({ id: "m2", op: "get", phase: "settle", ok: false, error: "NotAllowedError" }, page);
+    held.report({ id: "m2", op: "get", phase: "settle", ok: false, error: "NotAllowedError" }, page, page.frame);
     expect(held.takeNotes().map((n) => n.data)).toEqual([
       { op: "get", origin: "https://example.com", outcome: "cancelled", error: "NotAllowedError" },
     ]);
     expect(handoffs).toBe(0);
+  });
+
+  it("ends the step when the page navigates away from the request, not on a navigation within the document", async () => {
+    let still = true;
+    const watch = new PasskeyWatch({
+      unseen: () => undefined,
+      paused: () => false,
+      pending: async () => still,
+      handoff: (_page, settle) => new Promise((resolve) => settle.onSettle(() => resolve(run("settled")))),
+    });
+    const page = fakePage();
+    watch.report({ id: "m1", op: "get", phase: "start", publicKey: true }, page, page.frame);
+    page.emit("framenavigated", page.frame);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(watch.running).toBeDefined();
+    still = false;
+    page.emit("framenavigated", page.frame);
+    await watch.running;
+    expect(watch.takeNotes().map((n) => n.data)).toEqual([
+      { op: "get", origin: "https://example.com", ended: "settled", waitedMs: 1200, outcome: "left" },
+    ]);
   });
 });

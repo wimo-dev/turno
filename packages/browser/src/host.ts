@@ -47,7 +47,7 @@ import { LiveServer } from "./live-server.js";
 import { MemoryWatch } from "./memory.js";
 import { names } from "./names.js";
 import { NETWORK_TOOLS, redactNetworkText } from "./network-redact.js";
-import { type PasskeyNote, PasskeyWatch, installPasskeyProbe } from "./passkey.js";
+import { type PasskeyNote, type PasskeyPending, PasskeyWatch, installPasskeyProbe } from "./passkey.js";
 import {
   type IdentityPolicy,
   blockedMessage,
@@ -767,8 +767,13 @@ class SessionBackend extends EventEmitter implements ServerBackend {
     if (refused) return errorResult(refused, !!(args._meta as { json?: boolean } | undefined)?.json);
     let result = await this.callLive(name, args, signal, session, sample, progress);
     if (this.touchesBrowser(name)) {
+      const json = !!(args._meta as { json?: boolean } | undefined)?.json;
       result = await this.afterCall(name, args, result, session, started);
-      result = await this.afterPolicy(result, session, started, !!(args._meta as { json?: boolean } | undefined)?.json);
+      result = await this.afterPolicy(result, session, started, json);
+      // After the policy: a call it turns into an error (the passkey page went to a host it does
+      // not allow) still says how the passkey prompt went.
+      const notes = (await this.current?.catch(() => undefined))?.passkeys?.takeNotes() ?? [];
+      result = withPasskeyNotes(result, notes, json);
     }
     // Every result and error of this server leaves through the redactor.
     return this.host.redactor.result(result);
@@ -911,9 +916,7 @@ class SessionBackend extends EventEmitter implements ServerBackend {
     progress?: Progress,
   ): Promise<ToolResult> {
     if (!this.touchesBrowser(name)) return await this.callAny(name, args, signal, session, sample, progress);
-    const result = await this.callGated(name, args, signal, session, sample, progress);
-    const notes = (await this.current?.catch(() => undefined))?.passkeys?.takeNotes() ?? [];
-    return withPasskeyNotes(result, notes, !!(args._meta as { json?: boolean } | undefined)?.json);
+    return await this.callGated(name, args, signal, session, sample, progress);
   }
 
   private async callGated(
@@ -1384,7 +1387,9 @@ class SessionBackend extends EventEmitter implements ServerBackend {
       return undefined;
     const agents = (page: Page) => !launched.userBrowser || governor.governs(page);
     const strings = uiStrings(locale).passkey;
+    let pending: PasskeyPending | undefined;
     const passkeys = new PasskeyWatch({
+      pending: async (frame, id) => (pending ? await pending(frame, id) : true),
       unseen: () => (headless ? passkeyUnseenReason(this.host.identity?.id) : undefined),
       paused: () => this.watch.gate.paused !== undefined,
       handoff: async (page, settle) =>
@@ -1411,10 +1416,10 @@ class SessionBackend extends EventEmitter implements ServerBackend {
         ),
     });
     try {
-      await installPasskeyProbe(
+      pending = await installPasskeyProbe(
         launched.context,
-        (report, page) => {
-          if (agents(page)) passkeys.report(report, page);
+        (report, page, frame) => {
+          if (agents(page)) passkeys.report(report, page, frame);
         },
         agents,
       );

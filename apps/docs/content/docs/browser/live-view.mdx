@@ -116,11 +116,13 @@ that tells you to use your passkey in that window:
 - It starts only for a request that puts Chrome's window up (`mediation` left out, `"optional"` or
   `"required"`). Passkey autofill (`mediation: "conditional"`), which sign-in pages start on load
   and which waits until you pick a passkey in a field's suggestions, never stops the agent.
-- The step ends when the request settles, when you press Done, or after 5 minutes. The agent's
-  call that clicked "Sign in with a passkey" (or its next call) says how it went: the passkey was
-  created or used, you cancelled it or it timed out (pages get the same `NotAllowedError` for
-  both), or it failed with the error's name. It never gets the credential or what the page asked
-  for.
+- The step ends when the request settles, when the page navigates away from it, when you press
+  Done, or after 5 minutes. The agent's call that clicked "Sign in with a passkey" (or its next
+  call) says how it went: the passkey was created or used, you cancelled it or it timed out (pages
+  get the same `NotAllowedError` for both), the page left it, or it failed with the error's name.
+  It never gets the credential or what the page asked for. With a
+  [policy](/docs/browser/policy), a page that sends you to a host the policy does not allow is
+  stopped as any other navigation, and that call says so too.
 - Passkeys need a visible Chrome window. The live view shows the page, not Chrome's own windows,
   so with `--headless` and the live view on no step starts, and the agent is told to ask you to
   run the browser with a window (`turno-browser-mcp` without `--headless`). A headless Chrome

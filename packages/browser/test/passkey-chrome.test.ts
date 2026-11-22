@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import type { Browser, Page } from "patchright-core";
+import type { Browser, CDPSession, Page } from "patchright-core";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { resolveAttachEndpoint } from "../src/engine-attach.js";
 import { playwright } from "../src/upstream.js";
@@ -66,6 +66,8 @@ let chrome: ChildProcess | undefined;
 let web: Server;
 let origin: string;
 let watcher: Browser | undefined;
+let cdp: CDPSession;
+let authenticatorId: string;
 let transport: StdioClientTransport | undefined;
 let client: Client;
 
@@ -143,9 +145,9 @@ describe.skipIf(reason)(`a page's passkey prompt on a real Chrome${reason ? ` (s
         .pages()
         .find((p) => p.url().endsWith("/?agent"));
     expect(await waitFor(() => agentTab() !== undefined, 10_000)).toBe(true);
-    const cdp = await watcher.contexts()[0]!.newCDPSession(agentTab()!);
+    cdp = await watcher.contexts()[0]!.newCDPSession(agentTab()!);
     await cdp.send("WebAuthn.enable", { enableUI: false });
-    await cdp.send("WebAuthn.addVirtualAuthenticator", {
+    ({ authenticatorId } = await cdp.send("WebAuthn.addVirtualAuthenticator", {
       options: {
         protocol: "ctap2",
         transport: "internal",
@@ -154,7 +156,7 @@ describe.skipIf(reason)(`a page's passkey prompt on a real Chrome${reason ? ` (s
         isUserVerified: true,
         automaticPresenceSimulation: true,
       },
-    });
+    }));
   }, 90_000);
 
   afterAll(async () => {
@@ -195,5 +197,17 @@ describe.skipIf(reason)(`a page's passkey prompt on a real Chrome${reason ? ` (s
 
     const after = await call("browser_snapshot");
     expect(after).not.toContain("### Passkey");
+
+    // A page that navigates while the person has not answered takes the request with it: the
+    // step ends then, not at its timeout. With no presence the authenticator never answers.
+    await cdp.send("WebAuthn.setAutomaticPresenceSimulation", { authenticatorId, enabled: false });
+    const left = clickForPasskey("#signin", "Sign in with a passkey");
+    const banner = () =>
+      tab.evaluate("!!document.querySelector('turno-human-step')", undefined, undefined, false).catch(() => false);
+    const until = Date.now() + 20_000;
+    while (!(await banner()) && Date.now() < until) await new Promise((r) => setTimeout(r, 50));
+    expect(await banner()).toBe(true);
+    await tab.goto(`${origin}/?elsewhere`);
+    expect((await left).data).toMatchObject({ op: "get", origin, ended: "settled", outcome: "left" });
   }, 90_000);
 });
