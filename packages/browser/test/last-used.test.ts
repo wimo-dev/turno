@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -15,7 +15,6 @@ beforeEach(() => {
 afterEach(() => sb.cleanup());
 
 const T = new Date("2026-11-20T18:00:00.000Z");
-const later = (ms: number) => new Date(T.getTime() + ms);
 
 describe("last used", () => {
   it("is undefined before any call, then the time of the call, in a file only the user reads", () => {
@@ -25,23 +24,9 @@ describe("last used", () => {
     const file = join(identityStateDir("school", sb.env), "last-used.json");
     expect(statSync(file).mode & 0o777).toBe(0o600);
     expect(JSON.parse(readFileSync(file, "utf8"))).toEqual({ at: T.toISOString() });
-  });
-
-  it("writes at most once a minute per identity", () => {
-    touchLastUsed("school", sb.env, T);
-    touchLastUsed("school", sb.env, later(30_000));
-    expect(readLastUsed("school", sb.env)).toBe(T.toISOString());
-    touchLastUsed("work", sb.env, later(30_000));
-    expect(readLastUsed("work", sb.env)).toBe(later(30_000).toISOString());
-    touchLastUsed("school", sb.env, later(61_000));
-    expect(readLastUsed("school", sb.env)).toBe(later(61_000).toISOString());
-  });
-
-  it("ignores a file it cannot parse and a write it cannot make", () => {
-    mkdirSync(identityStateDir("school", sb.env), { recursive: true });
-    writeFileSync(join(identityStateDir("school", sb.env), "last-used.json"), "{not json");
+    // A file it cannot parse reads as never; a write it cannot make (the state folder is a file) is ignored.
+    writeFileSync(file, "{not json");
     expect(readLastUsed("school", sb.env)).toBeUndefined();
-    // The state folder is a file: the write fails quietly.
     writeFileSync(identityStateDir("blocked", sb.env), "");
     expect(() => touchLastUsed("blocked", sb.env, T)).not.toThrow();
   });

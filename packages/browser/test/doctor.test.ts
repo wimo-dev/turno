@@ -359,7 +359,7 @@ describe("browser doctor: the vault's credentials in the secret store", () => {
       );
   }
 
-  it("is quiet for an empty vault, ok when every item is there, a failure for each one that is not", async () => {
+  it("is quiet for an empty vault, ok when every item is there, fails for a missing one or no store, warns when locked", async () => {
     addIdentity("empty", sb.env);
     const none = await doctor({ secrets: memoryStore([]) });
     expect(none.checks.filter((c) => /vault/.test(c.text))).toEqual([]);
@@ -371,10 +371,6 @@ describe("browser doctor: the vault's credentials in the secret store", () => {
     const some = await doctor({ secrets: memoryStore([vaultItem("school", "canvas")]) });
     const missing = find(some.checks, "identity school", /no item for the credentials of github/);
     expect(missing).toMatchObject({ level: "fail", fix: expect.stringContaining("vault add school github") });
-  });
-
-  it("warns when the store does not answer, and fails without a store", async () => {
-    await withVault();
     const locked = await doctor({ secrets: memoryStore([], true) });
     expect(find(locked.checks, "identity school", /did not answer for the vault: User interaction/)?.level).toBe(
       "warn",

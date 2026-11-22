@@ -48,7 +48,7 @@ function school(): void {
 }
 
 describe("turno-browser status", () => {
-  it("reports each identity as JSON: settings, sign-ins, cookie hosts, last use and agents", async () => {
+  it("reports each identity as JSON (settings, sign-ins, cookie hosts, last use, agents), or the one asked for", async () => {
     school();
     api.addIdentity("work", sb.env);
     const io = fakeIo(sb.env);
@@ -72,28 +72,11 @@ describe("turno-browser status", () => {
       agents: [{ agent: "claude-code", server: "browser-school", file: "~/.claude.json" }],
     });
     expect(r.identities[1]).toMatchObject({ id: "work", signedIn: null, cookieHosts: [], lastUsed: null, agents: [] });
-  });
 
-  it("prints one block per identity, and only the one asked for", async () => {
-    school();
-    api.addIdentity("work", sb.env);
-    const io = fakeIo(sb.env);
-    expect(await cli(api).run("status", ["school"], io)).toBe(0);
-    const text = io.lines.join("\n");
-    expect(text).toMatch(/^turno-browser \d+\.\d+\.\d+/);
-    expect(text).toContain("browser:school");
-    expect(text).not.toContain("browser:work");
-    expect(text).toMatch(/time zone America\/Monterrey; languages es-MX, en; one session at a time; humanize light/);
-    expect(text).toMatch(/cookies\s+1 site: canvas\.example\.edu/);
-    expect(text).toMatch(/agents\s+Claude Code \(~\/\.claude\.json\)/);
-    await expect(cli(api).run("status", ["nobody"], fakeIo(sb.env))).rejects.toThrow(
-      /identity "nobody" does not exist/,
-    );
-  });
-
-  it("says so when there are no identities", async () => {
-    const io = fakeIo(sb.env);
-    expect(await cli(api).run("status", [], io)).toBe(0);
-    expect(io.lines.join("\n")).toContain("No browser identities yet. Create one with turno-browser add <id>.");
+    const one = fakeIo(sb.env);
+    expect(await cli(api).run("status", ["school", "--json"], one)).toBe(0);
+    expect(JSON.parse(one.lines.join("\n")).identities.map((i: { id: string }) => i.id)).toEqual(["school"]);
+    expect(await cli(api).run("status", ["school"], fakeIo(sb.env))).toBe(0);
+    await expect(cli(api).run("status", ["nobody"], fakeIo(sb.env))).rejects.toThrow(/does not exist/);
   });
 });

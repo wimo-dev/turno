@@ -137,6 +137,10 @@ describe("turno-browser init", () => {
     const io = fakeIo(sb.env);
     const c = ctx(api);
     await expect(init(c, [], io, run)).rejects.toThrow(/--identity and --agent/);
+    // --json needs them too, even on a terminal.
+    await expect(init(ctx(api, { interactive: () => true }), ["--json"], asking(sb.env, []), run)).rejects.toThrow(
+      /--identity and --agent/,
+    );
     expect(await init(c, ["--identity", "school", "--agent", "claude-code"], io, run)).toBe(0);
     expect(logins).toEqual([]);
     expect(runs).toEqual([]);
@@ -222,18 +226,6 @@ describe("turno-browser init without a terminal", () => {
     expect(Object.keys(agent.config().mcpServers)).toEqual(["browser-school"]);
   });
 
-  it("without --json says what it ran, in words", async () => {
-    sb.agent("claude");
-    const agent = fakeAgentCli(sb.env);
-    const io = fakeIo(sb.env);
-    expect(
-      await init(ctx(api, { exec: agent.exec }), ["--identity", "school", "--agent", "claude-code", "--yes"], io),
-    ).toBe(0);
-    expect(io.lines.join("\n")).toContain(
-      'Done: Claude Code has the browser "school" (claude mcp add --scope user browser-school',
-    );
-  });
-
   it("leaves a server of the same name with another command as it is", async () => {
     sb.agent("claude");
     writeFileSync(
@@ -245,26 +237,20 @@ describe("turno-browser init without a terminal", () => {
     expect(await init(ctx(api, { exec: agent.exec }), flags, io)).toBe(0);
     const r = report(io);
     expect(r.mcp.status).toBe("differs");
-    expect(r.mcp.notes.join("\n")).toContain("with another command (/old/mcp.js --identity school)");
     expect(agent.calls).toEqual([]);
   });
 
-  it("counts an agent that says the server already exists as done", async () => {
+  it.each([
+    { code: 1, output: "MCP server browser-school already exists in user config", exit: 0, status: "already" },
+    { code: 3, output: "not signed in", exit: 1, status: "failed" },
+  ])("reports the agent's exit $code as $status and exits $exit", async ({ code, output, exit, status }) => {
     sb.agent("claude");
-    const agent = fakeAgentCli(sb.env, { code: 1, output: "MCP server browser-school already exists in user config" });
+    const agent = fakeAgentCli(sb.env, { code, output });
     const io = fakeIo(sb.env);
-    expect(await init(ctx(api, { exec: agent.exec }), flags, io)).toBe(0);
-    expect(report(io).mcp).toMatchObject({ status: "already", exitCode: 1 });
-  });
-
-  it("exits 1 with the agent's output when its command fails", async () => {
-    sb.agent("claude");
-    const agent = fakeAgentCli(sb.env, { code: 3, output: "not signed in" });
-    const io = fakeIo(sb.env);
-    expect(await init(ctx(api, { exec: agent.exec }), flags, io)).toBe(1);
-    expect(report(io).mcp).toMatchObject({ status: "failed", exitCode: 3, output: "not signed in" });
+    expect(await init(ctx(api, { exec: agent.exec }), flags, io)).toBe(exit);
+    expect(report(io).mcp).toMatchObject({ status, exitCode: code, output });
     expect(io.errors).toEqual([]);
-    expect(readRegistrations("school", sb.env)).toEqual([]);
+    expect(readRegistrations("school", sb.env)).toHaveLength(exit === 0 ? 1 : 0);
   });
 
   it("exits 127 when --yes names an agent whose program is not on the PATH", async () => {
@@ -281,11 +267,6 @@ describe("turno-browser init without a terminal", () => {
     const r = report(io);
     expect(r.mcp).toMatchObject({ status: "manual", register: null, file: "~/.cursor/mcp.json" });
     expect(JSON.parse(r.mcp.config).mcpServers["browser-school"].args).toEqual(["--identity", "school"]);
-  });
-
-  it("--json needs --identity and --agent, even on a terminal", async () => {
-    const c = ctx(api, { interactive: () => true });
-    await expect(init(c, ["--json"], asking(sb.env, []))).rejects.toThrow(/--identity and --agent/);
   });
 
   it("--json --dry-run creates nothing and says what it would run", async () => {

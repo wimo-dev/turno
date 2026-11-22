@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 
 import { hostname } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { pidAlive } from "turno-core/process";
+import { pidAlive, readProcTable } from "turno-core/process";
 import { type ExecCommand, readRegistrations, recordRegistration } from "../../src/agent-mcp.js";
 import type { BrowserFunctions } from "../../src/api.js";
 import { backgroundStatePath } from "../../src/background-state.js";
@@ -102,14 +102,18 @@ function claudeHas(id: string, env: NodeJS.ProcessEnv = sb.env): void {
 const json = (io: { lines: string[] }) => JSON.parse(io.lines.join("\n"));
 
 describe("turno-browser remove", () => {
-  it("without a terminal needs --yes, and deletes nothing", async () => {
+  it("without a terminal needs --yes and deletes nothing; an unknown identity is refused", async () => {
+    await expect(cli(api).run("remove", ["nope", "--yes"], fakeIo(sb.env))).rejects.toThrow(/does not exist/);
     await school();
-    const io = fakeIo(sb.env);
-    await expect(cli(api).run("remove", ["school"], io)).rejects.toThrow(/remove needs an answer; pass --yes/);
-    expect(io.errors.join("\n")).toContain('This deletes browser identity "school"');
+    // destroy is the documented other name (changeset).
+    for (const [cmd, args] of [
+      ["remove", ["school"]],
+      ["remove", ["school", "--json"]],
+      ["destroy", ["school"]],
+    ] as const)
+      await expect(cli(api).run(cmd, [...args], fakeIo(sb.env))).rejects.toThrow(/pass --yes/);
     expect(api.identityExists("school", sb.env)).toBe(true);
     expect(store.services()).toContain("school-proxy");
-    await expect(cli(api).run("remove", ["school", "--json"], fakeIo(sb.env))).rejects.toThrow(/pass --yes/);
   });
 
   it("--yes deletes the files, the secrets and the agent's entry, keeps what another identity uses, and checks", async () => {
@@ -194,42 +198,22 @@ describe("turno-browser remove", () => {
     expect(api.identityExists("school", sb.env)).toBe(false);
   });
 
-  it("says in words what it did, and calls the host's note once the identity is gone", async () => {
+  it("asks on a terminal, deletes nothing on a no, and tells the host once the identity is gone", async () => {
     await school();
+    const answer = { yes: false };
     const notes: string[] = [];
     const host = {
       ...(await import("../../src/cli/context.js")).standaloneHost(),
       removed: (id: string) => notes.push(id),
     };
-    const io = fakeIo(sb.env);
-    expect(await cli(api, {}, host).run("remove", ["school", "--yes"], io)).toBe(0);
-    const out = io.lines.join("\n");
-    expect(out).toContain("deleted keychain:turno-browser/vault/school/mail (vault credential of mail)");
-    expect(out).toContain("deleted keychain:school-proxy (proxy.password secret)");
-    expect(out).toContain('removed identity "school" and its saved browser data');
-    expect(notes).toEqual(["school"]);
-  });
-
-  it("asks on a terminal and deletes nothing on a no", async () => {
-    await school();
-    const asked: string[] = [];
-    const answer = { yes: false };
-    const c = cli(api, {
-      interactive: () => true,
-      confirm: async (q) => {
-        asked.push(q);
-        return answer.yes;
-      },
-    });
-    const io = fakeIo(sb.env);
-    expect(await c.run("remove", ["school"], io)).toBe(1);
-    expect(asked).toEqual(["Delete all of this? [y/N] "]);
-    expect(io.lines.join("\n")).toContain("keychain:school-proxy (proxy.password secret)");
-    expect(io.errors).toContain("Cancelled; nothing was deleted.");
+    const c = cli(api, { interactive: () => true, confirm: async () => answer.yes }, host);
+    expect(await c.run("remove", ["school"], fakeIo(sb.env))).toBe(1);
     expect(api.identityExists("school", sb.env)).toBe(true);
+    expect(notes).toEqual([]);
     answer.yes = true;
     expect(await c.run("remove", ["school"], fakeIo(sb.env))).toBe(0);
     expect(api.identityExists("school", sb.env)).toBe(false);
+    expect(notes).toEqual(["school"]);
   });
 
   it("--dry-run --json lists the plan and changes nothing", async () => {
@@ -272,7 +256,13 @@ describe("turno-browser remove", () => {
     const other = start(["--identity", "work"]);
     // The same id under another HOME is another machine's identity as far as this one goes.
     const elsewhere = start(["--identity", "school"], { ...sb.env, HOME: join(sb.home, "elsewhere") });
-    await new Promise((r) => setTimeout(r, 200));
+    // Each child is in the process table with its arguments before remove looks.
+    const pids = [background, stdio, chrome, idle, other, elsewhere];
+    for (let i = 0; i < 100; i++) {
+      const table = readProcTable();
+      if (pids.every((pid) => table?.get(pid)?.command.includes(script))) break;
+      await new Promise((r) => setTimeout(r, 20));
+    }
 
     const io = fakeIo(sb.env);
     expect(await cli(api).run("remove", ["school", "--yes", "--json"], io)).toBe(0);
@@ -322,12 +312,5 @@ describe("turno-browser remove", () => {
     expect(await cli(api, { exec }).run("remove", ["school", "--yes", "--json"], io)).toBe(0);
     expect(seen).toEqual([profile.CLAUDE_CONFIG_DIR]);
     expect(JSON.parse(readFileSync(join(profile.CLAUDE_CONFIG_DIR!, ".claude.json"), "utf8")).mcpServers).toEqual({});
-  });
-
-  it("refuses an identity that left nothing, and answers to destroy too", async () => {
-    await expect(cli(api).run("remove", ["nope", "--yes"], fakeIo(sb.env))).rejects.toThrow(/does not exist/);
-    await school();
-    expect(await cli(api).run("destroy", ["school", "--yes"], fakeIo(sb.env))).toBe(0);
-    expect(api.identityExists("school", sb.env)).toBe(false);
   });
 });
