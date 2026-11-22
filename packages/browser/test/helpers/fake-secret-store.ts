@@ -1,20 +1,28 @@
-import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { execFileSync } from "node:child_process";
+import { createRequire } from "node:module";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
+import { dpapiDir } from "turno-core/secrets";
 import type { Sandbox } from "./sandbox.js";
 
 /**
  * A file-backed stand-in for the macOS `security` and libsecret `secret-tool` commands, put
  * first on the sandbox PATH. Items live under `<sandbox>/fake-secrets/`, never in a real
  * Keychain. `failWrites(true)` makes every store fail, like a locked Keychain.
+ *
+ * On Windows the store is the real one: DPAPI files under the sandbox's LOCALAPPDATA,
+ * encrypted for the account that runs the tests, so nothing reaches the account's own store.
  */
-/**
- * Why a test that stores a secret cannot run here: the stand-ins replace the macOS and Linux
- * commands, and Windows' DPAPI store runs Windows PowerShell instead (turno-core tests it with
- * a real round trip). Undefined where the stand-ins work.
- */
-export const noFakeSecretStore: string | undefined =
-  process.platform === "win32" ? "the stand-ins replace macOS and Linux commands" : undefined;
-
 export interface FakeSecretStore {
   dir: string;
   read(service: string): string | undefined;
@@ -81,7 +89,54 @@ if (cmd === "clear") { fs.rmSync(file(s), { force: true }); process.exit(0); }
 process.exit(1);
 `;
 
+/** Sets (value on stdin) or gets one item through turno-core's DPAPI store, in a child process so the helper stays synchronous. */
+const DPAPI_SCRIPT = `
+const { secretStore } = await import(${JSON.stringify(pathToFileURL(createRequire(import.meta.url).resolve("turno-core/secrets")).href)});
+const store = secretStore(process.env, "win32");
+const name = process.env.TURNO_TEST_ITEM;
+if (process.env.TURNO_TEST_OP === "set") {
+  const chunks = [];
+  for await (const c of process.stdin) chunks.push(c);
+  await store.set(name, Buffer.concat(chunks).toString("utf8"));
+} else process.stdout.write(JSON.stringify((await store.get(name)) ?? null));
+`;
+
+function windowsStore(sb: Sandbox): FakeSecretStore {
+  const dir = dpapiDir(sb.env);
+  const call = (op: "get" | "set", service: string, value = "") =>
+    execFileSync(process.execPath, ["--input-type=module", "-e", DPAPI_SCRIPT], {
+      env: { ...sb.env, TURNO_TEST_OP: op, TURNO_TEST_ITEM: service },
+      input: value,
+      encoding: "utf8",
+      windowsHide: true,
+    });
+  return {
+    dir,
+    read: (s) => (JSON.parse(call("get", s)) as string | null) ?? undefined,
+    write: (s, v) => void call("set", s, v),
+    services: () =>
+      existsSync(dir)
+        ? readdirSync(dir)
+            .filter((f) => f.endsWith(".json"))
+            .map((f) => (JSON.parse(readFileSync(join(dir, f), "utf8")) as { name: string }).name)
+        : [],
+    // A file where the folder should be: every write fails, as with a locked Keychain.
+    failWrites(on) {
+      const aside = `${dir}.aside`;
+      if (on) {
+        if (existsSync(dir)) renameSync(dir, aside);
+        mkdirSync(join(dir, ".."), { recursive: true });
+        writeFileSync(dir, "");
+      } else {
+        rmSync(dir, { force: true });
+        if (existsSync(aside)) renameSync(aside, dir);
+      }
+    },
+  };
+}
+
 export function fakeSecretStore(sb: Sandbox): FakeSecretStore {
+  if (process.platform === "win32") return windowsStore(sb);
   const bin = join(sb.home, "fakebin");
   const dir = join(sb.home, "fake-secrets");
   mkdirSync(bin, { recursive: true });

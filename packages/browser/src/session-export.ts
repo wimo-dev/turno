@@ -14,7 +14,7 @@ import {
   isInUse,
 } from "./identities.js";
 import { identityStateDir } from "./ids.js";
-import { readLockPid } from "./lifecycle.js";
+import { startedChromePid } from "./lifecycle.js";
 import { acquireRuntimeLock } from "./runtime-lock.js";
 import { SEALED_FORMAT, SealError, seal, unseal } from "./sealed.js";
 import { names } from "./names.js";
@@ -84,7 +84,7 @@ async function withProfile<T>(
       // Chrome gets the caller's environment (HOME, XDG dirs), not this process's.
       env: chromeEnv(env),
     });
-    const pid = readLockPid(dir);
+    const pid = startedChromePid(dir);
     if (pid !== undefined) held.update({ chromePid: pid, pgid: pid });
     try {
       return await use(ctx);

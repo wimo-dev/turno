@@ -50,10 +50,13 @@ describe("storage partitioning", () => {
 });
 
 let sb: Sandbox | undefined;
+// Closed before the sandbox goes: a server whose working folder is the sandbox keeps Windows from deleting it.
+const clients: Client[] = [];
 beforeEach(() => {
   sb = undefined;
 });
 afterEach(async () => {
+  for (const c of clients.splice(0)) await c.close().catch(() => {});
   if (!sb) return;
   await stopSandboxProcesses(sb.home);
   sb.cleanup();
@@ -91,7 +94,7 @@ describe.skipIf(reason !== undefined)(
       });
       const client = new Client({ name: "partitioning", version: "0.0.0" });
       await client.connect(transport);
-      onTestFinished(() => client.close().catch(() => {}));
+      clients.push(client);
       await client.callTool({ name: "browser_navigate", arguments: { url: `http://127.0.0.1:${port}/set` } });
       const src = encodeURIComponent(`http://127.0.0.1:${port}/read`);
       await client.callTool({

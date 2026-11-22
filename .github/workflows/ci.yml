@@ -70,39 +70,46 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter turno-core --filter turno-browser run build
       - run: pnpm --filter turno-core --filter turno-browser run typecheck
-      - name: Diagnostics (temporary)
+      - name: Trace the CLI's child processes (temporary)
         continue-on-error: true
         shell: pwsh
         run: |
+          $trace = @'
+          const cp = require("node:child_process");
+          for (const k of ["spawn", "spawnSync", "execFile", "execFileSync"]) {
+            const f = cp[k];
+            cp[k] = function (...a) {
+              const t = Date.now();
+              const r = f.apply(this, a);
+              const log = () => process.stderr.write(`[trace ${process.pid}] ${k} ${String(a[0]).slice(-60)} ${JSON.stringify(Array.isArray(a[1]) ? a[1].slice(0, 3) : "").slice(0, 100)} ${Date.now() - t}ms\n`);
+              if (r && typeof r.on === "function") r.on("exit", log); else log();
+              return r;
+            };
+          }
+          require("node:module").syncBuiltinESMExports();
+          '@
+          Set-Content -Path "$env:RUNNER_TEMP\trace.cjs" -Value $trace
           $js = @'
           const { spawnSync } = require("node:child_process");
           const { mkdtempSync } = require("node:fs");
           const { tmpdir } = require("node:os");
           const { join } = require("node:path");
           const e = process.env;
-          const home = mkdtempSync(join(tmpdir(), "ps-"));
+          const home = mkdtempSync(join(tmpdir(), "tr-"));
           const keep = ["SystemRoot", "windir", "ComSpec", "PATHEXT", "TEMP", "TMP", "ProgramFiles", "ProgramFiles(x86)", "PATH"];
-          const base = Object.fromEntries(keep.map((k) => [k, e[k]]));
-          const sandbox = { ...base, HOME: home, USERPROFILE: home, APPDATA: join(home, "r"), LOCALAPPDATA: join(home, "l") };
-          const variants = {
-            full: e,
-            sandbox,
-            "sandbox + real USERPROFILE": { ...sandbox, USERPROFILE: e.USERPROFILE },
-            "sandbox + real LOCALAPPDATA": { ...sandbox, LOCALAPPDATA: e.LOCALAPPDATA },
-            "sandbox + PSModulePath": { ...sandbox, PSModulePath: e.PSModulePath },
-            "sandbox + SystemDrive, ProgramData": { ...sandbox, SystemDrive: e.SystemDrive, ProgramData: e.ProgramData },
-            "full - USERPROFILE": { ...e, USERPROFILE: home },
-          };
-          for (const [name, env] of Object.entries(variants)) {
+          const env = { ...Object.fromEntries(keep.map((k) => [k, e[k]])), HOME: home, USERPROFILE: home, APPDATA: join(home, "AppData", "Roaming"), LOCALAPPDATA: join(home, "AppData", "Local"), XDG_CONFIG_HOME: join(home, ".config"), XDG_STATE_HOME: join(home, ".local", "state"), XDG_DATA_HOME: join(home, ".local", "share"), TURNO_NO_INPUT: "1", NODE_OPTIONS: `--require ${join(e.RUNNER_TEMP, "trace.cjs")}` };
+          const cli = join("packages", "browser", "dist", "cli", "main.js");
+          for (const args of [["add", "school"], ["doctor", "--no-launch", "--json"], ["do", "school", "session"], ["do", "school", "end"]]) {
             const t = Date.now();
-            const r = spawnSync(join(e.SystemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"), ["-NoProfile", "-NonInteractive", "-Command", "(Get-CimInstance Win32_Process).Count"], { env, encoding: "utf8", timeout: 25000, windowsHide: true });
-            console.log(`${name}: ${((Date.now() - t) / 1000).toFixed(1)}s status=${r.status} out=${(r.stdout || "").trim()} err=${(r.stderr || "").trim().split("\n")[0]} ${r.error ? r.error.code : ""}`);
+            const r = spawnSync(process.execPath, [cli, ...args], { env, encoding: "utf8", timeout: 60000 });
+            console.log(`== ${args.join(" ")}: ${Date.now() - t}ms status=${r.status} ${r.error ? r.error.code : ""}`);
+            console.log((r.stderr || "").split("\n").filter((l) => l.startsWith("[trace")).join("\n"));
           }
           '@
           node -e $js
       # The core suite, the Windows secret store's DPAPI round trip included.
       - run: pnpm --filter turno-core run test
-      - run: pnpm --filter turno-browser exec vitest run --reporter=verbose
+      - run: pnpm --filter turno-browser run test
         if: ${{ !cancelled() }}
       # What a person gets from npm: the packed packages installed with npm (its .cmd shims),
       # then install-browser and a smoke launch of Chrome through doctor, in a scratch turno folder.

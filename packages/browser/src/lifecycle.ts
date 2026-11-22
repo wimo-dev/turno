@@ -144,6 +144,17 @@ export function findProfileChrome(userDataDir: string, opts: FindOptions = {}): 
 }
 
 /**
+ * The pid of the Chrome just started on `userDataDir`: what its SingletonLock names, or on
+ * Windows, where Chrome writes no such lock, the browser process the process table shows.
+ */
+export function startedChromePid(
+  userDataDir: string,
+  platform: NodeJS.Platform = process.platform,
+): number | undefined {
+  return platform === "win32" ? findProfileChrome(userDataDir, { platform })?.pid : readLockPid(userDataDir);
+}
+
+/**
  * How long `stopChrome` waits for the group to go after SIGKILL. A SIGKILL is delivered at
  * once, but the group is gone only when the kernel has torn down every member and init (or a
  * subreaper) has reaped each one: until then `kill(-pgid, 0)` still finds the zombies. On a

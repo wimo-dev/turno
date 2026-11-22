@@ -3,7 +3,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { type FakeSecretStore, fakeSecretStore, noFakeSecretStore } from "../helpers/fake-secret-store.js";
+import { type FakeSecretStore, fakeSecretStore } from "../helpers/fake-secret-store.js";
 import { type Sandbox, sandbox } from "../helpers/sandbox.js";
 import { fakeProgram, pathWith, slashes } from "../helpers/programs.js";
 
@@ -126,7 +126,7 @@ describe("turno-browser", () => {
     );
   });
 
-  it.skipIf(noFakeSecretStore)("lists a vault without its values", () => {
+  it("lists a vault without its values", () => {
     run(["add", "school"]);
     const add = run(
       ["vault", "add", "school", "mail", "--url", "https://mail.example.com", "--username", "alice@example.com"],
@@ -242,43 +242,40 @@ describe("turno-browser", () => {
     expect(run(["setup", "codex", "--identity", "nobody"])).toMatchObject({ code: 2 });
   });
 
-  it.skipIf(noFakeSecretStore)(
-    "stores, checks, lists and removes the secrets identity.json names, never printing them",
-    () => {
-      run(["add", "school"]);
-      run([
-        "set",
-        "school",
-        "--proxy-server",
-        "http://proxy.example.com:8080",
-        "--proxy-username",
-        "alice",
-        "--proxy-password",
-        "keychain:school-proxy",
-      ]);
-      const missing = run(["secret", "list"]);
-      expect(missing.code).toBe(1);
-      expect(missing.out).toMatch(
-        /^MISSING {2}keychain:school-proxy {2}\(school\) {2}turno-browser secret set school-proxy$/m,
-      );
-      const set = run(["secret", "set", "school-proxy"], "correct-horse-battery");
-      expect(set).toMatchObject({ code: 0, out: "stored keychain:school-proxy\n" });
-      expect(store.read("school-proxy")).toBe("correct-horse-battery");
-      expect(run(["secret", "has", "school-proxy"]).code).toBe(0);
-      const list = run(["secret", "list", "--json"]);
-      expect(list.code).toBe(0);
-      expect(JSON.parse(list.out)).toEqual([
-        { schemaVersion: 1, item: "school-proxy", stored: true, identities: ["school"] },
-      ]);
-      expect(list.out + set.out).not.toContain("correct-horse");
-      expect(run(["secret", "remove", "school-proxy"])).toMatchObject({
-        code: 0,
-        out: "removed keychain:school-proxy\n",
-      });
-      expect(run(["secret", "has", "school-proxy"]).code).toBe(1);
-      expect(run(["secret", "set", "empty"], "").code).toBe(2);
-    },
-  );
+  it("stores, checks, lists and removes the secrets identity.json names, never printing them", () => {
+    run(["add", "school"]);
+    run([
+      "set",
+      "school",
+      "--proxy-server",
+      "http://proxy.example.com:8080",
+      "--proxy-username",
+      "alice",
+      "--proxy-password",
+      "keychain:school-proxy",
+    ]);
+    const missing = run(["secret", "list"]);
+    expect(missing.code).toBe(1);
+    expect(missing.out).toMatch(
+      /^MISSING {2}keychain:school-proxy {2}\(school\) {2}turno-browser secret set school-proxy$/m,
+    );
+    const set = run(["secret", "set", "school-proxy"], "correct-horse-battery");
+    expect(set).toMatchObject({ code: 0, out: "stored keychain:school-proxy\n" });
+    expect(store.read("school-proxy")).toBe("correct-horse-battery");
+    expect(run(["secret", "has", "school-proxy"]).code).toBe(0);
+    const list = run(["secret", "list", "--json"]);
+    expect(list.code).toBe(0);
+    expect(JSON.parse(list.out)).toEqual([
+      { schemaVersion: 1, item: "school-proxy", stored: true, identities: ["school"] },
+    ]);
+    expect(list.out + set.out).not.toContain("correct-horse");
+    expect(run(["secret", "remove", "school-proxy"])).toMatchObject({
+      code: 0,
+      out: "removed keychain:school-proxy\n",
+    });
+    expect(run(["secret", "has", "school-proxy"]).code).toBe(1);
+    expect(run(["secret", "set", "empty"], "").code).toBe(2);
+  });
 
   it("reports usage errors with exit 2, as text or JSON", () => {
     expect(run(["add"])).toMatchObject({

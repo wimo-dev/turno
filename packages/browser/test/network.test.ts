@@ -24,7 +24,7 @@ import {
 } from "../src/network.js";
 import { type IdentitySettings, readIdentitySettings, writeIdentitySettings } from "../src/settings.js";
 import type { McpConfig } from "../src/upstream.js";
-import { type FakeSecretStore, fakeSecretStore, noFakeSecretStore } from "./helpers/fake-secret-store.js";
+import { type FakeSecretStore, fakeSecretStore } from "./helpers/fake-secret-store.js";
 import { type Sandbox, sandbox } from "./helpers/sandbox.js";
 
 /**
@@ -144,7 +144,7 @@ describe("identity.json userAgent and proxy (format 11)", () => {
 });
 
 describe("the proxy credentials", () => {
-  it.skipIf(noFakeSecretStore)("come from the secret store, and every form of them joins the redactor", async () => {
+  it("come from the secret store, and every form of them joins the redactor", async () => {
     store.write("proxy-pass", PASSWORD);
     store.write("proxy-user", "alice-zone-1");
     const hidden: [string, string][] = [];
@@ -160,7 +160,7 @@ describe("the proxy credentials", () => {
     expect(hidden.map(([v]) => v).includes(basic)).toBe(true);
   });
 
-  it.skipIf(noFakeSecretStore)("fails with the item's name, never a value, when the store lacks it", async () => {
+  it("fails with the item's name, never a value, when the store lacks it", async () => {
     const error = await resolveProxy(
       { server: "http://127.0.0.1:3128", username: "alice", password: "keychain:missing-item" },
       sb.env,
@@ -413,37 +413,34 @@ describe("combinations refused before anything starts", () => {
 });
 
 describe("turno browser doctor", () => {
-  it.skipIf(noFakeSecretStore)(
-    "says whether the secret store holds the proxy credentials, without reading them",
-    async () => {
-      addIdentity("px", sb.env);
-      writeIdentitySettings(
-        "px",
-        { proxy: { server: "http://proxy.example.com:8080", username: "alice", password: "keychain:px-pass" } },
-        sb.env,
-      );
-      const run = () =>
-        runDoctor({
-          env: sb.env,
-          launch: false,
-          chrome: () => ({ path: "/chrome", version: "157.0.0.1" }),
-          lightpanda: () => undefined,
-          camoufox: () => undefined,
-          playwrightCore: () => undefined,
-          procTable: () => new Map(),
-        });
-      const missing = (await run()).checks.filter((c) => c.area === "identity px");
-      expect(
-        missing.find((c) => /proxy http:\/\/proxy\.example\.com:8080: the proxy's operator sees/.test(c.text))?.level,
-      ).toBe("info");
-      const fail = missing.find((c) => c.text.startsWith("proxy credentials"));
-      expect(fail).toMatchObject({ level: "fail", fix: "turno-browser secret set px-pass" });
-      store.write("px-pass", PASSWORD);
-      const present = (await run()).checks.filter((c) => c.area === "identity px");
-      expect(present.find((c) => c.text.startsWith("proxy credentials"))?.level).toBe("ok");
-      expect(JSON.stringify(present)).not.toContain(PASSWORD);
-    },
-  );
+  it("says whether the secret store holds the proxy credentials, without reading them", async () => {
+    addIdentity("px", sb.env);
+    writeIdentitySettings(
+      "px",
+      { proxy: { server: "http://proxy.example.com:8080", username: "alice", password: "keychain:px-pass" } },
+      sb.env,
+    );
+    const run = () =>
+      runDoctor({
+        env: sb.env,
+        launch: false,
+        chrome: () => ({ path: "/chrome", version: "157.0.0.1" }),
+        lightpanda: () => undefined,
+        camoufox: () => undefined,
+        playwrightCore: () => undefined,
+        procTable: () => new Map(),
+      });
+    const missing = (await run()).checks.filter((c) => c.area === "identity px");
+    expect(
+      missing.find((c) => /proxy http:\/\/proxy\.example\.com:8080: the proxy's operator sees/.test(c.text))?.level,
+    ).toBe("info");
+    const fail = missing.find((c) => c.text.startsWith("proxy credentials"));
+    expect(fail).toMatchObject({ level: "fail", fix: "turno-browser secret set px-pass" });
+    store.write("px-pass", PASSWORD);
+    const present = (await run()).checks.filter((c) => c.area === "identity px");
+    expect(present.find((c) => c.text.startsWith("proxy credentials"))?.level).toBe("ok");
+    expect(JSON.stringify(present)).not.toContain(PASSWORD);
+  });
 
   it("fails on a missing Camoufox or playwright-core only when an identity uses the engine", async () => {
     const run = () =>

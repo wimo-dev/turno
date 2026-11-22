@@ -11,7 +11,7 @@ import { findBrowser } from "../src/browsers.js";
 import { runDoctor } from "../src/doctor.js";
 import { readHealth } from "../src/health.js";
 import { createHost, serve } from "../src/host.js";
-import { findProfileChrome, readLockPid } from "../src/lifecycle.js";
+import { startedChromePid } from "../src/lifecycle.js";
 import { readChallenges } from "../src/reputation.js";
 import { readRuntimeLock } from "../src/runtime-lock.js";
 import { writeIdentitySettings } from "../src/settings.js";
@@ -107,9 +107,8 @@ function textOf(res: unknown): string {
   return ((res as { content: { text?: string }[] }).content ?? []).map((c) => c.text ?? "").join("\n");
 }
 
-/** The browser process on the identity's profile: its SingletonLock, or on Windows its lockfile and the process table. */
 function chromePid(id: string): number {
-  const pid = process.platform === "win32" ? findProfileChrome(profileDir(id))?.pid : readLockPid(profileDir(id));
+  const pid = startedChromePid(profileDir(id));
   expect(pid, "Chrome holds the profile").toBeDefined();
   return pid!;
 }
@@ -338,7 +337,7 @@ describe.skipIf(reason !== undefined)(reason ? `real Chrome (skipped: ${reason})
     expect(readHealth("health", sb.env)).toMatchObject({ status: "needs_auth" });
     expect(
       await waitFor(
-        () => readLockPid(profileDir("health")) === undefined || !alive(readLockPid(profileDir("health"))!),
+        () => startedChromePid(profileDir("health")) === undefined || !alive(startedChromePid(profileDir("health"))!),
         10_000,
       ),
       "Chrome closed",

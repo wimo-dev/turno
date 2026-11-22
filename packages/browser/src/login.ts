@@ -5,7 +5,7 @@ import { identityBrowserLaunch } from "./browsers.js";
 import { clearHealth } from "./health.js";
 import { identityStateDir } from "./ids.js";
 import { IdentityError, identityDir, inUseBy, isInUse } from "./identities.js";
-import { readLockPid } from "./lifecycle.js";
+import { startedChromePid } from "./lifecycle.js";
 import { CHROME_PROXY_ARGS, resolveProxy } from "./network.js";
 import { acquireRuntimeLock } from "./runtime-lock.js";
 import { chromeEnv, keychainArgs, launchSettings, readIdentitySettings, systemTimezone } from "./settings.js";
@@ -147,7 +147,7 @@ export async function loginIdentity(id: string, options: LoginOptions = {}): Pro
       env: chromeEnv(env),
     });
     const sites = new Set<string>();
-    const pid = readLockPid(dir);
+    const pid = startedChromePid(dir);
     if (pid !== undefined) held.update({ chromePid: pid, pgid: pid });
     const closed = new Promise<void>((resolve) => ctx.on("close", () => resolve()));
     // On macOS Chrome keeps running with no windows, so treat "last page closed" as done.
