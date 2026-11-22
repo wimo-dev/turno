@@ -286,15 +286,48 @@ export class StepBanner {
 }
 
 /** Why a step ended. */
-export type StepEnd = "done" | "url" | "url-changed" | "selector" | "resumed" | "closed" | "timeout" | "cancelled";
+export type StepEnd =
+  | "done"
+  | "url"
+  | "url-changed"
+  | "selector"
+  | "settled"
+  | "resumed"
+  | "closed"
+  | "timeout"
+  | "cancelled";
+
+/** An end the step does not see in the page itself: a passkey prompt that settled (`passkey.ts`). */
+export interface StepSettle {
+  settled(): boolean;
+  /** Calls `wake` when it settles; returns what stops that. */
+  onSettle(wake: () => void): () => void;
+}
+
+/** How a step went, before it becomes a result. */
+export interface StepRun {
+  ended: StepEnd;
+  waitedMs: number;
+  url?: string | undefined;
+  title?: string | undefined;
+  lines: string[];
+  clicks: number;
+  fields: number;
+  liveInputs: number;
+  targetClicked: boolean;
+}
 
 export interface StepDeps {
   /** The session's current tab: the step happens there. */
   page: Page;
   watch: BrowserWatch;
   guard: VaultGuard;
-  /** The client session, for the tab the live view follows. */
-  session: string;
+  /** The client session, for the tab the live view follows (none for a step no call asked for). */
+  session?: string;
+  /** Who the pause is for, as held calls read it (default: the tool's name). */
+  by?: string;
+  /** Ends the step when it settles. */
+  settle?: StepSettle;
   /** Why the person cannot see this browser now; the step does not start. */
   unseen?: string;
   /** Chrome has a window of its own: bring it back when it is minimized. */
@@ -307,6 +340,8 @@ export interface StepDeps {
   currentPage(): Page | undefined;
   /** The language of the banner (`ui-strings.ts`); English without it. */
   locale?: UiLocale;
+  /** The banner's title and hint, in place of the step's own (a page's passkey prompt). */
+  banner?: { title: string; hint: string };
   pollMs?: number;
   drainMs?: number;
   now?: () => number;
@@ -350,10 +385,18 @@ async function toFront(page: Page, window: boolean): Promise<void> {
 
 /** Runs one person step on `deps.page` and says how it went. */
 export async function runHumanStep(params: StepParams, deps: StepDeps): Promise<ToolResult> {
-  const { page, watch, json } = deps;
+  const run = await runStep(params, deps);
+  if ("error" in run) return stepError(run.error, deps.json);
+  const { targetClicked, ...rest } = run;
+  return stepResult({ params, ...rest, ...(params.requireHumanClick ? { targetClicked } : {}), json: deps.json });
+}
+
+/** Runs one person step on `deps.page`: what ended it and what changed, or why it did not start. */
+export async function runStep(params: StepParams, deps: StepDeps): Promise<StepRun | { error: string }> {
+  const { page, watch } = deps;
   const now = deps.now ?? Date.now;
-  if (deps.unseen) return stepError(deps.unseen, json);
-  if (page.isClosed()) return stepError("the current tab is closed; open a page first", json);
+  if (deps.unseen) return { error: deps.unseen };
+  if (page.isClosed()) return { error: "the current tab is closed; open a page first" };
 
   let target: { handle: ElementHandle; frame: Frame } | undefined;
   if (params.target) {
@@ -361,12 +404,11 @@ export async function runHumanStep(params: StepParams, deps: StepDeps): Promise<
     const handle = await locator.elementHandle({ timeout: 2_000 }).catch(() => null);
     const frame = handle ? await handle.ownerFrame().catch(() => null) : null;
     if (!handle || !frame)
-      return stepError(
-        REF.test(params.target)
+      return {
+        error: REF.test(params.target)
           ? `Ref ${params.target} not found in the current page snapshot. Try capturing new snapshot.`
           : `"${params.target}" does not match any elements.`,
-        json,
-      );
+      };
     target = { handle, frame };
   }
   if (params.selector) {
@@ -377,7 +419,7 @@ export async function runHumanStep(params: StepParams, deps: StepDeps): Promise<
       .catch((error: Error) => error.message.split("\n")[0]);
     if (bad) {
       await target?.handle.dispose().catch(() => {});
-      return stepError(`until.selector is not a selector the page can use: ${bad}`, json);
+      return { error: `until.selector is not a selector the page can use: ${bad}` };
     }
   }
 
@@ -385,13 +427,13 @@ export async function runHumanStep(params: StepParams, deps: StepDeps): Promise<
   const deadline = began + params.timeoutMs;
   const before = await watch.tabStates();
   const startUrl = page.url();
-  if (!(await watch.pause(HUMAN_STEP_TOOL, false, { step: true, until: deadline }))) {
+  if (!(await watch.pause(deps.by ?? HUMAN_STEP_TOOL, false, { step: true, until: deadline }))) {
     await target?.handle.dispose().catch(() => {});
     const by = watch.gate.paused?.by ?? "the user";
-    return stepError(`the browser is paused (${by}); call again once it is resumed`, json);
+    return { error: `the browser is paused (${by}); call again once it is resumed` };
   }
   const mine = watch.gate.paused?.since;
-  watch.follow(deps.session, page);
+  if (deps.session !== undefined) watch.follow(deps.session, page);
 
   // Calls that started before the pause finish first: their input is the agent's, not the person's.
   const drainEnd = now() + (deps.drainMs ?? DRAIN_MS);
@@ -401,9 +443,9 @@ export async function runHumanStep(params: StepParams, deps: StepDeps): Promise<
   const view: StepView = {
     step: `${began.toString(36)}${Math.random().toString(36).slice(2, 8)}`,
     lang: deps.locale ?? "en",
-    title: strings.title,
+    title: deps.banner?.title ?? strings.title,
     instruction: params.instruction,
-    hint: params.done ? strings.hintDone : strings.hintAuto,
+    hint: deps.banner?.hint ?? (params.done ? strings.hintDone : strings.hintAuto),
     done: params.done ? strings.done : null,
   };
   const banner = new StepBanner(page, view, target);
@@ -417,6 +459,7 @@ export async function runHumanStep(params: StepParams, deps: StepDeps): Promise<
   page.on("domcontentloaded", kick);
   page.on("close", kick);
   deps.signal?.addEventListener("abort", kick);
+  const unsettle = deps.settle?.onSettle(kick);
   const matches = params.url ? urlMatcher(params.url) : undefined;
   let ended: StepEnd | undefined;
   const ours = () => watch.gate.paused?.since === mine;
@@ -431,6 +474,7 @@ export async function runHumanStep(params: StepParams, deps: StepDeps): Promise<
       if (page.isClosed()) ended = "closed";
       else if (deps.signal?.aborted) ended = "cancelled";
       else if (!paused || paused.since !== mine) ended = "resumed";
+      else if (deps.settle?.settled()) ended = "settled";
       else if (banner.totals().done) ended = "done";
       else if (matches?.(page.url())) ended = "url";
       else if (params.urlChanges && withoutHash(page.url()) !== withoutHash(startUrl)) ended = "url-changed";
@@ -471,6 +515,7 @@ export async function runHumanStep(params: StepParams, deps: StepDeps): Promise<
     page.off("domcontentloaded", kick);
     page.off("close", kick);
     deps.signal?.removeEventListener("abort", kick);
+    unsettle?.();
     await banner.remove();
   }
 
@@ -489,8 +534,7 @@ export async function runHumanStep(params: StepParams, deps: StepDeps): Promise<
     liveInputs,
   );
   const state = current ? after.find((t) => t.id === watch.idOf(current)) : undefined;
-  return stepResult({
-    params,
+  return {
     ended: ended ?? "timeout",
     waitedMs: now() - began,
     url: state?.url ?? (current?.url() || undefined),
@@ -499,9 +543,8 @@ export async function runHumanStep(params: StepParams, deps: StepDeps): Promise<
     clicks: totals.clicks,
     fields: totals.fields,
     liveInputs,
-    ...(params.requireHumanClick ? { targetClicked: totals.targetClicked } : {}),
-    json,
-  });
+    targetClicked: totals.targetClicked,
+  };
 }
 
 /** Why the step ended, in a sentence. */
@@ -515,6 +558,8 @@ function endText(ended: StepEnd, params: StepParams): string {
       return "the tab's URL changed";
     case "selector":
       return `${params.selector} is visible`;
+    case "settled":
+      return "the page's request settled";
     case "resumed":
       return `the person resumed the agent (Resume in the live view, or ${names().browser} resume)`;
     case "closed":

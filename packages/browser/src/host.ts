@@ -33,7 +33,13 @@ import { AgentCursor, CursorInput, cursorTools, resolveCursor } from "./agent-cu
 import { HumanInput, adaptiveSites, humanizeTools } from "./human-input.js";
 import { identityStateDir } from "./ids.js";
 import { idleMs } from "./idle-timer.js";
-import { HUMAN_STEP_TOOL, parseStepParams, runHumanStep } from "./human-step.js";
+import {
+  DEFAULT_STEP_TIMEOUT_MS,
+  HUMAN_STEP_TOOL,
+  parseStepParams,
+  runHumanStep,
+  runStep,
+} from "./human-step.js";
 import {
   type LiveFlags,
   describeChanges,
@@ -47,6 +53,7 @@ import { LiveServer } from "./live-server.js";
 import { MemoryWatch } from "./memory.js";
 import { names } from "./names.js";
 import { NETWORK_TOOLS, redactNetworkText } from "./network-redact.js";
+import { type PasskeyNote, PasskeyWatch, installPasskeyProbe } from "./passkey.js";
 import {
   type IdentityPolicy,
   blockedMessage,
@@ -91,7 +98,7 @@ import {
   parseArguments,
 } from "./tools.js";
 import { type Tuning, type TuningFlags, resolveTuning } from "./tuning.js";
-import { type UiLocale, uiLocale } from "./ui-strings.js";
+import { type UiLocale, uiLocale, uiStrings } from "./ui-strings.js";
 import { vaultHasSites } from "./vault.js";
 import {
   type BrowserBackendInstance,
@@ -253,7 +260,7 @@ function withGovernor(
 const PAUSED_STEP = "The user paused the browser";
 
 /** A held call's result with the resume note first (under `turno.live` in JSON). */
-function withNote(result: ToolResult, note: string, json: boolean): ToolResult {
+function withNote(result: ToolResult, note: string, json: boolean, key = "live", value: unknown = note): ToolResult {
   const first = result.content[0];
   if (!first || first.type !== "text") return { ...result, content: [{ type: "text", text: note }, ...result.content] };
   const text = (first as { text: string }).text;
@@ -261,7 +268,7 @@ function withNote(result: ToolResult, note: string, json: boolean): ToolResult {
     try {
       const payload = JSON.parse(text) as Record<string, unknown>;
       const turno = (payload.turno ?? {}) as Record<string, unknown>;
-      const out = JSON.stringify({ ...payload, turno: { ...turno, live: note } }, null, 2);
+      const out = JSON.stringify({ ...payload, turno: { ...turno, [key]: value } }, null, 2);
       return { ...result, content: [{ ...first, text: out }, ...result.content.slice(1)] };
     } catch {
       /* not JSON after all: put the note first */
@@ -396,6 +403,8 @@ interface Running {
   locale: UiLocale;
   /** The policy's domain check, when it has allowedDomains (`policy-guard.ts`). */
   guard?: NavigationGuard;
+  /** The passkey prompts of this browser's pages (`passkey.ts`). */
+  passkeys?: PasskeyWatch;
 }
 
 class SessionBackend extends EventEmitter implements ServerBackend {
@@ -710,6 +719,7 @@ class SessionBackend extends EventEmitter implements ServerBackend {
           },
         });
       }
+      const passkeys = await this.watchPasskeys(launched, governor, locale);
       backend.on("dynamictoolschange", () => this.emit("dynamictoolschange"));
       backend.once("disconnected", () => {
         recording?.abandon();
@@ -734,6 +744,7 @@ class SessionBackend extends EventEmitter implements ServerBackend {
         ...(cursor ? { cursor } : {}),
         locale,
         ...(guard ? { guard } : {}),
+        ...(passkeys ? { passkeys } : {}),
       };
     })();
     promise.catch(() => {
@@ -893,6 +904,9 @@ class SessionBackend extends EventEmitter implements ServerBackend {
    * (the live view) or a person step holds the browser; then it waits, and on resume it runs, or
    * returns an error with a fresh snapshot when the browser changed and the call does more than
    * read. A person step itself is not counted as a call in flight: it waits for those.
+   *
+   * A browser call's result also says how a page's passkey prompt went (`passkey.ts`), once: the
+   * call that was running when the prompt started waits for the person's step to end first.
    */
   private async callLive(
     name: string,
@@ -903,6 +917,19 @@ class SessionBackend extends EventEmitter implements ServerBackend {
     progress?: Progress,
   ): Promise<ToolResult> {
     if (!this.touchesBrowser(name)) return await this.callAny(name, args, signal, session, sample, progress);
+    const result = await this.callGated(name, args, signal, session, sample, progress);
+    const notes = (await this.current?.catch(() => undefined))?.passkeys?.takeNotes() ?? [];
+    return withPasskeyNotes(result, notes, !!(args._meta as { json?: boolean } | undefined)?.json);
+  }
+
+  private async callGated(
+    name: string,
+    args: Record<string, unknown>,
+    signal: AbortSignal | undefined,
+    session: string | undefined,
+    sample?: Sampler,
+    progress?: Progress,
+  ): Promise<ToolResult> {
     const watch = this.watch;
     const step = name === HUMAN_STEP_TOOL;
     const json = !!(args._meta as { json?: boolean } | undefined)?.json;
@@ -918,6 +945,13 @@ class SessionBackend extends EventEmitter implements ServerBackend {
     try {
       if (outcome.kind === "open") {
         const result = await this.callAny(name, args, signal, session, sample, progress);
+        const passkey = step ? undefined : (await this.current?.catch(() => undefined))?.passkeys?.running;
+        if (passkey) {
+          // Done first: the person's step waits for the calls in flight before it shows its banner.
+          end();
+          await waitFor(passkey, progress, "Waiting for the person to answer the page's passkey prompt", signal);
+          return result;
+        }
         const paused = watch.gate.paused;
         if (!paused || step) return result;
         return withNote(result, pausedWhileRunningNote(paused.step), json);
@@ -1334,6 +1368,63 @@ class SessionBackend extends EventEmitter implements ServerBackend {
         ...(page ? { page } : {}),
         screenshot: true,
       });
+  }
+
+  /**
+   * Passkey prompts of this browser's pages (`passkey.ts`): a modal one hands the browser to the
+   * person until it settles, when they can see Chrome's own window (headed, or attach mode, where
+   * only the agent's tabs count). The live view cannot show that window, so a headless Chrome only
+   * tells the agent. Read mode and Camoufox are left out: Lightpanda has no WebAuthn, and the probe
+   * is checked on Chrome only.
+   */
+  private async watchPasskeys(
+    launched: LaunchedBrowser,
+    governor: TabGovernor,
+    locale: UiLocale,
+  ): Promise<PasskeyWatch | undefined> {
+    if (launched.engine === "lightpanda" || launched.engine === "camoufox") return undefined;
+    const headless = this.host.config.browser?.launchOptions?.headless === true && !launched.userBrowser;
+    const agents = (page: Page) => !launched.userBrowser || governor.governs(page);
+    const strings = uiStrings(locale).passkey;
+    const passkeys = new PasskeyWatch({
+      unseen: () => (headless ? passkeyUnseenReason(this.host.identity?.id) : undefined),
+      paused: () => this.watch.gate.paused !== undefined,
+      handoff: async (page, settle) =>
+        await runStep(
+          {
+            instruction: strings.instruction,
+            urlChanges: false,
+            done: true,
+            timeoutMs: DEFAULT_STEP_TIMEOUT_MS,
+            requireHumanClick: false,
+          },
+          {
+            page,
+            watch: this.watch,
+            guard: this.host.guard,
+            by: "a passkey prompt",
+            settle,
+            locale,
+            banner: { title: strings.title, hint: strings.hint },
+            window: !headless && !launched.userBrowser,
+            json: false,
+            currentPage: () => (page.isClosed() ? undefined : page),
+          },
+        ),
+    });
+    try {
+      await installPasskeyProbe(
+        launched.context,
+        (report, page) => {
+          if (agents(page)) passkeys.report(report, page);
+        },
+        agents,
+      );
+    } catch {
+      // A browser the probe cannot go into still works; its passkey prompts are just not seen.
+      return undefined;
+    }
+    return passkeys;
   }
 
   /**
@@ -1899,6 +1990,50 @@ export async function runHost(
   } catch (error) {
     console.error((error as Error).message);
     core.utils.gracefullyProcessExitDoNotHang(1);
+  }
+}
+
+/** Why the person cannot answer Chrome's passkey window: a headless Chrome has none to show. */
+function passkeyUnseenReason(id: string | undefined): string {
+  const b = names().browser;
+  const login = id
+    ? `, or to sign in to this site once in a window with \`${b} login ${id}\` after this session ends`
+    : "";
+  return `this Chrome runs without a window (--headless) and the live view shows only the page, never Chrome's own windows, so the person cannot see that window. Ask the person to start turno-browser-mcp without --headless${login}.`;
+}
+
+/** A result with the passkey notes a call takes, first (under `turno.passkey` in JSON). */
+function withPasskeyNotes(result: ToolResult, notes: readonly PasskeyNote[], json: boolean): ToolResult {
+  if (!notes.length) return result;
+  const text = notes.map((n) => `### Passkey\n${n.text}`).join("\n\n");
+  const all = notes.map((n) => ({ ...n.data, note: n.text }));
+  const data = all.length === 1 ? all[0] : all;
+  return withNote(result, text, json, "passkey", json ? data : text);
+}
+
+/** Waits for `done` (or the call's cancel), telling a client that asked for progress that the call still waits. */
+async function waitFor(
+  done: Promise<void>,
+  progress: Progress | undefined,
+  message: string,
+  signal: AbortSignal | undefined,
+): Promise<void> {
+  const began = Date.now();
+  const timer = progress ? setInterval(() => progress(Date.now() - began, message), 15_000) : undefined;
+  let onAbort: (() => void) | undefined;
+  try {
+    await Promise.race([
+      done,
+      new Promise<void>((r) => {
+        const stop = () => r();
+        onAbort = stop;
+        if (signal?.aborted) stop();
+        else signal?.addEventListener("abort", stop, { once: true });
+      }),
+    ]);
+  } finally {
+    clearInterval(timer);
+    if (onAbort) signal?.removeEventListener("abort", onAbort);
   }
 }
 

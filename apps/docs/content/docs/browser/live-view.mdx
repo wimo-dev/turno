@@ -106,6 +106,29 @@ or a text message, a second factor, accepting terms or giving consent. For those
   (`turno-browser live <id>`), and the agent is told to ask you for it when it is not. Read mode
   and Camoufox do not have the tool.
 
+### Passkeys
+
+When a page asks for a passkey (to sign in with one or to create one), only you can answer, with
+Touch ID, your phone or a security key, in Chrome's own passkey window. turno sees the request
+start and hands you the browser by itself, the same way as `browser_request_human`, with a banner
+that tells you to use your passkey in that window:
+
+- It starts only for a request that puts Chrome's window up (`mediation` left out, `"optional"` or
+  `"required"`). Passkey autofill (`mediation: "conditional"`), which sign-in pages start on load
+  and which waits until you pick a passkey in a field's suggestions, never stops the agent.
+- The step ends when the request settles, when you press Done, or after 5 minutes. The agent's
+  call that clicked "Sign in with a passkey" (or its next call) says how it went: the passkey was
+  created or used, you cancelled it or it timed out (pages get the same `NotAllowedError` for
+  both), or it failed with the error's name. It never gets the credential or what the page asked
+  for.
+- The live view shows the page, not Chrome's own windows, so a headless Chrome cannot show the
+  passkey window at all. Then no step starts, and the agent is told to ask you to run the browser
+  with a window (`turno-browser-mcp` without `--headless`). In attach mode only the agent's own
+  tabs count; a passkey you use in one of your tabs is yours.
+- To see the requests, turno adds a small script to every frame of the agent's pages that wraps
+  `navigator.credentials.create` and `get`. It reads only whether the call is for a passkey and
+  its `mediation`, and how it settled. Read mode and Camoufox do not have it.
+
 With the other settings:
 
 - Attach mode: you already see the agent's tabs in your own Chrome, and a view would stream your

@@ -340,6 +340,17 @@ describe("upstream contract (patchright-core 1.64.3)", () => {
     );
   });
 
+  it("skips patchright's catch-all route for init scripts on a context marked as routed, and never fills it", () => {
+    // passkey.ts sets routeInjecting: the route only turns the HTTP cache off, since the scripts it
+    // would put into HTML are a list nothing adds to.
+    expect(bundleSource).toContain("if (this.routeInjecting || this.context().routeInjecting) return;");
+    expect(bundleSource).toMatch(/async installInjectRoute\(\) \{\n\s+if \(this\.routeInjecting\) return;/);
+    expect(bundleSource.match(/_evaluateOnNewDocumentScripts\.push/g)).toBeNull();
+    expect(bundleSource).toContain(
+      'this._client.send("Page.addScriptToEvaluateOnNewDocument", {\n          source: initScript.source,',
+    );
+  });
+
   it("has no option with the name of a turno flag", () => {
     const help = execFileSync(process.execPath, [bin, "--help"], { env: sb.env, encoding: "utf8" });
     const upstreamPart = help.slice(help.indexOf("Every other flag is a Playwright MCP flag:"));

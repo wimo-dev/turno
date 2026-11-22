@@ -164,6 +164,11 @@ export class TabGovernor {
     this.track(current).lastUsed = this.now();
   }
 
+  /** True for a page the governor counts as the agent's (with `ownedOnly`, not the user's own tabs). */
+  governs(page: Page): boolean {
+    return this.pages.has(page);
+  }
+
   /** Counts a page as the agent's (attach mode: the tab the host opens at connect). */
   own(page: Page): void {
     this.track(page);

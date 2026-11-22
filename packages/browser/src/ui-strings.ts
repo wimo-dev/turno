@@ -66,6 +66,13 @@ export interface UiStrings {
     /** Under the instruction, without one (the step ends by itself). */
     hintAuto: string;
   };
+  /** The banner of a page's passkey prompt (`passkey.ts`), in place of the step's title and hint. */
+  passkey: {
+    title: string;
+    instruction: string;
+    /** Under the instruction, with a Done button. */
+    hint: string;
+  };
   /** The agent cursor (`agent-cursor.ts`). */
   cursor: {
     /** The name of an agent that sent none. */
@@ -128,6 +135,11 @@ export const UI_STRINGS: Record<UiLocale, UiStrings> = {
       hintDone: "The agent is waiting for you. Press Done when you have finished.",
       hintAuto: "The agent is waiting for you and goes on by itself once this step is done.",
     },
+    passkey: {
+      title: "Use your passkey",
+      instruction: "This page asks for your passkey.",
+      hint: "Confirm with Touch ID, your phone or your security key in Chrome's passkey window. If no such window shows, press Done.",
+    },
     cursor: {
       agent: "Agent",
       working: "turno · agent at work",
@@ -189,6 +201,11 @@ export const UI_STRINGS: Record<UiLocale, UiStrings> = {
       done: "Listo",
       hintDone: "El agente te está esperando. Presiona Listo cuando termines.",
       hintAuto: "El agente te está esperando y sigue solo cuando termines este paso.",
+    },
+    passkey: {
+      title: "Usa tu passkey",
+      instruction: "Esta página te pide tu passkey.",
+      hint: "Confirma con Touch ID, tu teléfono o tu llave de seguridad en la ventana de Chrome. Si no aparece esa ventana, presiona Listo.",
     },
     cursor: {
       agent: "Agente",
