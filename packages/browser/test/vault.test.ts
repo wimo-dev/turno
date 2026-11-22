@@ -1,5 +1,4 @@
-import { readFileSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { secretStore } from "turno-core/secrets";
 import { addIdentity, removeIdentity } from "../src/identities.js";
@@ -81,7 +80,7 @@ describe("the credential vault", () => {
       ["github", true, false],
       ["mail", true, false],
     ]);
-    rmSync(join(fake.dir, encodeURIComponent(vaultItem("work", "mail"))));
+    fake.remove(vaultItem("work", "mail"));
     info = await vaultList("work", opts());
     expect(info.sites.find((s) => s.site === "mail")?.stored).toBe(false);
     await expect(readCredential("work", "mail", opts())).rejects.toThrow(/missing from the secret store/);

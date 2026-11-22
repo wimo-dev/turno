@@ -12,7 +12,7 @@ import { execFileSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { dpapiDir } from "turno-core/secrets";
+import { dpapiDir, dpapiFileName } from "turno-core/secrets";
 import type { Sandbox } from "./sandbox.js";
 
 /**
@@ -27,6 +27,8 @@ export interface FakeSecretStore {
   dir: string;
   read(service: string): string | undefined;
   write(service: string, value: string): void;
+  /** Deletes an item behind turno's back, as a person could in Keychain Access. */
+  remove(service: string): void;
   services(): string[];
   failWrites(on: boolean): void;
 }
@@ -114,6 +116,7 @@ function windowsStore(sb: Sandbox): FakeSecretStore {
     dir,
     read: (s) => (JSON.parse(call("get", s)) as string | null) ?? undefined,
     write: (s, v) => void call("set", s, v),
+    remove: (s) => rmSync(join(dir, dpapiFileName(s))),
     services: () =>
       existsSync(dir)
         ? readdirSync(dir)
@@ -152,6 +155,7 @@ export function fakeSecretStore(sb: Sandbox): FakeSecretStore {
     dir,
     read: (s) => (existsSync(file(s)) ? readFileSync(file(s), "utf8") : undefined),
     write: (s, v) => writeFileSync(file(s), v),
+    remove: (s) => rmSync(file(s)),
     services: () =>
       readdirSync(dir)
         .filter((f) => !f.startsWith("."))

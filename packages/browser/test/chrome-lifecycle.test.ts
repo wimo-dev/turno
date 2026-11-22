@@ -13,7 +13,7 @@ import { readHealth } from "../src/health.js";
 import { createHost, serve } from "../src/host.js";
 import { startedChromePid } from "../src/lifecycle.js";
 import { readChallenges } from "../src/reputation.js";
-import { readRuntimeLock } from "../src/runtime-lock.js";
+import { readRuntimeLock, stopCommand } from "../src/runtime-lock.js";
 import { writeIdentitySettings } from "../src/settings.js";
 import { type TurnoTool, turnoZod } from "../src/tools.js";
 import { upstream } from "../src/upstream.js";
@@ -300,7 +300,7 @@ describe.skipIf(reason !== undefined)(reason ? `real Chrome (skipped: ${reason})
     expect(textOf(res)).toContain(
       `browser identity "locked" is in use by turno-browser-mcp (pid ${r.pid}, Chrome pid ${pid})`,
     );
-    expect(textOf(res)).toContain(`kill ${r.pid}`);
+    expect(textOf(res)).toContain(stopCommand(r.pid));
     expect(alive(pid), "the first Chrome is untouched").toBe(true);
 
     await r.client.close();
