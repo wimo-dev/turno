@@ -44,6 +44,34 @@ jobs:
           TURNO_SKIP_E2E: "1"
       - run: node scripts/pack-check.mjs
 
+  windows:
+    # turno-browser and the turno-core parts it uses on Windows. turno-cli (mcpd, launchd) is
+    # not supported there, so only these two packages build and test here.
+    name: browser on windows (node ${{ matrix.node }})
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22, 24]
+    runs-on: windows-latest
+    permissions:
+      contents: read # check out the code
+    env:
+      # The package scripts (rm -rf, chmod) are POSIX; pnpm runs them with Git Bash here.
+      npm_config_script_shell: C:\Program Files\Git\bin\bash.exe
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ matrix.node }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter turno-core --filter turno-browser run build
+      - run: pnpm --filter turno-core --filter turno-browser run typecheck
+      - run: pnpm --filter turno-core --filter turno-browser run test
+
   pull-request:
     name: pull request rules
     if: github.event_name == 'pull_request'
