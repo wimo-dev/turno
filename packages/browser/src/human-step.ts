@@ -462,7 +462,11 @@ export async function runHumanStep(params: StepParams, deps: StepDeps): Promise<
       )
         ended = "selector";
       else if (now() >= deadline) ended = "timeout";
-      if (ended) break;
+      if (ended) {
+        // What ended the step (a click that showed the selector, say) came after the poll above: read it once more.
+        if (ended !== "closed") await banner.poll();
+        break;
+      }
       if (deps.progress && now() - told >= PROGRESS_MS) {
         told = now();
         deps.progress(told - began, `Waiting for the person (${formatPause(told - began)})`);
