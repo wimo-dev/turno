@@ -179,21 +179,73 @@ function workspaceText(dir: string): string {
 describe.skipIf(reason !== undefined)(
   reason ? `sensitive fields on real Chrome (skipped: ${reason})` : "sensitive fields on real Chrome",
   () => {
-    it("never shows a password or one-time code the person typed: snapshots, JSON, files, scripts, requests", async () => {
+    it("never shows a password or one-time code the person typed, and refuses the agent's typing into one", async () => {
       const site = await web();
       onTestFinished(() => site.close());
       const client = await start("work");
+      await call(client, "browser_navigate", { url: `${site.url}/login` });
+      const form = (await call(client, "browser_snapshot")).text;
+      const value = async (selector: string) =>
+        (
+          await call(client, "browser_evaluate", {
+            function: `() => JSON.stringify(document.querySelector('${selector}').value)`,
+          })
+        ).text;
+
+      const typed = await call(client, "browser_type", {
+        target: ref(form, "textbox", "Password"),
+        element: "Password",
+        text: "agent-guess-123",
+      });
+      expect(typed.error).toBe(true);
+      expect(typed.text).toContain("browser_type was refused: that field takes a password");
+      expect(typed.text).toContain("browser_request_human");
+      expect(typed.text).toContain("browser_login");
+      expect(await value("#pw")).toContain('\\"\\"');
+
+      const filled = await call(client, "browser_fill_form", {
+        fields: [
+          { name: "User", type: "textbox", target: ref(form, "textbox", "User"), value: "ada" },
+          { name: "Password", type: "textbox", target: ref(form, "textbox", "Password"), value: "agent-guess-123" },
+        ],
+      });
+      expect(filled.error).toBe(true);
+      expect(filled.text).toContain("browser_fill_form was refused: that field takes a password");
+      // The whole call is refused: not even the user name went in.
+      expect(await value("[name=user]")).toContain('\\"\\"');
+
+      const code = await call(client, "browser_type", { target: ref(form, "textbox", "Code"), text: "123456" });
+      expect(code.error).toBe(true);
+      expect(code.text).toContain("that field takes a one-time code");
+      const digit = await call(client, "browser_type", { target: ref(form, "textbox", "Digit 1"), text: "1" });
+      expect(digit.error).toBe(true);
+      expect(digit.text).toContain("that field takes a one-time code");
+
+      // Key presses into the focused password field are refused too; Tab is not typing.
+      await call(client, "browser_click", { target: ref(form, "textbox", "Password"), element: "Password" });
+      const key = await call(client, "browser_press_key", { key: "x" });
+      expect(key.error).toBe(true);
+      expect(key.text).toContain("browser_press_key was refused");
+      expect((await call(client, "browser_press_key", { key: "Tab" })).error).toBe(false);
+
+      // Everything else is typed as before.
+      const user = await call(client, "browser_type", { target: ref(form, "textbox", "User"), text: "ada" });
+      expect(user.error, user.text).toBe(false);
+      expect(await value("[name=user]")).toContain('\\"ada\\"');
+      expect(await value("#pw")).toContain('\\"\\"');
+
+      // The person types them (the page fills them as it loads): no result shows them.
       await call(client, "browser_navigate", { url: `${site.url}/login?person=1` });
 
       const snap = await call(client, "browser_snapshot");
       expect(snap.error, snap.text).toBe(false);
       expect(leaks(snap.text, [PERSON_PASSWORD, PERSON_CODE]), "typed value in the snapshot").toBe(0);
-      expect(snap.text).toMatch(/textbox "Password" \[ref=e\d+\]: \[sensitive field\]/);
-      expect(snap.text).toMatch(/textbox "Code" \[ref=e\d+\]: \[sensitive field\]/);
+      expect(snap.text).toMatch(/textbox "Password" \[ref=(?:f\d+)?e\d+\]: \[sensitive field\]/);
+      expect(snap.text).toMatch(/textbox "Code" \[ref=(?:f\d+)?e\d+\]: \[sensitive field\]/);
       // One digit per box is too short to redact by value; the snapshot masks each box.
       for (const n of [1, 2, 3])
-        expect(snap.text).toMatch(new RegExp(`textbox "Digit ${n}" \\[ref=e\\d+\\]: \\[sensitive field\\]`));
-      expect(snap.text).toMatch(/textbox "User" \[ref=e\d+\]\n/);
+        expect(snap.text).toMatch(new RegExp(`textbox "Digit ${n}" \\[ref=(?:f\\d+)?e\\d+\\]: \\[sensitive field\\]`));
+      expect(snap.text).toMatch(/textbox "User" \[ref=(?:f\d+)?e\d+\]\n/);
 
       const json = await call(client, "browser_snapshot", { _meta: { json: true } });
       expect(json.error, json.text).toBe(false);
@@ -230,67 +282,12 @@ describe.skipIf(reason !== undefined)(
       expect(body.text).toContain("user=");
     }, 90_000);
 
-    it("refuses an agent that types a password or a one-time code, and says who should", async () => {
+    it("keeps the names of credentials in network output and drops their values, and points out a challenge page", async () => {
       const site = await web();
       onTestFinished(() => site.close());
       const client = await start("work");
-      await call(client, "browser_navigate", { url: `${site.url}/login` });
-      const snap = (await call(client, "browser_snapshot")).text;
-      const value = async (selector: string) =>
-        (
-          await call(client, "browser_evaluate", {
-            function: `() => JSON.stringify(document.querySelector('${selector}').value)`,
-          })
-        ).text;
-
-      const typed = await call(client, "browser_type", {
-        target: ref(snap, "textbox", "Password"),
-        element: "Password",
-        text: "agent-guess-123",
-      });
-      expect(typed.error).toBe(true);
-      expect(typed.text).toContain("browser_type was refused: that field takes a password");
-      expect(typed.text).toContain("browser_request_human");
-      expect(typed.text).toContain("browser_login");
-      expect(await value("#pw")).toContain('\\"\\"');
-
-      const filled = await call(client, "browser_fill_form", {
-        fields: [
-          { name: "User", type: "textbox", target: ref(snap, "textbox", "User"), value: "ada" },
-          { name: "Password", type: "textbox", target: ref(snap, "textbox", "Password"), value: "agent-guess-123" },
-        ],
-      });
-      expect(filled.error).toBe(true);
-      expect(filled.text).toContain("browser_fill_form was refused: that field takes a password");
-      // The whole call is refused: not even the user name went in.
-      expect(await value("[name=user]")).toContain('\\"\\"');
-
-      const code = await call(client, "browser_type", { target: ref(snap, "textbox", "Code"), text: "123456" });
-      expect(code.error).toBe(true);
-      expect(code.text).toContain("that field takes a one-time code");
-      const digit = await call(client, "browser_type", { target: ref(snap, "textbox", "Digit 1"), text: "1" });
-      expect(digit.error).toBe(true);
-      expect(digit.text).toContain("that field takes a one-time code");
-
-      // Key presses into the focused password field are refused too; Tab is not typing.
-      await call(client, "browser_click", { target: ref(snap, "textbox", "Password"), element: "Password" });
-      const key = await call(client, "browser_press_key", { key: "x" });
-      expect(key.error).toBe(true);
-      expect(key.text).toContain("browser_press_key was refused");
-      expect((await call(client, "browser_press_key", { key: "Tab" })).error).toBe(false);
-
-      // Everything else is typed as before.
-      const user = await call(client, "browser_type", { target: ref(snap, "textbox", "User"), text: "ada" });
-      expect(user.error, user.text).toBe(false);
-      expect(await value("[name=user]")).toContain('\\"ada\\"');
-      expect(await value("#pw")).toContain('\\"\\"');
-    }, 90_000);
-
-    it("keeps the names of credentials in network output and drops their values, in text, JSON and files", async () => {
-      const site = await web();
-      onTestFinished(() => site.close());
-      const client = await start("work");
-      await call(client, "browser_navigate", { url: `${site.url}/api` });
+      const opened = await call(client, "browser_navigate", { url: `${site.url}/api` });
+      expect(opened.text).not.toContain("### Challenge");
       const snap = (await call(client, "browser_snapshot")).text;
       await call(client, "browser_click", { target: ref(snap, "button", "Load"), element: "Load" });
       await call(client, "browser_wait_for", { text: "loaded" });
@@ -345,15 +342,8 @@ describe.skipIf(reason !== undefined)(
       const file = readFileSync(join(sb.home, "oauth-response.json"), "utf8");
       expect(leaks(file, secrets), "credential in the saved file").toBe(0);
       expect(file).toContain('"refresh_token":"[redacted]"');
-    }, 90_000);
 
-    it("tells the agent when the page it ended on is a challenge, once, and logs it", async () => {
-      const site = await web();
-      onTestFinished(() => site.close());
-      const client = await start("work");
-      const plain = await call(client, "browser_navigate", { url: `${site.url}/plain` });
-      expect(plain.text).not.toContain("### Challenge");
-
+      // A result that ends on a challenge page says so, on every visit.
       const challenged = await call(client, "browser_navigate", { url: `${site.url}/challenge` });
       expect(challenged.error, challenged.text).toBe(false);
       expect(challenged.text).toMatch(
