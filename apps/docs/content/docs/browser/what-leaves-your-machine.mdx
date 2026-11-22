@@ -1,0 +1,64 @@
+---
+title: "What leaves your machine"
+description: "Every way data goes from turno-browser to somewhere else: what is off by default, what you turn on, and what stays Chrome's own."
+---
+
+turno-browser runs on your machine, as your user. It has no account, no server of its own and no telemetry: no part of it reports usage, errors or anything else to the turno project or to anyone. Besides the sites you open in the browser, data leaves your machine only through the features on this page, and each one is off until you turn it on or run it.
+
+## The sites you browse
+
+The browser goes where you or your agent sends it, as your own Chrome would. Each site sees what a site always sees: your IP address (or your [proxy's](/docs/browser/network#a-proxy)), the cookies of that identity, and what you type or submit there.
+
+- **Vault credentials** go only to the site they belong to. `browser_login` fills a username, password or one-time code only into frames on the origins the site was stored with, and the values never reach the model: they live in the OS secret store (the macOS Keychain or the Linux Secret Service), and every tool result and error is redacted before it goes back to the agent. See [Vault, sign-in and secrets](/docs/browser/vault).
+- **Password and one-time code fields** are masked in every snapshot, whoever typed them.
+
+## Off until you turn it on
+
+| Feature | What goes out | Where it goes |
+|---|---|---|
+| [Natural language actions](/docs/browser/natural-language-and-captchas#natural-language-actions) (`browser_act`, `browser_extract`, `browser_observe`) | your instruction, the steps taken so far, and an accessibility snapshot of the current tab, with vault values and password, one-time code, card and secret fields replaced by `[vault: sensitive value]` | the model you configure: your agent's own client through MCP sampling, or the chat completions endpoint you name in `act.endpoint` (its key comes from the secret store) |
+| [Captcha solving](/docs/browser/natural-language-and-captchas#captcha-solving) (`browser_solve_captcha`) | the page URL, the widget kind and its site key (both public, in the page's markup), whether the widget is invisible, and your solver account key | the solver service you name in `captcha.endpoint`; no cookies and no page content are sent, but the service usually loads the page on its own machines |
+| [A proxy](/docs/browser/network#a-proxy) (`proxy`) | all of that identity's browser traffic | the proxy you name; its credentials come from the secret store |
+
+An instruction that contains a value the server hides (a vault value or a sensitive field) is refused before it reaches the model. A model reply is redacted too before anything reads it.
+
+## Commands you run
+
+| Command | What it reaches |
+|---|---|
+| `turno-browser bench` | the public test pages `bot-detector.rebrowser.net` and `bot.sannysoft.com`, plus any `--url` you give, on a throwaway profile. It asks first, and without a terminal it needs `--yes` |
+| `turno-browser doctor` | nothing: its smoke launch opens Chrome on a temporary profile and loads `about:blank` |
+| Install hints for Lightpanda, Camoufox and stock Playwright | nothing until you run the command shown yourself (it downloads from GitHub, PyPI or npm) |
+
+## What never leaves
+
+- **Recordings**: flows, traces and screenshots stay in the identity's state folder.
+- **The reputation log**: challenges and captcha attempts are written locally, with the host name, never a token or a key.
+- **Session exports**: `turno-browser export` writes an encrypted file on your disk; it goes wherever you copy it, and never holds vault credentials.
+- **The live view** is served on `127.0.0.1` only, on a random port, to a browser that holds a random per-process cookie. The background server listens on a Unix socket in a folder only your user can enter, or on `127.0.0.1` with a per-server token. See [Security and privacy](/docs/security#the-browser-package).
+
+## Chrome's own traffic
+
+turno-browser drives the Google Chrome you installed, so Chrome's own services stay Chrome's: they follow Chrome's settings and Google's privacy policy, not turno's. turno adds no switch that sends anything.
+
+The Chrome that turno starts for an identity gets Playwright's default switches, which turn off several background requests, and turno keeps them:
+
+- `--disable-background-networking`, `--disable-field-trial-config`, `--disable-breakpad` (crash reports), `--disable-sync`, `--no-default-browser-check` and `--no-first-run`.
+- The disabled features `OptimizationHints` (optimization hint downloads), `NetworkTimeServiceQuerying` (network time queries), `AimEnabled` (AI Mode eligibility requests) and `Translate`, among others.
+
+turno changes two things in that launch, neither of which sends data: it leaves third-party storage partitioning on, as in a person's Chrome, and it lets extensions load, so an extension you install in an identity's profile runs there and may make requests of its own. With `"keychain": "system"`, Chrome encrypts the profile's cookies with a key from the macOS Keychain or the Linux Secret Service instead of a fixed one; that changes nothing on the network.
+
+What stays Chrome's in every mode:
+
+- **Updates.** Chrome updates through Google's updater (on macOS, a separate agent installed with Chrome), which turno neither starts nor stops.
+- **Safe Browsing** and any other Chrome service those switches do not cover, under the profile's own settings.
+
+The other engines:
+
+- **[Attach mode](/docs/browser/engines#attach-to-your-chrome)** connects to a Chrome you already run, with its own settings: none of the switches above apply, and its sync, extensions and updates work as you set them up.
+- **[Read mode (Lightpanda)](/docs/browser/engines#read-mode-lightpanda)** runs Lightpanda with `LIGHTPANDA_DISABLE_TELEMETRY=true` every time turno starts it.
+- **[Camoufox](/docs/browser/engines#camoufox)** runs with Camoufox's own defaults.
+
+## The turno CLI
+
+The `turno` CLI, when you have it, checks the npm registry for a newer version at most once a day and has a few commands that go online when you run them. Both are listed, with how to turn the check off, in [Security and privacy](/docs/security#when-turno-goes-online).
