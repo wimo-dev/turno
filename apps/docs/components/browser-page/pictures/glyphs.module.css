@@ -270,3 +270,31 @@
   border: 1px dashed var(--ink);
   white-space: nowrap;
 }
+
+/* Policy */
+.policy {
+  display: grid;
+  gap: 5px;
+  width: min(100%, 240px);
+}
+.policy > span {
+  display: flex;
+  gap: 10px;
+  padding: 4px 9px;
+  border: 1px dashed var(--dim);
+  color: var(--dim);
+  text-decoration: line-through;
+}
+.policy > span[data-ok] {
+  border: 1px solid var(--ink);
+  background: var(--paper);
+  color: var(--ink);
+  text-decoration: none;
+}
+.policy b {
+  font-weight: 500;
+  text-decoration: none;
+}
+.policy > span[data-ok] b {
+  color: var(--tone-keep);
+}

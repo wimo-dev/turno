@@ -65,6 +65,23 @@ function Sharing({ words }: GlyphProps) {
   );
 }
 
+/** The sites an identity may show, and one it may not. */
+function Policy() {
+  return (
+    <div className={g.policy}>
+      <span data-ok>
+        <b>✓</b> example.com
+      </span>
+      <span data-ok>
+        <b>✓</b> *.example.com
+      </span>
+      <span>
+        <b>✕</b> elsewhere.test
+      </span>
+    </div>
+  );
+}
+
 /** An instruction in plain words, and the calls it turns into. */
 function Act({ words }: GlyphProps) {
   return (
@@ -215,6 +232,7 @@ function Lighter() {
 const GLYPHS: Record<OptInId, (props: GlyphProps) => ReactNode> = {
   live: Live,
   sharing: Sharing,
+  policy: Policy,
   act: Act,
   captcha: Captcha,
   humanize: Humanize,

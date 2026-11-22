@@ -3,8 +3,8 @@
 **A browser your agents use with your accounts. It stays light on your machine, and the model
 never sees your passwords.**
 
-An MCP server that lets a coding agent drive the Google Chrome installed on your machine, with
-one persistent profile per identity. You sign in to a site once, by hand, and the agent works in
+An MCP server that lets a coding agent drive the Chrome installed on your machine (or Brave, Edge
+or Chromium), with one persistent profile per identity. You sign in to a site once, by hand, and the agent works in
 that same signed-in browser afterwards.
 
 ![Two accounts, each with its own Chrome profile, and a third identity an agent drives through the gateway](https://raw.githubusercontent.com/wimo-dev/turno/main/docs/assets/browser-identities.png)
@@ -50,7 +50,7 @@ On from the start:
 | | |
 |---|---|
 | [Identities](https://turno.wimo.dev/docs/browser/identities) | one Chrome profile per identity, with its time zone, languages and locale fixed |
-| [Tab limits](https://turno.wimo.dev/docs/browser/tabs) | at most 8 pages, parked after 5 minutes unused, closed after 15; Chrome closes after 15 minutes without a call |
+| [Tab limits](https://turno.wimo.dev/docs/browser/tabs) | at most 8 pages, parked after 5 minutes unused, closed after 15; Chrome closes after 15 minutes without a call. `--resources low` is a tighter preset for a machine short of memory |
 | [Credential vault](https://turno.wimo.dev/docs/browser/vault) | `browser_login` fills username, password and one-time code; the agent never sees them, and a password field never comes back to it, whoever typed it |
 | [Session export and import](https://turno.wimo.dev/docs/browser/moving-a-session) | an identity's session as one encrypted file, for another machine |
 | [`browser_batch`](https://turno.wimo.dev/docs/browser/actions) | up to 20 actions in one call, and errors that say what is in the way |
@@ -58,13 +58,14 @@ On from the start:
 | [From the shell](https://turno.wimo.dev/docs/browser/actions#from-the-shell) | `turno-browser do <id> open`, `snapshot`, `click`, `type`, `read`: the same browser and rules, as shell commands |
 | [Steps only you may do](https://turno.wimo.dev/docs/browser/live-view#when-the-agent-asks-for-you) | `browser_request_human` brings the tab to you with a banner for a password, a captcha, a code or consent; the agent waits, and never gets what you typed |
 | [The agent cursor](https://turno.wimo.dev/docs/browser/agent-cursor) | when you can see the browser, a named cursor and a badge show where the agent is working; the model never sees it |
-| [A step for the person](https://turno.wimo.dev/docs/browser/live-view#when-the-agent-asks-for-you) | `browser_request_human`: the agent asks you for a password, a captcha or a second factor, waits, and never gets what you typed |
+| [A step for the person](https://turno.wimo.dev/docs/browser/live-view#when-the-agent-asks-for-you) | `browser_request_human`: the agent asks you for a password, a captcha or a second factor, waits, and never gets what you typed; a passkey request hands you the browser by itself |
 | [Health, reputation and doctor](https://turno.wimo.dev/docs/browser/identities#session-health) | a signed-out identity says so, each site's challenges are counted, and `doctor` checks Chrome and every identity |
 
 Off until you turn it on, per identity:
 
 | | |
 |---|---|
+| [Identity policy](https://turno.wimo.dev/docs/browser/policy) | the domains an identity's tabs may show and the features that are off for good; only the command line writes it |
 | [Several agents, one browser](https://turno.wimo.dev/docs/browser/sharing) | several agent sessions in one identity's Chrome, each in its own tabs |
 | [Live view and take-over](https://turno.wimo.dev/docs/browser/live-view) | watch the agent's tab on 127.0.0.1, pause it, act, and resume; the agent is told what changed |
 | [Recordings and traces](https://turno.wimo.dev/docs/browser/flows#recordings-and-traces) | every session as a flow, a Playwright trace and a screenshot per action |
