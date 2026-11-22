@@ -92,17 +92,32 @@ export type GateOutcome =
       kind: "resumed";
       pausedMs: number;
       by: string;
+      /** The pause was a step an agent asked the person to do (`browser_request_human`). */
+      step: boolean;
       /** The tabs when the pause started (empty when no browser ran). */
       before: TabState[];
       /** Clicks, keys and scrolls the user sent through the live view during the pause. */
       inputs: number;
     }
-  | { kind: "timeout"; pausedMs: number; by: string }
+  | { kind: "timeout"; pausedMs: number; by: string; step: boolean }
   | { kind: "aborted" };
+
+/** How a pause holds calls beyond the live wait: a step the agent asked the person to do. */
+export interface PauseHold {
+  /** The pause is a person step (`browser_request_human`), not the user's own pause. */
+  step?: boolean;
+  /** When the step ends at the latest (epoch ms): a held call waits at least until then. */
+  until?: number;
+}
+
+/** How long a held call waits past the end of a person step, for the step to clean up. */
+const STEP_SLACK_MS = 10_000;
 
 interface Pause {
   since: number;
   by: string;
+  step: boolean;
+  until: number | undefined;
   before: Promise<TabState[]>;
   inputs: number;
   done: Promise<void>;
@@ -112,12 +127,21 @@ interface Pause {
 /** Holds calls while the user has the browser. One per server: a pause holds every session. */
 export class PauseGate {
   private pause: Pause | undefined;
+  /** The pause that ended last, for a step the person resumed before it read its input count. */
+  private ended: { since: number; inputs: number } | undefined;
   private waiting = 0;
 
   constructor(private readonly now: () => number = Date.now) {}
 
-  get paused(): { since: number; by: string } | undefined {
-    return this.pause && { since: this.pause.since, by: this.pause.by };
+  get paused(): { since: number; by: string; step: boolean } | undefined {
+    return this.pause && { since: this.pause.since, by: this.pause.by, step: this.pause.step };
+  }
+
+  /** The live view input of the pause that started at `since`, on now or ended last (else 0). */
+  inputsOf(since: number | undefined): number {
+    if (since === undefined) return 0;
+    if (this.pause?.since === since) return this.pause.inputs;
+    return this.ended?.since === since ? this.ended.inputs : 0;
   }
 
   /** Calls waiting for the user now. */
@@ -126,14 +150,23 @@ export class PauseGate {
   }
 
   /** Starts a pause; false when one is already on. `before` is the tabs as the agent left them. */
-  start(by: string, before: Promise<TabState[]> = Promise.resolve([])): boolean {
+  start(by: string, before: Promise<TabState[]> = Promise.resolve([]), hold: PauseHold = {}): boolean {
     if (this.pause) return false;
     let release!: () => void;
     const done = new Promise<void>((r) => {
       release = r;
     });
     before.catch(() => {});
-    this.pause = { since: this.now(), by, before, inputs: 0, done, release };
+    this.pause = {
+      since: this.now(),
+      by,
+      step: hold.step === true,
+      until: hold.until,
+      before,
+      inputs: 0,
+      done,
+      release,
+    };
     return true;
   }
 
@@ -142,6 +175,7 @@ export class PauseGate {
     const p = this.pause;
     if (!p) return false;
     this.pause = undefined;
+    this.ended = { since: p.since, inputs: p.inputs };
     p.release();
     return true;
   }
@@ -157,6 +191,8 @@ export class PauseGate {
     if (!p) return { kind: "open" };
     if (signal?.aborted) return { kind: "aborted" };
     this.waiting++;
+    // A person step holds every call until it ends, however long the live wait is.
+    const holdMs = p.until === undefined ? waitMs : Math.max(waitMs, p.until - this.now() + STEP_SLACK_MS);
     let timer: NodeJS.Timeout | undefined;
     let onAbort: (() => void) | undefined;
     try {
@@ -164,7 +200,7 @@ export class PauseGate {
         p.done.then(() => "resumed" as const),
         new Promise<"timeout">((r) => {
           // Each call waits the whole time: a call that arrives late in a pause is held as long.
-          timer = setTimeout(() => r("timeout"), waitMs);
+          timer = setTimeout(() => r("timeout"), holdMs);
         }),
         new Promise<"aborted">((r) => {
           onAbort = () => r("aborted");
@@ -173,8 +209,15 @@ export class PauseGate {
       ]);
       if (outcome === "aborted") return { kind: "aborted" };
       const pausedMs = this.now() - p.since;
-      if (outcome === "timeout") return { kind: "timeout", pausedMs, by: p.by };
-      return { kind: "resumed", pausedMs, by: p.by, before: await p.before.catch(() => []), inputs: p.inputs };
+      if (outcome === "timeout") return { kind: "timeout", pausedMs, by: p.by, step: p.step };
+      return {
+        kind: "resumed",
+        pausedMs,
+        by: p.by,
+        step: p.step,
+        before: await p.before.catch(() => []),
+        inputs: p.inputs,
+      };
     } finally {
       this.waiting--;
       if (timer) clearTimeout(timer);
@@ -232,15 +275,22 @@ export function resumeNote(o: {
   lines: readonly string[];
   tool: string;
   ran: boolean;
+  /** The pause was a person step another call asked for (`browser_request_human`). */
+  step?: boolean;
   /** A flow is being recorded: what the user did is not in it. */
   recordingFlow?: boolean;
   /** The browser is not running, so there is no snapshot. */
   noBrowser?: boolean;
 }): string {
-  const out = [
-    "### Paused by the user",
-    `The user paused this browser (${o.by}) for ${formatPause(o.pausedMs)} and has resumed it.`,
-  ];
+  const out = o.step
+    ? [
+        "### Waited for the person",
+        `A call asked the person to do a step in this browser (${o.by}); it took ${formatPause(o.pausedMs)} and has ended.`,
+      ]
+    : [
+        "### Paused by the user",
+        `The user paused this browser (${o.by}) for ${formatPause(o.pausedMs)} and has resumed it.`,
+      ];
   if (o.lines.length) out.push("While you waited:", ...o.lines.map((l) => `- ${l}`));
   else out.push("Nothing changed in the browser's tabs (same tabs, URLs and titles).");
   if (o.ran) out.push(`Your ${o.tool} call ran after the resume; its result follows.`);
@@ -252,6 +302,13 @@ export function resumeNote(o: {
     );
   if (o.recordingFlow) out.push("The flow you are recording does not have what the user did.");
   return out.join("\n");
+}
+
+/** The note of a call that was running when a pause started. */
+export function pausedWhileRunningNote(step: boolean): string {
+  return step
+    ? "### Waited for the person\nA call asked the person to do a step in this browser while this call ran. Your next call waits until the step ends."
+    : "### Paused by the user\nThe user paused this browser while this call ran. Your next call waits until they resume.";
 }
 
 /** The error of a call whose wait ran out. */

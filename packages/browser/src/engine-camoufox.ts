@@ -47,6 +47,8 @@ const NOT_IN_CAMOUFOX: Readonly<Record<string, string>> = {
     "it runs Playwright code against the patchright-core API, and Camoufox runs on stock Playwright",
   browser_solve_captcha:
     "it sets the token from Patchright's isolated script world and calls the widget's callback in the page's own, and Camoufox runs on stock Playwright",
+  browser_request_human:
+    "its banner runs in Patchright's isolated script world, out of the page scripts' reach, and Camoufox runs on stock Playwright",
 };
 
 /** Why the Camoufox engine refuses this tool, or undefined when it runs it. */

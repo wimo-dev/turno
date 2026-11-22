@@ -79,24 +79,24 @@ const names = async (client: Client) => (await client.listTools()).tools.map((t)
 describe("opt-in tools in the host", () => {
   it("are not listed by default, nor for an identity that does not turn them on", async () => {
     const plain = await connect({});
-    expect(await names(plain)).toHaveLength(30);
+    expect(await names(plain)).toHaveLength(31);
     writeIdentitySettings("work", { region: "MX" }, sb.env);
     const identity = await connect({ identity: { id: "work", env: sb.env } });
     const listed = await names(identity);
-    expect(listed).toHaveLength(30);
+    expect(listed).toHaveLength(31);
     for (const t of ["browser_act", "browser_extract", "browser_observe", "browser_solve_captcha"])
       expect(listed).not.toContain(t);
   });
 
   it("are listed after the turno tools when identity.json turns them on", async () => {
     writeIdentitySettings("work", { act: {} }, sb.env);
-    expect((await names(await connect({ identity: { id: "work", env: sb.env } }))).slice(30)).toEqual([
+    expect((await names(await connect({ identity: { id: "work", env: sb.env } }))).slice(31)).toEqual([
       "browser_act",
       "browser_extract",
       "browser_observe",
     ]);
     writeIdentitySettings("work", { captcha: SOLVER }, sb.env);
-    expect((await names(await connect({ identity: { id: "work", env: sb.env } }))).slice(30)).toEqual([
+    expect((await names(await connect({ identity: { id: "work", env: sb.env } }))).slice(31)).toEqual([
       "browser_act",
       "browser_extract",
       "browser_observe",

@@ -3,6 +3,7 @@ import { actTool, extractTool, observeTool } from "./act.js";
 import type { ActModel, Sampler } from "./act-model.js";
 import { batchTool } from "./batch.js";
 import { type CaptchaSolver, solveCaptchaTool } from "./captcha.js";
+import { requestHumanTool } from "./human-step.js";
 import { type VaultAccess, loginTool } from "./login-tool.js";
 import { type FlowRecorder, recordTool } from "./recorder.js";
 import { flowsTool, replayTool } from "./replay.js";
@@ -85,6 +86,8 @@ interface TurnoToolContext {
   engine?: string;
   /** Providers that replace the configured ones (tests inject fakes). */
   providers?: Providers;
+  /** Runs a person step on the session's tab (`browser_request_human`); set by the host for it. */
+  human?: (params: Record<string, unknown>) => Promise<ToolResult>;
 }
 
 /** Stand-ins for the opt-in providers: a model for natural language actions, a captcha solver. */
@@ -103,7 +106,14 @@ export interface TurnoTool {
 }
 
 /** The tools turno adds to every session. */
-export const TURNO_TOOLS: readonly TurnoTool[] = [batchTool(), loginTool(), recordTool(), replayTool(), flowsTool()];
+export const TURNO_TOOLS: readonly TurnoTool[] = [
+  batchTool(),
+  loginTool(),
+  recordTool(),
+  replayTool(),
+  flowsTool(),
+  requestHumanTool(),
+];
 
 /**
  * The tools an identity lists only after the person turns their feature on in identity.json

@@ -44,6 +44,7 @@ describe("PauseGate", () => {
       kind: "resumed",
       pausedMs: 65_000,
       by: "the live view",
+      step: false,
       before: [{ id: 1, url: "https://a.example/", title: "A" }],
       inputs: 2,
     });
