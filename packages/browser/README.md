@@ -47,7 +47,7 @@ On from the start:
 |---|---|
 | [Identities](https://turno.wimo.dev/docs/browser/identities) | one Chrome profile per identity, with its time zone, languages and locale fixed |
 | [Tab limits](https://turno.wimo.dev/docs/browser/tabs) | at most 8 pages, parked after 5 minutes unused, closed after 15; Chrome closes after 15 minutes without a call |
-| [Credential vault](https://turno.wimo.dev/docs/browser/vault) | `browser_login` fills username, password and one-time code; the agent never sees them |
+| [Credential vault](https://turno.wimo.dev/docs/browser/vault) | `browser_login` fills username, password and one-time code; the agent never sees them, and a password field never comes back to it, whoever typed it |
 | [Session export and import](https://turno.wimo.dev/docs/browser/moving-a-session) | an identity's session as one encrypted file, for another machine |
 | [`browser_batch`](https://turno.wimo.dev/docs/browser/actions) | up to 20 actions in one call, and errors that say what is in the way |
 | [Flows](https://turno.wimo.dev/docs/browser/flows) | save what an agent did on a site once, and replay it with parameters |
@@ -123,6 +123,9 @@ turno-browser vault list school
   and only into frames of those origins.
 - **Never in a result.** Once a value was filled, every result and error shows `[vault: ...]`
   in its place: snapshots, network requests and console messages.
+- **Password fields too.** A password or a one-time code never comes back to the agent,
+  whoever typed it: a snapshot shows `[sensitive field]`, and `browser_type` refuses those
+  fields.
 - **It does not submit.** The agent clicks the sign-in button, unless you run
   `turno-browser vault submit school auto`.
 
