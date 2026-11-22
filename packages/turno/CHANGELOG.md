@@ -1,5 +1,12 @@
 # turno-cli
 
+## 0.5.3
+
+### Patch Changes
+
+- 298c744: The agent cursor follows the pointer path with humanize on, counts the other busy sessions on the badge with shared tabs, keeps the typing bubble up long enough to see, and keeps its label inside the page. Each session's cursor is named after its own agent ("Claude Code", "Codex", "Cursor", "Copilot", "Gemini CLI") instead of the raw client name or the name of the first one: mcpd sends the client's name with each call (`io.turno/client` in `_meta`), and a shared host uses each connection's own.
+- ce785fd: A password or one-time code never reaches the agent, whoever typed it: every page snapshot (also the snapshot files an action writes to the workspace) shows its value as `[sensitive field]`, and the value is hidden from every later result. `browser_type`, `browser_fill_form` and key presses into a password or one-time code field are refused with an error that says to ask the person (`browser_request_human`) or to use `browser_login`; a flow replay types one only from the secret store (`keychain:<item>`) or from the hidden prompt of `turno browser replay`, which names those parameters for the server it starts in `TURNO_BROWSER_PROMPTED_PARAMS` (listed in `turno help environment`). `browser_network_requests` and `browser_network_request` keep the names of credentials and show `[redacted]` for their values (Authorization, Cookie and Set-Cookie headers, token, code, session, key, secret and password fields), also in a file saved with `filename`. A tool result that ends on a captcha, "verify it's you" or block page says so and suggests that the person handles it.
+
 ## 0.5.2
 
 ### Patch Changes
