@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { browserPaths as paths, tildify } from "turno-core/paths";
 import { type ProcTable, readProcTable, signalProcess } from "turno-core/process";
 import { type PressureProbe, memoryPressureProbe } from "turno-core/memory";
-import { type SecretStore, secretStore } from "turno-core/secrets";
+import { type SecretStore, describeSecretStore, secretStore, windowsPowerShell } from "turno-core/secrets";
 import { backgroundAlive, readBackgroundState } from "./background-state.js";
 import {
   type BrowserLaunch,
@@ -61,7 +61,8 @@ import { vaultItem, vaultSummary } from "./vault.js";
  * - Browsers: Google Chrome and the other Chromium-based browsers found (`browsers.ts`), their
  *   versions, and a smoke launch on a throwaway profile (headless); with none, the no-admin way
  *   to get one (`install-browser`).
- * - System: a headed Chrome needs the desktop session (macOS) or a display (Linux), and the
+ * - System: a headed Chrome needs the desktop session (macOS) or a display (Linux), the secret
+ *   store in use (Keychain, Secret Service or Windows DPAPI, and where its files are), and the
  *   memory pressure the system reports (a warning when it is up; never a failure).
  * - Engines: Lightpanda for read mode and Camoufox with the stock Playwright it runs on (both
  *   optional; a failure only when an identity uses them), and a Lightpanda an earlier server
@@ -231,6 +232,23 @@ function systemChecks(env: NodeJS.ProcessEnv, platform: NodeJS.Platform): Doctor
       });
   }
   return out;
+}
+
+/** Which secret store holds the vault and the keychain: items on this machine, and where. */
+function secretStoreCheck(env: NodeJS.ProcessEnv, platform: NodeJS.Platform, opts: DoctorOptions): DoctorCheck {
+  const store = opts.secrets ?? secretStore(env, platform);
+  if (store) return { area: "system", level: "ok", text: `secret store: ${describeSecretStore(store)}` };
+  return {
+    area: "system",
+    level: "info",
+    text: "secret store: none found, so the vault and keychain: items cannot be used here",
+    manual:
+      platform === "win32"
+        ? `Windows PowerShell is missing at ${windowsPowerShell(env)}`
+        : platform === "darwin"
+          ? "the security command is missing from PATH"
+          : "install libsecret (secret-tool)",
+  };
 }
 
 /** The memory pressure the system reports, with the low-resource preset as the way out. */
@@ -843,7 +861,11 @@ async function collect(
       });
     }
   }
-  checks.push(...systemChecks(env, platform), await memoryCheck(opts.memory ?? memoryPressureProbe()));
+  checks.push(
+    ...systemChecks(env, platform),
+    secretStoreCheck(env, platform, opts),
+    await memoryCheck(opts.memory ?? memoryPressureProbe()),
+  );
   const ids = identityIds(env);
   checks.push(...engineChecks(opts, env, ids));
   if (!ids.length)

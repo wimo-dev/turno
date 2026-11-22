@@ -7,7 +7,7 @@ import { type Config, loadConfig } from "../core/config.js";
 import { loadManifest } from "../core/manifest.js";
 import { paths, privateRoots, tildify } from "../core/paths.js";
 import { agentOf, listProfiles } from "../core/profiles.js";
-import { secretStore } from "../core/secrets.js";
+import { describeSecretStore, secretStore } from "../core/secrets.js";
 import { profileTokenFile, tokenProfile } from "../mcpd/tokens.js";
 import type { Check } from "./commands/doctor.js";
 import { isObject } from "../core/fsutil.js";
@@ -59,7 +59,7 @@ function secretStoreCheck(env: NodeJS.ProcessEnv): Check {
 export function secretStoreLabel(env: NodeJS.ProcessEnv): string {
   const store = secretStore(env);
   if (!store) return "none";
-  return store.kind === "keychain" ? "macOS Keychain (security)" : "Secret Service (secret-tool)";
+  return describeSecretStore(store);
 }
 
 // ---- permissions

@@ -77,6 +77,8 @@ Use it with your own accounts, on sites whose terms allow automated access by yo
 
 Two capabilities send page content to a third party you pick, and both are off unless you turn them on per identity: [natural language actions](/docs/browser/natural-language-and-captchas#natural-language-actions) send the instruction and a snapshot of the page to a model (vault values and sensitive fields hidden), and [captcha solving](/docs/browser/natural-language-and-captchas#captcha-solving) sends the page address and the captcha to a solver service, which may break a site's terms and is meant for your own accounts. Their keys live only in the secret store, as `keychain:` references, and every solve is logged in the identity's reputation log.
 
+On Windows the secret store is one file per item in `%LOCALAPPDATA%\turno\secrets`, encrypted with DPAPI for your Windows user: only that user can decrypt it, normally only on that machine, and any program running as you can read it, as with the Keychain items above. Values reach Windows PowerShell on stdin, never in a command line. The details and limits are under [Vault, sign-in and secrets](/docs/browser/vault#on-windows).
+
 Everything the browser package can send off your machine, and what stays Chrome's own traffic, is listed in [What leaves your machine](/docs/browser/what-leaves-your-machine).
 
 ## When turno goes online

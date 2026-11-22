@@ -12,7 +12,7 @@ secret store and handle processes the same way. That shared ground is this packa
 | Import | What it gives |
 |---|---|
 | `turno-core/paths` | turno's folders, from `HOME`, the XDG variables and `TURNO_CONFIG_DIR`, `TURNO_STATE_DIR`, `TURNO_DATA_DIR`; the browser's folders; private folders (0700) and files (0600); a `PATH` lookup |
-| `turno-core/secrets` | the machine's secret store: the macOS Keychain through `security`, or the Linux Secret Service through `secret-tool`. Values travel on stdin, never in a process argument list |
+| `turno-core/secrets` | the machine's secret store: the macOS Keychain through `security`, the Linux Secret Service through `secret-tool`, or on Windows files in `%LOCALAPPDATA%\turno\secrets` encrypted with DPAPI through Windows PowerShell. Values travel on stdin, never in a process argument list |
 | `turno-core/process` | whether a PID is alive, signals that never throw, and the process table with process groups |
 
 It is internal to turno. For per-folder accounts and the MCP gateway, install
