@@ -101,6 +101,7 @@ export interface Path {
   text: string;
   commands: { run: string; note: string }[];
   more?: { text: string; href: string };
+  also?: { text: string; href: string };
 }
 
 export interface BrowserCopy {
@@ -187,7 +188,7 @@ const DOCS = "/docs/browser";
 
 const en: BrowserCopy = {
   hero: {
-    eyebrow: "turno-browser · Open source · Apache-2.0 · macOS and Linux",
+    eyebrow: "turno-browser · Open source · Apache-2.0 · macOS, Linux and Windows",
     headline: ["A browser your agents use with ", "your accounts", "."],
     hook: "It stays light on your machine, and the model never sees your passwords.",
     lead: "An MCP server for Claude Code, Codex, Cursor, Copilot CLI and Gemini CLI. It drives the Chrome you already have, or Brave or Edge, with one persistent profile per identity.",
@@ -291,7 +292,7 @@ const en: BrowserCopy = {
       username: "username",
       password: "password",
       code: "one-time code",
-      stored: "kept in the system keychain, never in a file",
+      stored: "kept in the system keychain, never as plain text",
       signIn: "Sign in",
       notPart: "The model is not part of this step.",
     },
@@ -465,6 +466,7 @@ const en: BrowserCopy = {
         { run: CMD.init, note: "Asks a name for the identity, opens Chrome so you sign in by hand, and gives the identity to Claude Code, Codex, Cursor, Copilot CLI or Gemini CLI." },
       ],
       more: { text: "The same steps, one command at a time", href: `${DOCS}/get-started#add-an-identity` },
+      also: { text: "No Node on the machine? A standalone executable", href: `${DOCS}/get-started#install-without-node` },
     },
     withTurno: {
       title: "With turno",
@@ -492,7 +494,7 @@ const en: BrowserCopy = {
 
 const es: BrowserCopy = {
   hero: {
-    eyebrow: "turno-browser · Código abierto · Apache-2.0 · macOS y Linux",
+    eyebrow: "turno-browser · Código abierto · Apache-2.0 · macOS, Linux y Windows",
     headline: ["Un navegador que tus agentes usan con ", "tus cuentas", "."],
     hook: "No carga tu máquina, y el modelo nunca ve tus contraseñas.",
     lead: "Un servidor MCP para Claude Code, Codex, Cursor, Copilot CLI y Gemini CLI. Maneja el Chrome que ya tienes, o Brave o Edge, con un perfil persistente por identidad.",
@@ -596,7 +598,7 @@ const es: BrowserCopy = {
       username: "usuario",
       password: "contraseña",
       code: "código de un solo uso",
-      stored: "guardado en el llavero del sistema, nunca en un archivo",
+      stored: "guardado en el llavero del sistema, nunca en texto plano",
       signIn: "Iniciar sesión",
       notPart: "El modelo no participa en este paso.",
     },
@@ -770,6 +772,7 @@ const es: BrowserCopy = {
         { run: CMD.init, note: "Pregunta un nombre para la identidad, abre Chrome para que inicies sesión a mano y le da la identidad a Claude Code, Codex, Cursor, Copilot CLI o Gemini CLI." },
       ],
       more: { text: "Los mismos pasos, un comando a la vez", href: `${DOCS}/get-started#add-an-identity` },
+      also: { text: "¿Sin Node en la máquina? Un ejecutable independiente", href: `${DOCS}/get-started#install-without-node` },
     },
     withTurno: {
       title: "Con turno",
