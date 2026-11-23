@@ -1,0 +1,43 @@
+---
+title: turno 0.6.1
+description: turno-browser runs on Windows, keeps its secrets there with DPAPI, and comes as a standalone executable for machines without Node.
+---
+
+<ReleaseHeader date="2026-11-22" packages={["turno-cli@0.6.1", "turno-browser@0.10.0", "turno-core@0.5.0"]} />
+
+**[turno-browser](/browser)** now installs on Windows, and on any machine without Node as one executable.
+
+## Upgrade
+
+<Upgrade>
+
+**Update `turno-cli` and `turno-browser` together**, as with every release.
+
+**Nothing to migrate** on macOS and Linux. On Windows, install with `npm i -g turno-browser`, or download the executable.
+
+</Upgrade>
+
+## Highlights
+
+<Highlight area="Browser" title="turno-browser on Windows" href="/docs/browser/get-started#on-windows" more="On Windows">
+
+turno-browser installs with npm on Windows 10 and 11 (x64) and finds Chrome, Edge, Brave or the Chrome for Testing that `install-browser` downloads. Its folders follow `%APPDATA%` and `%LOCALAPPDATA%`, the background server and the live view use named pipes only your user can write to, and `setup` and `init` register it with agents that start through `.cmd` files. CI runs the whole browser suite on Windows with real Chrome. Not yet tried by hand on a Windows desktop or on ARM64, and Edge and Brave are found there but were not launched.
+
+</Highlight>
+
+<Highlight area="Browser" title="Secrets on Windows" href="/docs/browser/vault#on-windows" more="Secrets on Windows">
+
+On Windows, vault credentials and `keychain:` items live in `%LOCALAPPDATA%\turno\secrets`, each file encrypted with DPAPI for your Windows user, so only you, on that machine, can read them. The values reach Windows PowerShell on stdin, never on a command line.
+
+</Highlight>
+
+<Highlight area="Browser" title="Install without Node" href="/docs/browser/get-started#install-without-node" more="Install without Node">
+
+Each turno-browser release on GitHub now carries one executable per platform (macOS arm64 and x64, Linux x64, and Windows x64 as experimental), with a `SHA256SUMS` file and build attestations you can check with `gh attestation verify`. It is the same package as on npm, with Node inside, and stores its data in the same places. The executables are not signed by Apple or Microsoft yet, so macOS and Windows warn the first time you open one; the page says how to open it.
+
+</Highlight>
+
+## Links
+
+- Full changelogs: [turno-cli](https://github.com/wimo-dev/turno/blob/main/packages/turno/CHANGELOG.md), [turno-browser](https://github.com/wimo-dev/turno/blob/main/packages/browser/CHANGELOG.md) and [turno-core](https://github.com/wimo-dev/turno/blob/main/packages/core/CHANGELOG.md).
+- [Install on Windows](/docs/browser/get-started#on-windows), [install without Node](/docs/browser/get-started#install-without-node) and [secrets on Windows](/docs/browser/vault#on-windows).
