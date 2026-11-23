@@ -125,7 +125,8 @@ failing on a login page.
 ## Credential vault
 
 An identity can keep a username, a password and a TOTP secret per site in the OS secret store
-(macOS Keychain, Linux Secret Service), never in a file. The `browser_login` tool fills them
+(macOS Keychain, Linux Secret Service, or files encrypted with DPAPI for your user on Windows),
+never as plain text. The `browser_login` tool fills them
 into that site's sign-in page:
 
 ```sh

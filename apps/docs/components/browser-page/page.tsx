@@ -224,6 +224,11 @@ function Way({ path, lang, labels }: { path: Path; lang: string; labels: { copyL
           {path.more.text} <span aria-hidden>→</span>
         </Link>
       ) : null}
+      {path.also ? (
+        <Link href={localePath(lang, path.also.href)} prefetch={false} className={s.link}>
+          {path.also.text} <span aria-hidden>→</span>
+        </Link>
+      ) : null}
     </article>
   );
 }
