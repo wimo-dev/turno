@@ -28,6 +28,7 @@ beforeEach(() => {
 afterEach(async () => {
   await transport?.close().catch(() => {});
   await stopSandboxProcesses(sb.home);
+  server?.closeAllConnections();
   await new Promise((r) => (server ? server.close(() => r(undefined)) : r(undefined)));
   sb.cleanup();
 });
@@ -43,6 +44,13 @@ async function site(): Promise<number> {
     if (req.url === "/redirect") {
       res.writeHead(302, { location: `http://127.0.0.1:${port}/landed` });
       res.end();
+      return;
+    }
+    if (req.url === "/landed") {
+      // Never finishes loading: the tab is taken back before this page's DOMContentLoaded, so
+      // the call that navigated must not wait for one.
+      res.writeHead(200, { "content-type": "text/html" });
+      res.write("<!doctype html><title>landed</title>");
       return;
     }
     if (req.url === "/pixel.svg") {
@@ -102,8 +110,10 @@ describe.skipIf(reason)(`policy domain check in Chrome${reason ? ` (skipped: ${r
     expect(seen).toContain("127.0.0.1 /pixel.svg");
 
     blocked(await call(client, "browser_navigate", { url: `http://127.0.0.1:${port}/direct` }));
-    blocked(await call(client, "browser_click", { element: "out link", target: "#out" }));
+    // The redirect before the link, on a tab with no take-back in flight: the hop's page never
+    // loads, so this call returns only if taking the tab back gives it a page that does.
     blocked(await call(client, "browser_navigate", { url: `${home}redirect` }));
+    blocked(await call(client, "browser_click", { element: "out link", target: "#out" }));
     blocked(await call(client, "browser_click", { element: "pop button", target: "#pop" }));
 
     // The route stopped the link, the direct navigation and the popup before they left Chrome;

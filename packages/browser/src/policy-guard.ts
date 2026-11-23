@@ -15,8 +15,11 @@ import { type HostPattern, navigationVerdict } from "./policy.js";
  *    and a click hangs until its timeout.)
  * 2. A check on every main-frame commit takes the tab back when it shows a page the route did
  *    not stop: a redirect to another host (that request has reached the host), a `data:` or
- *    `file:` URL, history. The tab goes back to its last allowed page (in history, else loaded
- *    again); a popup that never showed one is closed, any other tab goes to about:blank.
+ *    `file:` URL, history. The tab loads its last allowed page again; a popup that never showed
+ *    one is closed, any other tab goes to about:blank. Not `goBack`: Chrome restores that page
+ *    from its back/forward cache, and Playwright sees no DOMContentLoaded or load for a restored
+ *    page, so the tool call whose navigation was taken back (a `browser_navigate` waiting for
+ *    DOMContentLoaded, a click waiting for load) waited until its timeout.
  *
  * Subresources (scripts, images, XHR) and frames inside a page are not checked.
  */
@@ -29,7 +32,7 @@ export interface PolicyViolation {
   target: string;
 }
 
-/** Longest a tool result waits for a tab being taken back. */
+/** Longest a tool result waits for a tab being taken back, and each step of taking it back. */
 const REVERT_WAIT_MS = 5_000;
 /** How soon after an abort an error page is that abort's (a popup's request has no page yet). */
 const ABORT_ERROR_MS = 3_000;
@@ -136,17 +139,17 @@ export class NavigationGuard {
     if (this.reverting.has(page) || page.isClosed()) return;
     this.reverting.add(page);
     const run: Promise<void> = (async () => {
+      // Done once the tab shows the page: a wait for its load would hold the tab's next revert.
+      const options = { waitUntil: "commit", timeout: REVERT_WAIT_MS } as const;
       const good = this.lastGood.get(page);
       if (!good) {
         if (await page.opener().catch(() => null)) await page.close();
-        else if (page.url() !== "about:blank") await page.goto("about:blank");
+        else if (page.url() !== "about:blank") await page.goto("about:blank", options);
         return;
       }
-      const back = () => !page.isClosed() && navigationVerdict(this.patterns, page.url()).allowed === true;
-      await page.goBack({ waitUntil: "domcontentloaded" }).catch(() => null);
-      // History can be gone or busy with the navigation that brought the tab here: load the page.
-      if (!back()) await page.goto(good, { waitUntil: "domcontentloaded" }).catch(() => null);
-      if (!back() && !page.isClosed()) await page.goto("about:blank");
+      await page.goto(good, options).catch(() => null);
+      const back = !page.isClosed() && navigationVerdict(this.patterns, page.url()).allowed === true;
+      if (!back && !page.isClosed()) await page.goto("about:blank", options);
     })()
       .catch(() => {})
       .finally(() => {
