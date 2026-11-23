@@ -57,13 +57,18 @@ export interface SetupConfig {
   notes: string[];
 }
 
-/** One word for a shell line: as it is when it needs no quotes. */
-function shellWord(word: string): string {
+/**
+ * One word for a shell line: as it is when it needs no quotes; else in single quotes for a POSIX
+ * shell, or on Windows in double quotes, which cmd.exe and PowerShell both read (a path there
+ * has no `"` in it).
+ */
+function shellWord(word: string, platform: NodeJS.Platform): string {
+  if (platform === "win32") return /^[\w@+=:,./\\-]+$/.test(word) ? word : `"${word.replace(/"/g, '\\"')}"`;
   return /^[\w@%+=:,./-]+$/.test(word) ? word : `'${word.replace(/'/g, `'\\''`)}'`;
 }
 
-export function shellLine(words: readonly string[]): string {
-  return words.map(shellWord).join(" ");
+export function shellLine(words: readonly string[], platform: NodeJS.Platform = process.platform): string {
+  return words.map((w) => shellWord(w, platform)).join(" ");
 }
 
 function json(v: unknown): string {
@@ -75,12 +80,22 @@ function json(v: unknown): string {
  * executable (a Node.js single executable application, with this package inside it) runs
  * itself as `<executable> mcp`. Otherwise `turno-browser-mcp` when it is on the PATH, else this
  * install's full path (a `pnpm add` or a local checkout puts it nowhere on the PATH); `onPath`
- * is false only then.
+ * is false only then. On Windows npm installs it as a `.cmd` shim, which an agent can start
+ * only through cmd.exe (`cmd /c`, as Claude Code's docs say for npx); off the PATH, Node runs
+ * the script itself.
  */
-export function mcpCommand(env: NodeJS.ProcessEnv): { command: string; args: string[]; onPath: boolean } {
+export function mcpCommand(
+  env: NodeJS.ProcessEnv,
+  platform: NodeJS.Platform = process.platform,
+): { command: string; args: string[]; onPath: boolean } {
   if (isSea()) return { command: process.execPath, args: ["mcp"], onPath: true };
-  if (findOnPath("turno-browser-mcp", env)) return { command: "turno-browser-mcp", args: [], onPath: true };
-  return { command: fileURLToPath(new URL("../bin/mcp.js", import.meta.url)), args: [], onPath: false };
+  const onPath = Boolean(findOnPath("turno-browser-mcp", env, platform));
+  const script = fileURLToPath(new URL("../bin/mcp.js", import.meta.url));
+  if (platform === "win32")
+    return onPath
+      ? { command: "cmd", args: ["/c", "turno-browser-mcp"], onPath }
+      : { command: process.execPath, args: [script], onPath };
+  return onPath ? { command: "turno-browser-mcp", args: [], onPath } : { command: script, args: [], onPath };
 }
 
 /** The config of `agent` for identity `id`, run as `command` with `lead` before `--identity`. */

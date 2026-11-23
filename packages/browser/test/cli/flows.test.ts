@@ -6,6 +6,7 @@ import type { VaultInput } from "../../src/cli/context.js";
 import * as flowCmd from "../../src/cli/flows.js";
 import { type Sandbox, sandbox } from "../helpers/sandbox.js";
 import { cli, ctx, fakeIo, real } from "./helpers.js";
+import { slashes } from "../helpers/programs.js";
 
 /**
  * `record|flows|replay|traces`. The real turno-browser from the workspace runs
@@ -70,7 +71,7 @@ describe("turno-browser record and set --record-*", () => {
     expect((await browser(["add", "school"])).code).toBe("0");
     const none = await browser(["record", "school"]);
     expect(none.out).toMatch(/records\s+nothing \(the agent can still record a flow with browser_record\)/);
-    expect(none.out).toMatch(/flows\s+~\/\.local\/share\/turno\/browser\/flows\/school/);
+    expect(slashes(none.out)).toMatch(/flows\s+~\/\.local\/share\/turno\/browser\/flows\/school/);
 
     const on = await browser(["record", "school", "--flows", "--traces", "--max-size", "50MB"]);
     expect(on.code).toBe("0");
@@ -123,7 +124,12 @@ describe("turno-browser flows", () => {
     expect(list.out).toMatch(/\* sensitive: no value is saved/);
     const json = JSON.parse((await browser(["flows", "school", "--json"])).out);
     expect(json).toMatchObject([
-      { name: "sign-in", steps: 4, auto: false, file: "~/.local/share/turno/browser/flows/school/sign-in.json" },
+      {
+        name: "sign-in",
+        steps: 4,
+        auto: false,
+        file: join("~", ".local", "share", "turno", "browser", "flows", "school", "sign-in.json"),
+      },
     ]);
     const show = await browser(["flows", "school", "sign-in"]);
     expect(show.out).toMatch(/1\. browser_navigate https:\/\/example\.com\/login/);

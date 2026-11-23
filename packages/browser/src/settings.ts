@@ -1,6 +1,7 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { userInfo } from "node:os";
 import { dirname, join } from "node:path";
-import { browserPaths as paths } from "turno-core/paths";
+import { browserPaths as paths, replaceFileSync } from "turno-core/paths";
 import { type ActSettings, type CaptchaSettings, actProblems, captchaProblems } from "./opt-in-settings.js";
 import { parseAttachTarget } from "./engine-attach.js";
 import { IdentityError, assertIdentityId } from "./ids.js";
@@ -329,11 +330,18 @@ export function keychainArgs(settings: Pick<IdentitySettings, "keychain"> | unde
 
 /**
  * The environment for a Chrome this process launches for an identity: the caller's, so HOME
- * and the XDG folders follow the identity's environment instead of this process's.
+ * and the XDG folders follow the identity's environment instead of this process's. On Windows
+ * USERPROFILE is the account's own profile folder: with another one Chrome refuses the DevTools
+ * pipe ("remote debugging requires a non-default data directory"), as seen on windows-latest.
  */
-export function chromeEnv(env: NodeJS.ProcessEnv): Record<string, string> {
+export function chromeEnv(
+  env: NodeJS.ProcessEnv,
+  platform: NodeJS.Platform = process.platform,
+): Record<string, string> {
   const out: Record<string, string> = {};
-  for (const [k, v] of Object.entries(env)) if (v !== undefined) out[k] = v;
+  for (const [k, v] of Object.entries(env))
+    if (v !== undefined && !(platform === "win32" && k.toUpperCase() === "USERPROFILE")) out[k] = v;
+  if (platform === "win32") out.USERPROFILE = userInfo().homedir;
   return out;
 }
 
@@ -714,7 +722,7 @@ export function writeIdentitySettings(
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
   const tmp = `${path}.${process.pid}.tmp`;
   writeFileSync(tmp, `${JSON.stringify(ordered, null, 2)}\n`, { mode: 0o600 });
-  renameSync(tmp, path);
+  replaceFileSync(tmp, path);
   return ordered;
 }
 

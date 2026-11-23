@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { addIdentity, isInUse, inUseBy } from "../src/identities.js";
@@ -10,8 +10,9 @@ import {
   readRuntimeLock,
   runtimeLockAlive,
   runtimeLockPath,
+  stopCommand,
 } from "../src/runtime-lock.js";
-import { type Sandbox, sandbox } from "./helpers/sandbox.js";
+import { type Sandbox, sandbox, expectMode } from "./helpers/sandbox.js";
 
 /**
  * The runtime lock: who drives an identity's Chrome right now ({ nodePid, chromePid, pgid,
@@ -39,7 +40,7 @@ describe("runtime lock", () => {
     const held = acquireRuntimeLock("school", sb.env, { holder: "mcp", now: T0 });
     const file = runtimeLockPath("school", sb.env);
     expect(file).toBe(join(sb.home, ".local", "state", "turno", "browser", "identities", "school", "lock.json"));
-    expect(statSync(file).mode & 0o777).toBe(0o600);
+    expectMode(file, 0o600);
     expect(readRuntimeLock("school", sb.env)).toEqual({
       nodePid: process.pid,
       holder: "mcp",
@@ -77,7 +78,7 @@ describe("runtime lock", () => {
       expect(message).toContain(
         `browser identity "school" is in use by turno-browser-mcp (pid ${other.pid}, Chrome pid 777) since ${T0.toISOString()}`,
       );
-      expect(message).toContain(`kill ${other.pid}`);
+      expect(message).toContain(stopCommand(other.pid!));
       expect(JSON.parse(readFileSync(file, "utf8")).nodePid).toBe(other.pid);
     } finally {
       other.kill();
@@ -144,5 +145,14 @@ describe("runtime lock", () => {
     expect(inUseBy("school", sb.env)).toMatch(/in use by turno-browser login/);
     held.release();
     expect(isInUse("school", sb.env)).toBe(false);
+  });
+});
+
+describe("how a message says to stop the holder", () => {
+  it("is kill elsewhere, and taskkill of the tree on Windows, which has no SIGTERM", () => {
+    expect(stopCommand(123, "darwin")).toBe("kill 123");
+    expect(stopCommand(123, "win32")).toBe("taskkill /PID 123 /T /F");
+    const lock = { nodePid: 123, holder: "mcp" as const, startedAt: "2026-11-22T00:00:00.000Z" };
+    expect(inUseMessage("work", lock, "win32")).toContain("`taskkill /PID 123 /T /F`, which ends its Chrome with it");
   });
 });

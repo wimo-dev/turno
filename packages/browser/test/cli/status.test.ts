@@ -61,7 +61,7 @@ describe("turno-browser status", () => {
     expect(r.identities.map((i: { id: string }) => i.id)).toEqual(["school", "work"]);
     expect(r.identities[0]).toMatchObject({
       id: "school",
-      profile: "~/" + identityDir("school", sb.env).slice(sb.home.length + 1),
+      profile: join("~", identityDir("school", sb.env).slice(sb.home.length + 1)),
       settings: {
         timezone: "America/Monterrey",
         languages: ["es-MX", "en"],
@@ -75,7 +75,7 @@ describe("turno-browser status", () => {
       signedIn: { at: "2026-11-19T15:00:00.000Z", sites: ["canvas.example.edu"] },
       cookieHosts: ["canvas.example.edu"],
       lastUsed: "2026-11-20T18:00:00.000Z",
-      agents: [{ agent: "claude-code", server: "browser-school", file: "~/.claude.json" }],
+      agents: [{ agent: "claude-code", server: "browser-school", file: join("~", ".claude.json") }],
     });
     expect(r.identities[1].settings.resources).toBe("normal");
     expect(r.identities[1]).toMatchObject({ id: "work", signedIn: null, cookieHosts: [], lastUsed: null, agents: [] });

@@ -1,5 +1,6 @@
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { replaceFileSync } from "turno-core/paths";
 import { identityStateDir } from "./ids.js";
 
 /**
@@ -30,7 +31,7 @@ export function touchLastUsed(id: string, env: NodeJS.ProcessEnv = process.env, 
     mkdirSync(identityStateDir(id, env), { recursive: true, mode: 0o700 });
     const tmp = `${file}.${process.pid}.tmp`;
     writeFileSync(tmp, `${JSON.stringify({ at: now.toISOString() })}\n`, { mode: 0o600 });
-    renameSync(tmp, file);
+    replaceFileSync(tmp, file);
   } catch {
     /* a hint only */
   }

@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { addIdentity, identityDir, removeIdentity } from "../src/identities.js";
@@ -11,7 +11,7 @@ import {
   readIdentitySettings,
   writeIdentitySettings,
 } from "../src/settings.js";
-import { type Sandbox, sandbox } from "./helpers/sandbox.js";
+import { type Sandbox, sandbox, expectMode } from "./helpers/sandbox.js";
 
 /**
  * identity.json: the settings that stay fixed for one browser identity (timezone, languages,
@@ -64,7 +64,7 @@ describe("writeIdentitySettings", () => {
     });
     const file = identitySettingsPath("school", sb.env);
     expect(JSON.parse(readFileSync(file, "utf8"))).toEqual(s);
-    expect(statSync(file).mode & 0o777).toBe(0o600);
+    expectMode(file, 0o600);
     expect(readIdentitySettings("school", sb.env)).toEqual(s);
   });
 

@@ -14,6 +14,7 @@ import { acquireRuntimeLock, runtimeLockPath } from "../src/runtime-lock.js";
 import { identitySettingsPath, systemTimezone } from "../src/settings.js";
 import { vaultAdd, vaultItem } from "../src/vault.js";
 import { type Sandbox, sandbox } from "./helpers/sandbox.js";
+import { fakeProgram, pathWith, slashes } from "./helpers/programs.js";
 
 /**
  * `turno browser doctor`: Chrome and its version, the desktop session, a smoke launch on a
@@ -49,7 +50,7 @@ async function doctor(over: Parameters<typeof runDoctor>[0] = {}) {
 }
 
 const find = (checks: DoctorCheck[], area: string, text: RegExp) =>
-  checks.find((c) => c.area === area && text.test(c.text));
+  checks.find((c) => c.area === area && text.test(slashes(c.text)));
 
 describe("browser doctor: Chrome and the system", () => {
   it("reports Chrome with its version and a smoke launch on a temporary profile", async () => {
@@ -500,9 +501,8 @@ describe("browser doctor: the agents that have each identity", () => {
       }),
     );
     const bin = join(sb.home, "bin");
-    mkdirSync(bin);
-    writeFileSync(join(bin, "turno-browser-mcp"), "#!/bin/sh\n", { mode: 0o755 });
-    const env = { ...sb.env, PATH: `${bin}:${sb.env.PATH}` };
+    fakeProgram(bin, "turno-browser-mcp");
+    const env = { ...sb.env, PATH: pathWith(sb.env.PATH, bin) };
     const { checks } = await doctor({ env, agents: browserEntries(env) });
     expect(find(checks, "identity school", /^Claude Code has it \(browser-school in ~\/\.claude\.json\)$/)?.level).toBe(
       "ok",

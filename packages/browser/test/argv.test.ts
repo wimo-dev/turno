@@ -18,9 +18,9 @@ describe("buildArgv", () => {
       "--browser",
       "chrome",
       "--user-data-dir",
-      "/tmp/turno-browser-test/profile",
+      join("/tmp/turno-browser-test", "profile"),
       "--config",
-      "/tmp/turno-browser-test/mcp-config.json",
+      join("/tmp/turno-browser-test", "mcp-config.json"),
     ]);
     expect(b.tempDir).toBe("/tmp/turno-browser-test");
     expect(b.identity).toBeUndefined();
@@ -99,7 +99,7 @@ describe("buildArgv", () => {
       "--browser",
       "chrome",
       "--config",
-      "/tmp/turno-browser-test/mcp-config.json",
+      join("/tmp/turno-browser-test", "mcp-config.json"),
     ]);
     expect(b.userDataDir).toBeUndefined();
     expect(b.tempDir).toBe("/tmp/turno-browser-test");

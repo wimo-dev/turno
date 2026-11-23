@@ -1,10 +1,11 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { replaceFileSync } from "turno-core/paths";
 import { identityBrowserLaunch } from "./browsers.js";
 import { clearHealth } from "./health.js";
 import { identityStateDir } from "./ids.js";
 import { IdentityError, identityDir, inUseBy, isInUse } from "./identities.js";
-import { readLockPid } from "./lifecycle.js";
+import { startedChromePid } from "./lifecycle.js";
 import { CHROME_PROXY_ARGS, resolveProxy } from "./network.js";
 import { acquireRuntimeLock } from "./runtime-lock.js";
 import { chromeEnv, keychainArgs, launchSettings, readIdentitySettings, systemTimezone } from "./settings.js";
@@ -58,7 +59,7 @@ function writeLoginRecord(id: string, env: NodeJS.ProcessEnv, record: LoginRecor
   mkdirSync(identityStateDir(id, env), { recursive: true, mode: 0o700 });
   const tmp = `${file}.${process.pid}.tmp`;
   writeFileSync(tmp, `${JSON.stringify(record, null, 2)}\n`, { mode: 0o600 });
-  renameSync(tmp, file);
+  replaceFileSync(tmp, file);
 }
 
 /** The host of a page the person opened, without "www."; undefined for blank and internal pages. */
@@ -146,7 +147,7 @@ export async function loginIdentity(id: string, options: LoginOptions = {}): Pro
       env: chromeEnv(env),
     });
     const sites = new Set<string>();
-    const pid = readLockPid(dir);
+    const pid = startedChromePid(dir);
     if (pid !== undefined) held.update({ chromePid: pid, pgid: pid });
     const closed = new Promise<void>((resolve) => ctx.on("close", () => resolve()));
     // On macOS Chrome keeps running with no windows, so treat "last page closed" as done.

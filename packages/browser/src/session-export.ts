@@ -1,5 +1,6 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { replaceFileSync } from "turno-core/paths";
 import type { BrowserContext } from "patchright-core";
 import { identityBrowserLaunch } from "./browsers.js";
 import { clearHealth } from "./health.js";
@@ -13,7 +14,7 @@ import {
   isInUse,
 } from "./identities.js";
 import { identityStateDir } from "./ids.js";
-import { readLockPid } from "./lifecycle.js";
+import { startedChromePid } from "./lifecycle.js";
 import { acquireRuntimeLock } from "./runtime-lock.js";
 import { SEALED_FORMAT, SealError, seal, unseal } from "./sealed.js";
 import { names } from "./names.js";
@@ -83,7 +84,7 @@ async function withProfile<T>(
       // Chrome gets the caller's environment (HOME, XDG dirs), not this process's.
       env: chromeEnv(env),
     });
-    const pid = readLockPid(dir);
+    const pid = startedChromePid(dir);
     if (pid !== undefined) held.update({ chromePid: pid, pgid: pid });
     try {
       return await use(ctx);
@@ -281,7 +282,7 @@ export function recordExportFile(id: string, file: string, env: NodeJS.ProcessEn
   mkdirSync(identityStateDir(id, env), { recursive: true, mode: 0o700 });
   const tmp = `${record}.${process.pid}.tmp`;
   writeFileSync(tmp, `${JSON.stringify({ version: 1, files }, null, 2)}\n`, { mode: 0o600 });
-  renameSync(tmp, record);
+  replaceFileSync(tmp, record);
 }
 
 /**

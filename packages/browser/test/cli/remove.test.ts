@@ -15,6 +15,7 @@ import { vaultPath } from "../../src/vault.js";
 import { type FakeSecretStore, fakeSecretStore } from "../helpers/fake-secret-store.js";
 import { type Sandbox, sandbox } from "../helpers/sandbox.js";
 import { cli, fakeAgentCli, fakeIo, real } from "./helpers.js";
+import { fakeProgram, pathWith, slashes } from "../helpers/programs.js";
 
 /**
  * `turno-browser remove`: everything an identity left, removed and checked. The secret store is
@@ -41,9 +42,8 @@ afterEach(() => {
 /** A program on the sandbox PATH that exits 0: an agent that is installed. */
 function installed(name: string): void {
   const dir = join(sb.home, "agentbin");
-  mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, name), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
-  if (!sb.env.PATH!.includes(dir)) sb.env.PATH = `${dir}:${sb.env.PATH}`;
+  fakeProgram(dir, name);
+  if (!sb.env.PATH!.includes(dir)) sb.env.PATH = pathWith(sb.env.PATH, dir);
 }
 
 /** The identity "school" with a vault, a proxy secret, an export and an agent that has it. */
@@ -101,6 +101,7 @@ function claudeHas(id: string, env: NodeJS.ProcessEnv = sb.env): void {
 
 const json = (io: { lines: string[] }) => JSON.parse(io.lines.join("\n"));
 
+// Every case removes vault credentials from the secret store.
 describe("turno-browser remove", () => {
   it("without a terminal needs --yes and deletes nothing; an unknown identity is refused", async () => {
     await expect(cli(api).run("remove", ["nope", "--yes"], fakeIo(sb.env))).rejects.toThrow(/does not exist/);
@@ -133,8 +134,8 @@ describe("turno-browser remove", () => {
       failed: [],
       left: [],
     });
-    const deleted = r.deleted.map(
-      (d: { kind: string; item?: string; path?: string; agent?: string }) => d.item ?? d.path ?? d.agent,
+    const deleted = r.deleted.map((d: { kind: string; item?: string; path?: string; agent?: string }) =>
+      slashes(d.item ?? d.path ?? d.agent ?? ""),
     );
     expect(deleted).toEqual(
       expect.arrayContaining([
@@ -179,7 +180,7 @@ describe("turno-browser remove", () => {
     );
     const r = json(io);
     expect(r.complete).toBe(false);
-    expect(r.left).toEqual(
+    expect(r.left.map((l: { file?: string }) => ({ ...l, file: slashes(l.file ?? "") }))).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           kind: "mcp",
@@ -233,50 +234,58 @@ describe("turno-browser remove", () => {
     expect(store.services()).toContain("turno-browser/vault/school/mail");
   });
 
-  it("stops the background server, the Chrome on the profile and the identity's servers first", async () => {
-    await school();
-    const script = join(sb.home, "turno-browser-mcp");
-    writeFileSync(script, "setInterval(() => {}, 1000);\n");
-    const start = (args: string[], env: NodeJS.ProcessEnv = sb.env) => {
-      const child = spawn(process.execPath, [script, ...args], { stdio: "ignore", detached: true, env });
-      children.push(child);
-      return child.pid!;
-    };
-    const background = start(["--identity", "school", "--background"]);
-    mkdirSync(join(identityStateDir("school", sb.env), "background"), { recursive: true });
-    writeFileSync(
-      backgroundStatePath("school", sb.env),
-      JSON.stringify({ v: 1, pid: background, identity: "school", version: "0", startedAt: "s", idleMs: 0 }),
-    );
-    const stdio = start(["--identity", "school"]);
-    writeFileSync(runtimeLockPath("school", sb.env), JSON.stringify({ nodePid: stdio, holder: "mcp", startedAt: "s" }));
-    const chrome = start([`--user-data-dir=${identityDir("school", sb.env)}`]);
-    symlinkSync(`${hostname()}-${chrome}`, join(identityDir("school", sb.env), "SingletonLock"));
-    const idle = start(["--identity", "school"]); // an agent's server that never opened Chrome
-    const other = start(["--identity", "work"]);
-    // The same id under another HOME is another machine's identity as far as this one goes.
-    const elsewhere = start(["--identity", "school"], { ...sb.env, HOME: join(sb.home, "elsewhere") });
-    // Each child is in the process table with its arguments before remove looks.
-    const pids = [background, stdio, chrome, idle, other, elsewhere];
-    for (let i = 0; i < 100; i++) {
-      const table = readProcTable();
-      if (pids.every((pid) => table?.get(pid)?.command.includes(script))) break;
-      await new Promise((r) => setTimeout(r, 20));
-    }
+  // Its stand-ins are POSIX: a SingletonLock for Chrome, and servers told apart by their HOME,
+  // which Windows' process table does not show.
+  it.skipIf(process.platform === "win32")(
+    "stops the background server, the Chrome on the profile and the identity's servers first",
+    async () => {
+      await school();
+      const script = join(sb.home, "turno-browser-mcp");
+      writeFileSync(script, "setInterval(() => {}, 1000);\n");
+      const start = (args: string[], env: NodeJS.ProcessEnv = sb.env) => {
+        const child = spawn(process.execPath, [script, ...args], { stdio: "ignore", detached: true, env });
+        children.push(child);
+        return child.pid!;
+      };
+      const background = start(["--identity", "school", "--background"]);
+      mkdirSync(join(identityStateDir("school", sb.env), "background"), { recursive: true });
+      writeFileSync(
+        backgroundStatePath("school", sb.env),
+        JSON.stringify({ v: 1, pid: background, identity: "school", version: "0", startedAt: "s", idleMs: 0 }),
+      );
+      const stdio = start(["--identity", "school"]);
+      writeFileSync(
+        runtimeLockPath("school", sb.env),
+        JSON.stringify({ nodePid: stdio, holder: "mcp", startedAt: "s" }),
+      );
+      const chrome = start([`--user-data-dir=${identityDir("school", sb.env)}`]);
+      symlinkSync(`${hostname()}-${chrome}`, join(identityDir("school", sb.env), "SingletonLock"));
+      const idle = start(["--identity", "school"]); // an agent's server that never opened Chrome
+      const other = start(["--identity", "work"]);
+      // The same id under another HOME is another machine's identity as far as this one goes.
+      const elsewhere = start(["--identity", "school"], { ...sb.env, HOME: join(sb.home, "elsewhere") });
+      // Each child is in the process table with its arguments before remove looks.
+      const pids = [background, stdio, chrome, idle, other, elsewhere];
+      for (let i = 0; i < 100; i++) {
+        const table = readProcTable();
+        if (pids.every((pid) => table?.get(pid)?.command.includes(script))) break;
+        await new Promise((r) => setTimeout(r, 20));
+      }
 
-    const io = fakeIo(sb.env);
-    expect(await cli(api).run("remove", ["school", "--yes", "--json"], io)).toBe(0);
-    const r = json(io);
-    expect(
-      r.deleted
-        .filter((d: { kind: string }) => d.kind === "process")
-        .map((d: { pid: number }) => d.pid)
-        .sort(),
-    ).toEqual([background, stdio, chrome, idle].sort());
-    for (const pid of [background, stdio, chrome, idle]) expect(pidAlive(pid)).toBe(false);
-    expect(pidAlive(other)).toBe(true);
-    expect(pidAlive(elsewhere)).toBe(true);
-  });
+      const io = fakeIo(sb.env);
+      expect(await cli(api).run("remove", ["school", "--yes", "--json"], io)).toBe(0);
+      const r = json(io);
+      expect(
+        r.deleted
+          .filter((d: { kind: string }) => d.kind === "process")
+          .map((d: { pid: number }) => d.pid)
+          .sort(),
+      ).toEqual([background, stdio, chrome, idle].sort());
+      for (const pid of [background, stdio, chrome, idle]) expect(pidAlive(pid)).toBe(false);
+      expect(pidAlive(other)).toBe(true);
+      expect(pidAlive(elsewhere)).toBe(true);
+    },
+  );
 
   it("keeps Chrome's own cookie key with keychain system, and reads the sites of a broken vault index", async () => {
     api.addIdentity("school", sb.env);

@@ -1,5 +1,5 @@
 import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
-import { chmodSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { type IncomingMessage, type Server as HttpServer, type ServerResponse, createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { fileURLToPath } from "node:url";
@@ -11,6 +11,7 @@ import {
   isJSONRPCRequest,
   isJSONRPCResultResponse,
 } from "@modelcontextprotocol/sdk/types.js";
+import { replaceFileSync } from "turno-core/paths";
 import { pidAlive } from "turno-core/process";
 import {
   type BackgroundState,
@@ -19,6 +20,7 @@ import {
   backgroundSocketPath,
   backgroundStatePath,
   backgroundTokenPath,
+  isPipePath,
   readBackgroundState,
 } from "./background-state.js";
 import type { IdentityRef } from "./engine.js";
@@ -34,10 +36,12 @@ import { parseDuration } from "./units.js";
  *
  * It serves the identity over MCP streamable HTTP, for shell use without turno's gateway
  * (`client.ts` starts it, connects and calls tools). Only the user reaches it: a Unix socket in
- * a folder only the user can enter, or, where a socket cannot be used (Windows, or a path longer
- * than the system allows), a loopback port that asks for a random per-server bearer token kept
- * in a file only the user can read. It writes `server.json` (pid, address, version) when it is
- * ready and removes it when it exits.
+ * a folder only the user can enter; on Windows a named pipe, whose default security lets only
+ * its creator, administrators and the system write to it (everyone else may only read, and
+ * cannot send a request); or, where neither can be used (a socket path longer than the system
+ * allows, a pipe name another process took), a loopback port that asks for a random per-server
+ * bearer token kept in a file only the user can read. It writes `server.json` (pid, address,
+ * version) when it is ready and removes it when it exits.
  *
  * Every connection is one client session, and they all drive the identity's one browser
  * (`shareHost`), as mcpd's sessions share one stdio server: with `"sharing": "tabs"` each session
@@ -47,7 +51,8 @@ import { parseDuration } from "./units.js";
  * and processes: a client that sends its `Mcp-Session-Id` again keeps its session and its tab.
  *
  * It exits after `idleMs` without a request (default 15 minutes), on SIGTERM, SIGINT and SIGHUP,
- * closing Chrome first. Coexistence with the stdio servers of the identity: `background-state.ts`.
+ * or on a `POST /shutdown` from its client (how `background stop` asks on Windows, which has no
+ * SIGTERM), closing Chrome first. Coexistence with the stdio servers of the identity: `background-state.ts`.
  */
 
 /** Exits after this long without a request, unless the flag or TURNO_BROWSER_BACKGROUND_IDLE says otherwise. */
@@ -130,7 +135,7 @@ export interface BackgroundOptions {
   idleMs: number;
   /** The identity's sharing mode now (the flag, else identity.json, else "session"). */
   sharing: () => SharingMode;
-  /** "auto" (default): a Unix socket where it can, else loopback with a token. */
+  /** "auto" (default): a Unix socket (a named pipe on Windows) where it can, else loopback with a token. */
   transport?: "auto" | "socket" | "tcp";
   /** With `"sharing": "session"`, how long an idle session keeps the browser. */
   leaseMs?: number;
@@ -170,7 +175,7 @@ function writeState(file: string, state: BackgroundState, flag: "w" | "wx"): voi
   }
   const tmp = `${file}.${process.pid}.tmp`;
   writeFileSync(tmp, `${JSON.stringify(state)}\n`, { mode: 0o600 });
-  renameSync(tmp, file);
+  replaceFileSync(tmp, file);
 }
 
 /** The private folder of the identity's background server, 0700 even when it existed. */
@@ -223,7 +228,7 @@ function claim(id: string, env: NodeJS.ProcessEnv, idleMs: number): BackgroundSt
 
 function socketUsable(path: string, transport: BackgroundOptions["transport"]): boolean {
   if (transport === "tcp") return false;
-  const fits = process.platform !== "win32" && Buffer.byteLength(path) <= MAX_SOCKET_PATH;
+  const fits = isPipePath(path) || Buffer.byteLength(path) <= MAX_SOCKET_PATH;
   if (transport === "socket" && !fits)
     throw new BackgroundError(`cannot use a Unix socket at ${path} on this system (path too long or no sockets)`);
   return fits;
@@ -277,7 +282,7 @@ export async function serveBackground(host: Host, options: BackgroundOptions): P
   const stateFile = backgroundStatePath(id, env);
   const socketPath = backgroundSocketPath(id, env);
   const tokenFile = backgroundTokenPath(id, env);
-  const useSocket = (() => {
+  const useSocketAtFirst = (() => {
     try {
       return socketUsable(socketPath, options.transport);
     } catch (error) {
@@ -285,7 +290,8 @@ export async function serveBackground(host: Host, options: BackgroundOptions): P
       throw error;
     }
   })();
-  const token = useSocket ? undefined : randomBytes(32).toString("base64url");
+  let useSocket = useSocketAtFirst;
+  let token = useSocket ? undefined : randomBytes(32).toString("base64url");
 
   const shared: SharedHost = shareHost(host);
   const sessions = new Map<string, Session>();
@@ -302,7 +308,7 @@ export async function serveBackground(host: Host, options: BackgroundOptions): P
   const ours = () => readBackgroundState(id, env)?.pid === process.pid;
   const removeFiles = () => {
     if (!ours()) return;
-    rmSync(socketPath, { force: true });
+    if (!isPipePath(socketPath)) rmSync(socketPath, { force: true });
     rmSync(tokenFile, { force: true });
     rmSync(stateFile, { force: true });
   };
@@ -412,7 +418,13 @@ export async function serveBackground(host: Host, options: BackgroundOptions): P
       reply(res, 401, "unauthorized");
       return;
     }
-    if (new URL(req.url ?? "/", "http://localhost").pathname !== "/mcp") {
+    const pathname = new URL(req.url ?? "/", "http://localhost").pathname;
+    if (pathname === "/shutdown" && req.method === "POST") {
+      res.writeHead(202).end();
+      void close("stop requested by its client");
+      return;
+    }
+    if (pathname !== "/mcp") {
       reply(res, 404, "not found");
       return;
     }
@@ -462,11 +474,21 @@ export async function serveBackground(host: Host, options: BackgroundOptions): P
   http.requestTimeout = 0;
 
   try {
-    if (useSocket) {
+    if (useSocket && isPipePath(socketPath)) {
+      try {
+        await listen(http, socketPath);
+      } catch (error) {
+        // Another process holds the pipe's name: in "auto", the loopback port instead.
+        if ((error as NodeJS.ErrnoException).code !== "EADDRINUSE" || options.transport === "socket") throw error;
+        useSocket = false;
+        token = randomBytes(32).toString("base64url");
+      }
+    } else if (useSocket) {
       rmSync(socketPath, { force: true });
       await listen(http, socketPath);
       chmodSync(socketPath, 0o600);
-    } else {
+    }
+    if (!useSocket) {
       await listen(http, { port: 0, host: "127.0.0.1" });
       writeFileSync(tokenFile, `${token}\n`, { mode: 0o600 });
       chmodSync(tokenFile, 0o600);

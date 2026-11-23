@@ -11,5 +11,7 @@ import { fileURLToPath } from "node:url";
 
 export default function setup(): void {
   const pkg = fileURLToPath(new URL("../..", import.meta.url));
-  execFileSync(join(pkg, "node_modules", ".bin", "tsc"), ["-p", "tsconfig.build.json"], { cwd: pkg, stdio: "inherit" });
+  // tsc's own script through node: node_modules/.bin/tsc is a shell script, which Windows cannot run.
+  const tsc = join(pkg, "node_modules", "typescript", "bin", "tsc");
+  execFileSync(process.execPath, [tsc, "-p", "tsconfig.build.json"], { cwd: pkg, stdio: "inherit" });
 }

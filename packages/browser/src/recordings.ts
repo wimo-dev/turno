@@ -1,8 +1,9 @@
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { inflateRawSync } from "node:zlib";
+import { replaceFileSync } from "turno-core/paths";
 import type { BrowserContext, Page } from "patchright-core";
 import type { IdentityRef } from "./engine.js";
 import { identityStateDir } from "./ids.js";
@@ -360,7 +361,7 @@ export class Recording {
       const file = join(this.dir, INDEX);
       const tmp = `${file}.${process.pid}.tmp`;
       writeFileSync(tmp, `${JSON.stringify(this.index, null, 2)}\n`, { mode: 0o600 });
-      renameSync(tmp, file);
+      replaceFileSync(tmp, file);
     } catch {
       /* best effort: a full disk must not break a tool call */
     }

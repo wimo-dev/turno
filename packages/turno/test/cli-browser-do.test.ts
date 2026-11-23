@@ -7,6 +7,7 @@ import { browserCommand, defaultDeps } from "../src/cli/commands/browser.js";
 import type { DoDeps } from "../src/cli/commands/browser-do.js";
 import {
   identityServer,
+  ownerName,
   passesOn,
   sessionName,
   sessionOwner,
@@ -100,6 +101,15 @@ describe("the session owner", () => {
     expect(passesOn("-zsh")).toBe(false);
     expect(passesOn("/bin/bash ./script.sh")).toBe(false);
     expect(passesOn("node /opt/agent/cli.js")).toBe(false);
+  });
+
+  it("knows Windows' shells, quoted paths and .exe names", () => {
+    expect(passesOn('C:\\WINDOWS\\system32\\cmd.exe /d /s /c "turno-browser do x snapshot"')).toBe(true);
+    expect(passesOn('"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -NoProfile -Command turno-browser do x')).toBe(true);
+    expect(passesOn('"C:\\Program Files\\Git\\usr\\bin\\bash.exe" -c "turno-browser do x"')).toBe(true);
+    expect(passesOn('"C:\\Program Files\\PowerShell\\7\\pwsh.exe"')).toBe(false);
+    expect(passesOn("C:\\WINDOWS\\system32\\cmd.exe")).toBe(false);
+    expect(ownerName({ pid: 7, command: '"C:\\Program Files\\nodejs\\node.exe" "C:\\agent\\cli.js"' })).toBe("cli");
   });
 
   it("is the agent above its per-command shells, or the terminal's shell", () => {

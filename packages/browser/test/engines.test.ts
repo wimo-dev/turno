@@ -125,15 +125,19 @@ describe("Lightpanda discovery and read mode", () => {
     return file;
   }
 
-  it("finds lightpanda on PATH, or at TURNO_LIGHTPANDA_PATH, with its version", () => {
-    const onPath = fakeLightpanda("bin");
-    expect(findLightpanda({ ...sb.env, PATH: join(sb.home, "bin") })).toEqual({
-      path: onPath,
-      version: "1.1.0-nightly.1+test",
-    });
-    const configured = fakeLightpanda("opt");
-    expect(findLightpanda({ ...sb.env, PATH: "", TURNO_LIGHTPANDA_PATH: configured })?.path).toBe(configured);
-  });
+  // The fake Lightpanda is a shell script (and Lightpanda has no Windows build).
+  it.skipIf(process.platform === "win32")(
+    "finds lightpanda on PATH, or at TURNO_LIGHTPANDA_PATH, with its version",
+    () => {
+      const onPath = fakeLightpanda("bin");
+      expect(findLightpanda({ ...sb.env, PATH: join(sb.home, "bin") })).toEqual({
+        path: onPath,
+        version: "1.1.0-nightly.1+test",
+      });
+      const configured = fakeLightpanda("opt");
+      expect(findLightpanda({ ...sb.env, PATH: "", TURNO_LIGHTPANDA_PATH: configured })?.path).toBe(configured);
+    },
+  );
 
   it("finds nothing when it is missing or the configured path is relative", () => {
     expect(findLightpanda({ ...sb.env, PATH: join(sb.home, "empty") })).toBeUndefined();

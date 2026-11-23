@@ -13,6 +13,22 @@ npm install --global turno-browser
 
 This installs two commands: `turno-browser`, which manages identities, and `turno-browser-mcp`, the MCP server an agent runs for one identity.
 
+### On Windows
+
+turno-browser runs on Windows 10 and 11 (x64) too. Install it the same way, from PowerShell or the Command Prompt, with no admin rights:
+
+```powershell
+npm install --global turno-browser
+```
+
+- **Browsers.** It finds Google Chrome, Microsoft Edge and Brave in `Program Files`, `Program Files (x86)` and, for an install for your user alone, `%LOCALAPPDATA%`. With none of them, `turno-browser install-browser` puts Chrome for Testing in `%LOCALAPPDATA%\ms-playwright`, and `winget install --id Google.Chrome.EXE --scope user` installs Chrome for your user alone.
+- **Your data.** Identities and their profiles go to `%LOCALAPPDATA%\turno\data\browser`, settings to `%APPDATA%\turno` and runtime state to `%LOCALAPPDATA%\turno\state`. `TURNO_CONFIG_DIR`, `TURNO_STATE_DIR` and `TURNO_DATA_DIR`, or the `XDG_*` variables, move them as on Linux. [Identities](/docs/browser/identities#on-windows) has the details.
+- **Agents.** npm installs `turno-browser-mcp` as a `.cmd` file, which a program can start only through `cmd.exe`, so `setup` and `init` register it as `cmd /c turno-browser-mcp --identity <id>`.
+- **Secrets.** The [vault](/docs/browser/vault#on-windows) and `keychain:` secrets live in files encrypted with DPAPI for your Windows user.
+- **Not on Windows:** Lightpanda, which has no Windows build. Camoufox was not tried there: `TURNO_CAMOUFOX_PATH` can name its `camoufox.exe`. turno itself (`turno-cli`) does not install on Windows: npm refuses it.
+
+What was checked: the test suite, including the tests that start a real Google Chrome, on GitHub's `windows-latest` runner with Node 22 and 24, and an npm install of the packages followed by `install-browser` and `doctor`'s test launch. Edge and Brave are detected there but were not launched, and nobody has tried it by hand on a Windows 10 or 11 desktop or on ARM64 yet.
+
 ## Install without Node
 
 On a machine without Node or npm, use the standalone executable: one file that holds turno-browser and the Node.js runtime it needs. It still drives the Chrome, Edge or Brave installed on the machine, or the Chrome for Testing that `turno-browser install-browser` puts in your user cache. The GitHub release of each turno-browser version, tagged `turno-browser@<version>` on the [releases page](https://github.com/wimo-dev/turno/releases), has one archive per platform and a `SHA256SUMS` file:
@@ -24,7 +40,7 @@ On a machine without Node or npm, use the standalone executable: one file that h
 | Linux, x64 | `turno-browser-linux-x64.zip` |
 | Windows, x64 (experimental) | `turno-browser-win-x64.zip` |
 
-Windows is experimental: turno-browser does not support Windows yet, so that executable is published for testing and may not work.
+The Windows executable is experimental: the npm install is what CI tests on Windows (see [On Windows](#on-windows)), while the release workflow only checks that this executable starts and answers an MCP request.
 
 Each archive holds the executable (`turno-browser`, or `turno-browser.exe`) and its license files. The one executable is both programs: `turno-browser <command>` is the CLI, and `turno-browser mcp` is the MCP server that `turno-browser-mcp` is in the npm package.
 

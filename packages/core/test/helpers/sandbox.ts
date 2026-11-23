@@ -10,12 +10,32 @@ export interface Sandbox {
   cleanup(): void;
 }
 
+/**
+ * Windows: what programs there need to start (SystemRoot, PATHEXT, the temp folder, where
+ * browsers are installed), the profile folders inside the sandbox, and turno's folders in the
+ * XDG layout, so a test reads the same relative paths on every OS. The Windows defaults
+ * (APPDATA, LOCALAPPDATA) have their own unit test in turno-core.
+ */
+function windowsEnv(home: string): NodeJS.ProcessEnv {
+  const keep = ["SystemRoot", "windir", "ComSpec", "PATHEXT", "TEMP", "TMP", "ProgramFiles", "ProgramFiles(x86)"];
+  return {
+    ...Object.fromEntries(keep.map((k) => [k, process.env[k]])),
+    USERPROFILE: home,
+    APPDATA: join(home, "AppData", "Roaming"),
+    LOCALAPPDATA: join(home, "AppData", "Local"),
+    XDG_CONFIG_HOME: join(home, ".config"),
+    XDG_STATE_HOME: join(home, ".local", "state"),
+    XDG_DATA_HOME: join(home, ".local", "share"),
+  };
+}
+
 export function sandbox(): Sandbox {
   const home = realpathSync(mkdtempSync(join(tmpdir(), "turno-test-")));
   const env: NodeJS.ProcessEnv = {
     PATH: process.env.PATH,
     HOME: home,
     TMPDIR: process.env.TMPDIR,
+    ...(process.platform === "win32" ? windowsEnv(home) : {}),
   };
   return {
     home,

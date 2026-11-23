@@ -9,15 +9,28 @@
  */
 import { chmodSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join, sep } from "node:path";
 
 const KEEP = new Set(["TURNO_SKIP_E2E", "TURNO_E2E_NETWORK", "TURNO_SKIP_CHROME"]);
 const LIVE = /^(TURNO_|CLAUDE|CODEX_|CURSOR_|ANTHROPIC_|XDG_)/;
 
+/**
+ * What may appear under the guard HOME on Windows: the folders the setup itself makes (above),
+ * and PowerShell's own caches, which every powershell.exe (the process table) writes under
+ * LOCALAPPDATA.
+ */
+const SETUP_DIRS = new Set(["AppData", join("AppData", "Local"), join("AppData", "Roaming")]);
+const POWERSHELL = join("AppData", "Local", "Microsoft", "Windows", "PowerShell");
+const allowed = (p: string) =>
+  SETUP_DIRS.has(p) || POWERSHELL === p || POWERSHELL.startsWith(`${p}${sep}`) || p.startsWith(`${POWERSHELL}${sep}`);
+
 /** Paths written under the guard HOME, relative to it. */
 export function guardFindings(home: string): string[] {
   try {
-    return readdirSync(home, { recursive: true }).map(String).sort();
+    return readdirSync(home, { recursive: true })
+      .map(String)
+      .sort()
+      .filter((p) => !allowed(p));
   } catch {
     return [];
   }
@@ -33,6 +46,14 @@ export default function setup(): () => void {
   process.env.XDG_STATE_HOME = join(home, ".local", "state");
   process.env.XDG_DATA_HOME = join(home, ".local", "share");
   process.env.XDG_CACHE_HOME = join(home, ".cache");
+  // Windows reads these instead of HOME: the profile folder, and turno's and Playwright's defaults.
+  // PowerShell and Chrome create them when they are missing, so they are made here and not counted.
+  if (process.platform === "win32") {
+    process.env.USERPROFILE = home;
+    process.env.APPDATA = join(home, "AppData", "Roaming");
+    process.env.LOCALAPPDATA = join(home, "AppData", "Local");
+    for (const dir of [process.env.APPDATA, process.env.LOCALAPPDATA]) mkdirSync(dir, { recursive: true });
+  }
   process.env.TURNO_NO_UPDATE_CHECK = "1";
   // No test reaches the real secret store: stand-ins for `security` and `secret-tool` that refuse
   // come first on PATH. A real Keychain call can open a macOS dialog that blocks the whole
@@ -47,7 +68,7 @@ export default function setup(): () => void {
     );
     chmodSync(file, 0o755);
   }
-  process.env.PATH = `${guard}:${process.env.PATH ?? ""}`;
+  process.env.PATH = `${guard}${delimiter}${process.env.PATH ?? ""}`;
   return () => {
     const found = guardFindings(home);
     rmSync(root, { recursive: true, force: true });

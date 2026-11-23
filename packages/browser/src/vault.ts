@@ -1,6 +1,6 @@
-import { readFileSync, renameSync, rmSync, statSync } from "node:fs";
+import { readFileSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { browserPaths, writePrivateFile } from "turno-core/paths";
+import { browserPaths, writePrivateFile, replaceFileSync } from "turno-core/paths";
 import { type SecretStore, requireSecretStore } from "turno-core/secrets";
 import { IdentityError, assertIdentityId, identityDir } from "./ids.js";
 import { type TotpParams, parseTotpSecret } from "./totp.js";
@@ -149,7 +149,7 @@ function writeIndex(id: string, index: VaultIndex, env: NodeJS.ProcessEnv): void
   );
   const tmp = `${file}.${process.pid}.tmp`;
   writePrivateFile(tmp, `${JSON.stringify({ version: 1, submit: index.submit, sites }, null, 2)}\n`, env);
-  renameSync(tmp, file);
+  replaceFileSync(tmp, file);
 }
 
 function storeOf(options: VaultOptions): SecretStore {

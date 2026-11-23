@@ -1,8 +1,9 @@
-import { mkdtempSync, readdirSync, rmSync, statSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { ResourceCache, blocker, freshness, storable } from "../src/resources.js";
+import { expectMode } from "./helpers/sandbox.js";
 
 describe("blocker", () => {
   const block = blocker({
@@ -81,8 +82,8 @@ describe("ResourceCache", () => {
     let now = 1_000;
     const cache = new ResourceCache(dir, 1024 ** 2 * 10, () => now);
     expect(await cache.put(meta("https://a.example/1.png", 5_000), Buffer.from("one"))).toBe(true);
-    expect(statSync(dir).mode & 0o777).toBe(0o700);
-    for (const f of readdirSync(dir)) expect(statSync(join(dir, f)).mode & 0o777).toBe(0o600);
+    expectMode(dir, 0o700);
+    for (const f of readdirSync(dir)) expectMode(join(dir, f), 0o600);
     expect((await cache.get("https://a.example/1.png", undefined))?.body.toString()).toBe("one");
 
     const again = new ResourceCache(dir, 1024 ** 2 * 10, () => now);

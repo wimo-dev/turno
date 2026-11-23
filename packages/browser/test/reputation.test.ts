@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { readFileSync, statSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { addIdentity } from "../src/identities.js";
@@ -11,7 +11,7 @@ import {
   summarizeChallenges,
   watchChallenges,
 } from "../src/reputation.js";
-import { type Sandbox, sandbox } from "./helpers/sandbox.js";
+import { type Sandbox, sandbox, expectMode } from "./helpers/sandbox.js";
 
 /**
  * The reputation log: one JSON line per challenge a page of an identity showed (captcha,
@@ -33,7 +33,7 @@ describe("reputation log", () => {
     recordChallenge("school", sb.env, { site: "mail.example.com", kind: "verify", markers: ["verify it's you"] }, NOW);
     const file = reputationPath("school", sb.env);
     expect(file).toBe(join(sb.home, ".local", "state", "turno", "browser", "identities", "school", "reputation.jsonl"));
-    expect(statSync(file).mode & 0o777).toBe(0o600);
+    expectMode(file, 0o600);
     expect(
       readFileSync(file, "utf8")
         .trim()

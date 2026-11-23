@@ -233,7 +233,7 @@ export function dpapiScript(op: DpapiOp): string {
   return [
     "$ErrorActionPreference = 'Stop'",
     "try {",
-    "  Add-Type -AssemblyName System.Security",
+    `  ${loadAssembly("System.Security")}`,
     "  $ms = [IO.MemoryStream]::new()",
     "  [Console]::OpenStandardInput().CopyTo($ms)",
     "  $all = $ms.ToArray()",
@@ -271,10 +271,26 @@ export function dpapiInput(service: string, data: Buffer): Buffer {
 /** Runs one DPAPI call: (operation, stdin) to the process result. Tests pass a stand-in. */
 export type DpapiRunner = (op: DpapiOp, input: Buffer) => Promise<ExecResult>;
 
+/**
+ * The environment Windows PowerShell gets: the caller's, with SystemRoot, which it cannot start
+ * without, even when the caller trimmed it (an agent hands its MCP servers a few variables).
+ */
+export function windowsPowerShellEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return { ...env, SystemRoot: env.SystemRoot || env.SYSTEMROOT || process.env.SystemRoot || "C:\\Windows" };
+}
+
+/**
+ * Loads a .NET Framework assembly by its full name. The scripts here call .NET only, never a
+ * cmdlet such as Add-Type: with the trimmed environment an agent gives its servers, the first
+ * cmdlet that PowerShell loads from a module takes 20 seconds (measured on windows-latest).
+ */
+export function loadAssembly(name: "System.Security" | "System.Management"): string {
+  return `$null = [Reflection.Assembly]::Load('${name}, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a')`;
+}
+
 function powershellRunner(env: NodeJS.ProcessEnv): DpapiRunner {
   const bin = windowsPowerShell(env);
-  // PowerShell needs SystemRoot even when the caller passes a trimmed environment.
-  const childEnv = { ...env, SystemRoot: env.SystemRoot || env.SYSTEMROOT || process.env.SystemRoot };
+  const childEnv = windowsPowerShellEnv(env);
   return (op, input) => exec(bin, dpapiArgs(op), childEnv, input, 30_000);
 }
 

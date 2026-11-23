@@ -1,12 +1,13 @@
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { type BackgroundSession, openBackgroundSession, startBackground, stopBackground } from "../src/client.js";
-import { readLockPid } from "../src/lifecycle.js";
+import { startedChromePid } from "../src/lifecycle.js";
 import { writeIdentitySettings } from "../src/settings.js";
 import { alive, chromeUnavailable, stopSandboxProcesses, waitFor } from "./helpers/chrome.js";
 import { type Sandbox, sandbox } from "./helpers/sandbox.js";
@@ -31,7 +32,7 @@ const stdio: StdioClientTransport[] = [];
 beforeEach(() => {
   sb = sandbox();
   // A short state folder, so the Unix socket path fits.
-  stateRoot = realpathSync(mkdtempSync("/tmp/tb-"));
+  stateRoot = realpathSync(mkdtempSync(process.platform === "win32" ? join(tmpdir(), "tb-") : "/tmp/tb-"));
   env = { ...sb.env, TURNO_STATE_DIR: stateRoot };
 });
 
@@ -84,7 +85,7 @@ describe.skipIf(reason !== undefined)(
       const first = await openBackgroundSession(ID, { env, start: { bin, args: ["--headless"] } });
       await go(first, "first");
       await first.close();
-      const chrome = readLockPid(profileDir());
+      const chrome = startedChromePid(profileDir());
       expect(chrome !== undefined && alive(chrome)).toBe(true);
 
       const again = await openBackgroundSession(ID, {
@@ -99,7 +100,7 @@ describe.skipIf(reason !== undefined)(
       const refused = await agent.callTool({ name: "browser_navigate", arguments: { url: page("second") } });
       expect(refused.isError).toBe(true);
       expect(textOf(refused)).toContain(`is served by its background server (pid ${again.state.pid})`);
-      expect(readLockPid(profileDir())).toBe(chrome);
+      expect(startedChromePid(profileDir())).toBe(chrome);
       expect(await titleOf(again)).toBe("first");
 
       expect(await stopBackground(ID, { env })).toBe(true);
@@ -122,11 +123,11 @@ describe.skipIf(reason !== undefined)(
       const agent = await stdioServer();
       const res = await agent.callTool({ name: "browser_navigate", arguments: { url: page("agent") } });
       expect(res.isError ?? false, textOf(res)).toBe(false);
-      const chrome = readLockPid(profileDir());
+      const chrome = startedChromePid(profileDir());
       await expect(startBackground(ID, { env, bin, args: ["--headless"] })).rejects.toThrow(
         /is in use by turno-browser-mcp .* so it starts only when no other process has it open/s,
       );
-      expect(readLockPid(profileDir())).toBe(chrome);
+      expect(startedChromePid(profileDir())).toBe(chrome);
       expect(alive(chrome!)).toBe(true);
     }, 90_000);
 

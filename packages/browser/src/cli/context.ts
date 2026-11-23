@@ -91,12 +91,25 @@ export function context(host: BrowserCliHost, deps: CliDeps): Ctx {
   return { host, names: host.names, deps, api: deps.api };
 }
 
-/** `open` on macOS, `xdg-open` elsewhere, detached so the command can exit. */
+/**
+ * What opens a link in the default browser: `open` on macOS, `xdg-open` on Linux, and on Windows
+ * the URL handler of the shell, called without cmd.exe so that `&` in a link stays a character.
+ */
+export function openUrlCommand(
+  url: string,
+  platform: NodeJS.Platform = process.platform,
+): { command: string; args: string[] } {
+  if (platform === "darwin") return { command: "open", args: [url] };
+  if (platform === "win32") return { command: "rundll32.exe", args: ["url.dll,FileProtocolHandler", url] };
+  return { command: "xdg-open", args: [url] };
+}
+
+/** Opens the link with `openUrlCommand`, detached so the command can exit. */
 export const openInBrowser: OpenUrl = async (url, io) => {
   if (!/^https?:\/\//.test(url)) throw new Error(`refusing to open ${JSON.stringify(url)}: only http(s) links`);
-  const command = process.platform === "darwin" ? "open" : "xdg-open";
+  const { command, args } = openUrlCommand(url);
   await new Promise<void>((resolve, reject) => {
-    const child = spawn(command, [url], { stdio: "ignore", env: io.env, detached: true });
+    const child = spawn(command, args, { stdio: "ignore", env: io.env, detached: true, windowsHide: true });
     child.on("error", reject);
     child.on("spawn", () => {
       child.unref();

@@ -1,14 +1,5 @@
 import { type ChildProcess, spawn } from "node:child_process";
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  realpathSync,
-  rmSync,
-  statSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -26,6 +17,7 @@ import {
   backgroundStatePath,
   backgroundTokenPath,
   readBackgroundState,
+  isPipePath,
 } from "../src/background-state.js";
 import {
   BackgroundError,
@@ -36,14 +28,14 @@ import {
 } from "../src/client.js";
 import type { Engine, LaunchRequest } from "../src/engine.js";
 import { createHost, serve } from "../src/host.js";
-import { runtimeLockPath } from "../src/runtime-lock.js";
+import { runtimeLockPath, stopCommand } from "../src/runtime-lock.js";
 import type { SharingMode } from "../src/sharing.js";
 import { type TurnoTool, turnoZod } from "../src/tools.js";
 import { upstream } from "../src/upstream.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { alive, waitFor } from "./helpers/chrome.js";
-import { type Sandbox, sandbox } from "./helpers/sandbox.js";
+import { type Sandbox, sandbox, expectMode } from "./helpers/sandbox.js";
 
 /**
  * The background server of an identity (`--background`) and its client: in process with a fake
@@ -80,10 +72,6 @@ afterEach(async () => {
 
 function textOf(res: unknown): string {
   return ((res as { content: { text?: string }[] }).content ?? []).map((c) => c.text ?? "").join("\n");
-}
-
-function mode(file: string): number {
-  return statSync(file).mode & 0o777;
 }
 
 /** A test tool that reports the client session the host gave the call. */
@@ -202,9 +190,9 @@ describe("the background server in process", () => {
     expect(server.state).toMatchObject({ v: 1, pid: process.pid, identity: ID, transport: "socket" });
     expect(server.state.socket).toBe(backgroundSocketPath(ID, env));
     expect(readBackgroundState(ID, env)).toEqual(server.state);
-    expect(mode(backgroundDir(ID, env))).toBe(0o700);
-    expect(mode(backgroundStatePath(ID, env))).toBe(0o600);
-    expect(mode(backgroundSocketPath(ID, env))).toBe(0o600);
+    expectMode(backgroundDir(ID, env), 0o700);
+    expectMode(backgroundStatePath(ID, env), 0o600);
+    expectMode(backgroundSocketPath(ID, env), 0o600);
     expect(existsSync(backgroundTokenPath(ID, env))).toBe(false);
 
     const s = await openBackgroundSession(ID, { env, start: false });
@@ -328,7 +316,7 @@ describe("the background server in process", () => {
   it("on loopback, asks for the token in a 0600 file and checks the Host header", async () => {
     const server = await startInProcess({ transport: "tcp" });
     expect(server.state).toMatchObject({ transport: "tcp", tokenFile: backgroundTokenPath(ID, env) });
-    expect(mode(backgroundTokenPath(ID, env))).toBe(0o600);
+    expectMode(backgroundTokenPath(ID, env), 0o600);
     const token = readFileSync(backgroundTokenPath(ID, env), "utf8").trim();
     expect(token.length).toBeGreaterThanOrEqual(40);
     expect(JSON.stringify(readBackgroundState(ID, env))).not.toContain(token);
@@ -431,10 +419,12 @@ describe("the background server in process", () => {
         socket: backgroundSocketPath(ID, env),
       }),
     );
-    writeFileSync(backgroundSocketPath(ID, env), "");
+    // A socket file stays behind a killed server; Windows removes a pipe with its process.
+    const staleSocket = () => process.platform !== "win32" && writeFileSync(backgroundSocketPath(ID, env), "");
+    staleSocket();
     expect(backgroundStatus(ID, { env })).toBeUndefined();
     expect(existsSync(backgroundStatePath(ID, env))).toBe(false);
-    writeFileSync(backgroundSocketPath(ID, env), "");
+    staleSocket();
     const server = await startInProcess();
     expect(server.state.pid).toBe(process.pid);
     const s = await openBackgroundSession(ID, { env, start: false });
@@ -450,7 +440,7 @@ describe("the background server as a program, through the client", () => {
     expect(first.state).toMatchObject({ identity: ID, transport: "socket" });
     expect(first.state.pid).not.toBe(process.pid);
     expect(alive(first.state.pid)).toBe(true);
-    expect(mode(backgroundLogPath(ID, env))).toBe(0o600);
+    expectMode(backgroundLogPath(ID, env), 0o600);
 
     const second = await startBackground(ID, { env, bin });
     expect(second).toEqual({ state: first.state, started: false });
@@ -484,7 +474,7 @@ describe("the background server as a program, through the client", () => {
     const res = await client.callTool({ name: "browser_snapshot", arguments: {} });
     expect(res.isError).toBe(true);
     expect(textOf(res)).toContain(
-      `browser identity "${ID}" is served by its background server (pid ${state.pid}) since ${state.startedAt}, which owns the identity's browser while it runs. Stop it with \`turno-browser background stop ${ID}\` (or \`kill ${state.pid}\`; it closes its Chrome first), or wait: it exits after 15m without a request; then try again.`,
+      `browser identity "${ID}" is served by its background server (pid ${state.pid}) since ${state.startedAt}, which owns the identity's browser while it runs. Stop it with \`turno-browser background stop ${ID}\` (or \`${stopCommand(state.pid)}\`; ${process.platform === "win32" ? "that ends its Chrome with it" : "it closes its Chrome first"}), or wait: it exits after 15m without a request; then try again.`,
     );
     expect(engine.launches).toEqual([]);
     // A tool that needs no browser still answers.
@@ -542,5 +532,18 @@ describe("the background server as a program, through the client", () => {
     const code = await new Promise<number | null>((r) => child.once("exit", r));
     expect(code).toBe(2);
     expect(err).toContain("--background needs --identity <id>");
+  });
+});
+
+describe("where the background server listens on Windows", () => {
+  it("is a named pipe per identity and state folder, never a file", () => {
+    const env = { USERPROFILE: "C:\\Users\\a", LOCALAPPDATA: "C:\\Users\\a\\AppData\\Local" };
+    const pipe = backgroundSocketPath("work", env, "win32");
+    expect(pipe).toMatch(/^\\\\\.\\pipe\\turno-browser-work-[0-9a-f]{16}$/);
+    expect(isPipePath(pipe)).toBe(true);
+    expect(backgroundSocketPath("work", env, "win32")).toBe(pipe);
+    expect(backgroundSocketPath("work", { ...env, TURNO_STATE_DIR: "D:\\turno" }, "win32")).not.toBe(pipe);
+    expect(backgroundSocketPath("home", env, "win32")).not.toBe(pipe.replace("-work-", "-home-"));
+    expect(isPipePath(backgroundSocketPath("work", { HOME: "/home/a" }, "linux"))).toBe(false);
   });
 });

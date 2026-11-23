@@ -1,8 +1,9 @@
 import { type ChildProcess, execFileSync, spawn } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { tmpdir, userInfo } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { readProcTable } from "turno-core/process";
 
 /** Shared by the tests that start a real Google Chrome (chrome-lifecycle, browser-tools). */
 
@@ -11,13 +12,21 @@ const pkg = fileURLToPath(new URL("../..", import.meta.url));
 const CHROME_PATHS: Partial<Record<NodeJS.Platform, string[]>> = {
   darwin: ["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"],
   linux: ["/opt/google/chrome/chrome"],
+  win32: [process.env.ProgramFiles, process.env["ProgramFiles(x86)"], process.env.LOCALAPPDATA]
+    .filter((d) => d !== undefined)
+    .map((d) => join(d, "Google", "Chrome", "Application", "chrome.exe")),
 };
+
+/** The installed Google Chrome these tests start by hand, if there is one. */
+export function chromeExecutable(): string | undefined {
+  return CHROME_PATHS[process.platform]?.find((p) => existsSync(p));
+}
 
 /** Why these tests cannot run here, or undefined when a real Chrome starts. */
 export function chromeUnavailable(): string | undefined {
   if (process.env.TURNO_SKIP_CHROME === "1") return "TURNO_SKIP_CHROME=1";
   const candidates = CHROME_PATHS[process.platform];
-  if (!candidates) return `no process groups to test on ${process.platform}`;
+  if (!candidates) return `no Chrome location known on ${process.platform}`;
   const exe = candidates.find((p) => existsSync(p));
   if (!exe) return `Google Chrome is not installed (looked for ${candidates.join(", ")})`;
   // Start it once, headless, from a throwaway HOME, so a Chrome that is present but cannot run
@@ -31,7 +40,11 @@ export function chromeUnavailable(): string | undefined {
   try {
     const core = join(pkg, "node_modules", "patchright-core");
     execFileSync(process.execPath, ["-e", probe, core], {
-      env: { PATH: process.env.PATH, HOME: home },
+      env:
+        process.platform === "win32"
+          ? // USERPROFILE stays the account's: Chrome refuses the DevTools pipe with another one.
+            { ...process.env, HOME: home, USERPROFILE: userInfo().homedir, LOCALAPPDATA: home, APPDATA: home }
+          : { PATH: process.env.PATH, HOME: home },
       stdio: ["ignore", "ignore", "pipe"],
       timeout: 40_000,
     });
@@ -62,7 +75,7 @@ export function spawnChrome(exe: string, userDataDir: string, args: string[], en
       "--no-default-browser-check",
       ...args,
     ],
-    { stdio: "ignore", env },
+    { stdio: "ignore", env: process.platform === "win32" ? { ...env, USERPROFILE: userInfo().homedir } : env },
   );
 }
 
@@ -86,6 +99,12 @@ export async function waitFor(cond: () => boolean, ms: number): Promise<boolean>
 
 /** Processes whose command line names the sandbox (only the Chromes these tests started). */
 export function sandboxProcesses(home: string): { pid: number; ppid: number; pgid: number }[] {
+  if (process.platform === "win32") {
+    // PowerShell's table: no process groups there, each process is its own.
+    return [...(readProcTable("win32")?.values() ?? [])]
+      .filter((p) => p.command.includes(home))
+      .map(({ pid, ppid, pgid }) => ({ pid, ppid, pgid }));
+  }
   const out = execFileSync("ps", ["-A", "-ww", "-o", "pid=,ppid=,pgid=,command="], {
     encoding: "utf8",
     maxBuffer: 64 * 1024 * 1024,
@@ -108,7 +127,7 @@ export function sandboxProcesses(home: string): { pid: number; ppid: number; pgi
 export async function stopSandboxProcesses(home: string, ms = 10_000): Promise<void> {
   const left = () => sandboxProcesses(home).filter((p) => alive(p.pid));
   for (const p of left()) {
-    for (const sig of ["SIGCONT", "SIGKILL"] as const) {
+    for (const sig of process.platform === "win32" ? (["SIGKILL"] as const) : (["SIGCONT", "SIGKILL"] as const)) {
       try {
         process.kill(p.pid, sig);
       } catch {

@@ -1,4 +1,4 @@
-import { existsSync, statSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
@@ -16,7 +16,7 @@ import {
   writeFlow,
 } from "../src/flows.js";
 import { addIdentity, removeIdentity } from "../src/identities.js";
-import { type Sandbox, sandbox } from "./helpers/sandbox.js";
+import { type Sandbox, sandbox, expectMode } from "./helpers/sandbox.js";
 
 /** Flow files: format, parameters, storage per identity. */
 
@@ -63,8 +63,8 @@ describe("flow files", () => {
   it("live per identity under the data folder, mode 600, and read back as written", () => {
     const file = writeFlow("work", flow("sign-in"), sb.env);
     expect(file).toBe(join(sb.home, ".local", "share", "turno", "browser", "flows", "work", "sign-in.json"));
-    expect(statSync(file).mode & 0o777).toBe(0o600);
-    expect(statSync(flowsDir("work", sb.env)).mode & 0o777).toBe(0o700);
+    expectMode(file, 0o600);
+    expectMode(flowsDir("work", sb.env), 0o700);
     expect(readFlow("work", "sign-in", sb.env)).toEqual(flow("sign-in"));
   });
 

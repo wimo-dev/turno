@@ -64,7 +64,8 @@ describe("process table", () => {
   });
 });
 
-describe("findProfileChrome", () => {
+// SingletonLock and process groups are POSIX; the Windows branch has its own tests at the end.
+describe.skipIf(process.platform === "win32")("findProfileChrome", () => {
   const alive = () => true;
 
   it("finds nothing without a lock or when the lock points at another program", () => {
@@ -148,7 +149,7 @@ describe("findProfileChrome", () => {
   });
 });
 
-describe("stopChrome", () => {
+describe.skipIf(process.platform === "win32")("stopChrome", () => {
   function fakeProcs(dieOn: NodeJS.Signals | "never") {
     const sent: [number, NodeJS.Signals][] = [];
     let dead = false;
@@ -219,7 +220,7 @@ describe("stopChrome", () => {
   });
 });
 
-describe("sweepOrphan", () => {
+describe.skipIf(process.platform === "win32")("sweepOrphan", () => {
   it("leaves a Chrome that another live process owns", async () => {
     lock(500);
     const t = table([
@@ -253,5 +254,54 @@ describe("sweepOrphan", () => {
 
   it("does nothing without a lock", async () => {
     expect(await sweepOrphan(dir)).toEqual({ action: "none" });
+  });
+});
+
+describe("on Windows", () => {
+  const WIN_CHROME = '"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"';
+  const profile = "C:\\Users\\a\\AppData\\Local\\turno\\data\\browser\\identities\\work";
+  const winTable = (rows: [number, number, string][]): ProcTable =>
+    new Map(rows.map(([pid, ppid, command]) => [pid, { pid, ppid, pgid: pid, command }]));
+  const opts = (t: ProcTable, locked = true) => ({
+    platform: "win32" as const,
+    table: t,
+    locked: () => locked,
+    selfPid: 7,
+  });
+
+  it("matches a profile Windows quoted for its space", () => {
+    expect(usesProfile(`${WIN_CHROME} "--user-data-dir=C:\\Users\\a b\\p" --no-first-run`, "C:\\Users\\a b\\p")).toBe(
+      true,
+    );
+    expect(usesProfile(`${WIN_CHROME} "--user-data-dir=C:\\Users\\a b\\p-2"`, "C:\\Users\\a b\\p")).toBe(false);
+  });
+
+  it("finds the browser process by its command line while Chrome holds the lockfile, an orphan when its parent left", () => {
+    const t = winTable([
+      [900, 4444, `${WIN_CHROME} --user-data-dir=${profile} --remote-debugging-pipe`],
+      [901, 900, `${WIN_CHROME} --type=renderer --user-data-dir=${profile}`],
+    ]);
+    expect(findProfileChrome(profile, opts(t))).toEqual({ pid: 900, pgid: 900, leaderAlive: true, owner: "orphan" });
+    expect(findProfileChrome(profile, opts(t, false))).toBeUndefined();
+    t.set(4444, { pid: 4444, ppid: 1, pgid: 4444, command: "node.exe mcp.js" });
+    expect(findProfileChrome(profile, opts(t))?.owner).toBe("other");
+    t.get(900)!.ppid = 7;
+    expect(findProfileChrome(profile, opts(t))?.owner).toBe("self");
+  });
+
+  it("closes the tree's windows, then ends the tree with taskkill", async () => {
+    const calls: [number, boolean][] = [];
+    let alive = true;
+    const target = { pid: 900, pgid: 900, leaderAlive: true, owner: "orphan" as const };
+    const kill = (pid: number, force: boolean) => {
+      calls.push([pid, force]);
+      if (force) alive = false;
+    };
+    const run = { platform: "win32" as const, killTree: kill, alive: () => alive, graceMs: 50, killMs: 50 };
+    expect(await stopChrome(target, run)).toBe("killed");
+    expect(calls).toEqual([
+      [900, false],
+      [900, true],
+    ]);
   });
 });

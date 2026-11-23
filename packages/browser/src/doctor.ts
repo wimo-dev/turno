@@ -41,7 +41,13 @@ import { findProfileChrome, sweepOrphan } from "./lifecycle.js";
 import { totalMemory } from "./memory.js";
 import { readChallenges, summarizeChallenges } from "./reputation.js";
 import { inUseMessage, readRuntimeLock, runtimeLockAlive, runtimeLockPath } from "./runtime-lock.js";
-import { type IdentitySettings, acceptLanguages, checkIdentitySettings, systemTimezone } from "./settings.js";
+import {
+  type IdentitySettings,
+  acceptLanguages,
+  checkIdentitySettings,
+  chromeEnv,
+  systemTimezone,
+} from "./settings.js";
 import { names } from "./names.js";
 import {
   AGENTS,
@@ -184,7 +190,7 @@ async function smokeLaunch(env: NodeJS.ProcessEnv, launch: BrowserLaunch = { cha
       ...launch,
       headless: true,
       timeout: 30_000,
-      env: { ...env } as Record<string, string>,
+      env: chromeEnv(env),
     });
     try {
       const page = context.pages()[0] ?? (await context.newPage());
@@ -216,6 +222,12 @@ function systemChecks(env: NodeJS.ProcessEnv, platform: NodeJS.Platform): Doctor
         manual: "run the browser through mcpd, or pass --headless when you start turno-browser-mcp here",
       });
     }
+  } else if (platform === "win32") {
+    out.push({
+      area: "system",
+      level: "info",
+      text: "Windows: Chrome opens in your desktop session, and the background server listens on a named pipe only your user can send requests to",
+    });
   } else if (platform === "linux") {
     if (env.DISPLAY || env.WAYLAND_DISPLAY)
       out.push({
@@ -661,7 +673,7 @@ async function networkRows(id: string, env: NodeJS.ProcessEnv, opts: DoctorOptio
   });
   const refs = [proxy.username, proxy.password].filter((r): r is string => r?.startsWith("keychain:") === true);
   if (!refs.length) return out;
-  const store = opts.secrets ?? secretStore(env);
+  const store = opts.secrets ?? secretStore(env, opts.platform ?? process.platform);
   if (!store) {
     out.push({
       area,
@@ -691,7 +703,7 @@ async function vaultRows(id: string, env: NodeJS.ProcessEnv, opts: DoctorOptions
   const sites = vaultSummary(id, env)?.sites ?? [];
   if (!sites.length) return [];
   const area = `identity ${id}`;
-  const store = opts.secrets ?? secretStore(env);
+  const store = opts.secrets ?? secretStore(env, opts.platform ?? process.platform);
   if (!store)
     return [
       {
@@ -832,8 +844,7 @@ async function collect(
       level: "fail",
       text: "Google Chrome not found, and no other Chromium-based browser (Edge, Brave, Chromium, Chrome for Testing)",
       fix: "turno browser install-browser",
-      manual:
-        "turno browser install-browser downloads Chrome for Testing into your user cache with no admin password; or install Google Chrome (https://www.google.com/chrome/)",
+      manual: `turno browser install-browser downloads Chrome for Testing into your user cache with no admin password; or install Google Chrome (https://www.google.com/chrome/)${platform === "win32" ? ", or with winget for your user alone: winget install --id Google.Chrome.EXE --scope user" : ""}`,
     });
   // The test launch uses Chrome, or the first other browser when Chrome is missing.
   const first = others[0];

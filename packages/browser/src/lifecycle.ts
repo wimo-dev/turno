@@ -2,12 +2,13 @@ import { readlinkSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import {
   type ProcTable,
+  killTree,
   parentIsInit,
   pidAlive as processAlive,
   readProcTable,
   signalProcess as sendSignal,
 } from "turno-core/process";
-import { parseSingletonLock } from "./identities.js";
+import { parseSingletonLock, windowsProfileLocked } from "./identities.js";
 
 /**
  * The life of the Chrome behind one profile.
@@ -24,11 +25,19 @@ import { parseSingletonLock } from "./identities.js";
  *   signal arrives the program closes the browser gracefully, and if that has not finished in
  *   time Chrome gets SIGTERM and then the whole group SIGKILL, inside the 4 seconds the MCP SDK
  *   gives a server before it kills it.
+ *
+ * Windows has neither process groups nor a PID in the profile lock: Chrome holds `lockfile` in
+ * the profile open (and deletes it when it exits), the process table comes from PowerShell, and
+ * a Chrome is ended with its helpers by `taskkill /T`, which is never graceful for a headless
+ * one. Node's own `process.kill` there terminates at once, whatever the signal.
  */
 
 export { type ProcTable, parseProcTable } from "turno-core/process";
 
-/** The PID in the profile's `SingletonLock` (`<host>-<pid>`), if there is one. */
+/**
+ * The PID in the profile's `SingletonLock` (`<host>-<pid>`), if there is one. Windows' lock names
+ * no PID, so there it is always undefined.
+ */
 export function readLockPid(userDataDir: string): number | undefined {
   try {
     return parseSingletonLock(readlinkSync(join(userDataDir, "SingletonLock")));
@@ -53,7 +62,8 @@ export function usesProfile(command: string, userDataDir: string): boolean {
     const flag = `--user-data-dir=${dir}`;
     for (let i = command.indexOf(flag); i >= 0; i = command.indexOf(flag, i + 1)) {
       const end = i + flag.length;
-      if (end === command.length || command[end] === " ") return true;
+      // Windows quotes an argument with a space in it: "--user-data-dir=C:\Users\a b\p".
+      if (end === command.length || command[end] === " " || command[end] === '"') return true;
     }
   }
   return false;
@@ -86,6 +96,24 @@ export interface FindOptions {
   alive?: Alive;
   /** The PID that counts as "self" (default: this process). */
   selfPid?: number;
+  platform?: NodeJS.Platform;
+  /** Windows: whether a Chrome holds the profile's `lockfile` (default: `windowsProfileLocked`). */
+  locked?: (userDataDir: string) => boolean;
+}
+
+/**
+ * Windows: the browser process for this profile from the process table, while a Chrome holds
+ * the profile's lockfile. A parent that is not in the table has exited: the Chrome is an orphan.
+ */
+function findWindowsProfileChrome(userDataDir: string, opts: FindOptions): ProfileChrome | undefined {
+  if (!(opts.locked ?? windowsProfileLocked)(userDataDir)) return undefined;
+  const table = opts.table ?? (opts.readTable ?? (() => readProcTable("win32")))();
+  if (!table) return undefined;
+  const self = opts.selfPid ?? process.pid;
+  const leader = [...table.values()].find((p) => usesProfile(p.command, userDataDir) && isBrowserProcess(p.command));
+  if (!leader) return undefined;
+  const owner: ChromeOwner = leader.ppid === self ? "self" : parentIsInit(leader.ppid, table) ? "orphan" : "other";
+  return { pid: leader.pid, pgid: leader.pid, leaderAlive: true, owner };
 }
 
 /**
@@ -94,6 +122,7 @@ export interface FindOptions {
  * lock points at some other program (a reused PID).
  */
 export function findProfileChrome(userDataDir: string, opts: FindOptions = {}): ProfileChrome | undefined {
+  if ((opts.platform ?? process.platform) === "win32") return findWindowsProfileChrome(userDataDir, opts);
   const pid = readLockPid(userDataDir);
   if (pid === undefined) return undefined;
   const alive = opts.alive ?? processAlive;
@@ -115,6 +144,17 @@ export function findProfileChrome(userDataDir: string, opts: FindOptions = {}): 
 }
 
 /**
+ * The pid of the Chrome just started on `userDataDir`: what its SingletonLock names, or on
+ * Windows, where Chrome writes no such lock, the browser process the process table shows.
+ */
+export function startedChromePid(
+  userDataDir: string,
+  platform: NodeJS.Platform = process.platform,
+): number | undefined {
+  return platform === "win32" ? findProfileChrome(userDataDir, { platform })?.pid : readLockPid(userDataDir);
+}
+
+/**
  * How long `stopChrome` waits for the group to go after SIGKILL. A SIGKILL is delivered at
  * once, but the group is gone only when the kernel has torn down every member and init (or a
  * subreaper) has reaped each one: until then `kill(-pgid, 0)` still finds the zombies. On a
@@ -130,6 +170,9 @@ export interface StopOptions {
   killMs?: number;
   signal?: Signal;
   alive?: Alive;
+  platform?: NodeJS.Platform;
+  /** Windows: ends a process tree (default: turno-core's `killTree`). */
+  killTree?: (pid: number, force: boolean) => void;
 }
 
 async function waitUntil(cond: () => boolean, ms: number): Promise<boolean> {
@@ -153,6 +196,16 @@ export async function stopChrome(
 ): Promise<"exited" | "killed" | "survived"> {
   const signal = opts.signal ?? sendSignal;
   const alive = opts.alive ?? processAlive;
+  if ((opts.platform ?? process.platform) === "win32") {
+    // No signal to ask for a clean exit: close the windows of the tree (a headed Chrome saves
+    // and quits), then end the tree.
+    const kill = opts.killTree ?? ((pid: number, force: boolean) => void killTree(pid, force, "win32"));
+    const gone = () => !alive(target.pid);
+    kill(target.pid, false);
+    if (await waitUntil(gone, opts.graceMs ?? 3000)) return "exited";
+    kill(target.pid, true);
+    return (await waitUntil(gone, opts.killMs ?? KILL_WAIT_MS)) ? "killed" : "survived";
+  }
   const leadsGroup = target.pgid === target.pid;
   const handle = leadsGroup ? -target.pid : target.pid;
   const gone = () => !alive(handle);
@@ -177,6 +230,7 @@ export async function sweepOrphan(userDataDir: string, opts: FindOptions & StopO
 }
 
 export interface ShutdownOptions {
+  platform?: NodeJS.Platform;
   /** Time the program gets to close the browser gracefully before Chrome gets SIGTERM. */
   graceMs?: number;
   /** Time Chrome gets after SIGTERM before this process exits and its group gets SIGKILL. */
@@ -196,8 +250,9 @@ export interface ShutdownOptions {
 export function installShutdownGuard(userDataDir: string, opts: ShutdownOptions = {}): void {
   const graceMs = opts.graceMs ?? 1500;
   const termMs = opts.termMs ?? 1000;
+  const windows = (opts.platform ?? process.platform) === "win32";
   const ours = () => {
-    const c = findProfileChrome(userDataDir);
+    const c = findProfileChrome(userDataDir, windows ? { platform: "win32" } : {});
     return c && c.owner !== "other" ? c : undefined;
   };
   let started = false;
@@ -206,7 +261,8 @@ export function installShutdownGuard(userDataDir: string, opts: ShutdownOptions 
     started = true;
     setTimeout(() => {
       const c = ours();
-      if (c?.leaderAlive) sendSignal(c.pid, "SIGTERM");
+      // Windows has no SIGTERM to give Chrome: the exit handler ends its tree.
+      if (c?.leaderAlive && !windows) sendSignal(c.pid, "SIGTERM");
       setTimeout(() => process.exit(0), termMs).unref();
     }, graceMs).unref();
   };
@@ -215,10 +271,14 @@ export function installShutdownGuard(userDataDir: string, opts: ShutdownOptions 
   process.on("SIGINT", begin);
   process.on("SIGHUP", () => {
     begin();
-    process.kill(process.pid, "SIGTERM");
+    // On Windows (the console window closed) process.kill would end this process at once.
+    if (windows) process.emit("SIGTERM", "SIGTERM");
+    else process.kill(process.pid, "SIGTERM");
   });
   process.on("exit", () => {
     const c = ours();
-    if (c) sendSignal(c.pgid === c.pid ? -c.pid : c.pid, "SIGKILL");
+    if (!c) return;
+    if (windows) killTree(c.pid, true, "win32");
+    else sendSignal(c.pgid === c.pid ? -c.pid : c.pid, "SIGKILL");
   });
 }

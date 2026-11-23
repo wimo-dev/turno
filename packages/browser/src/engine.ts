@@ -4,7 +4,7 @@ import { storagePartitioningArgs } from "./chrome-features.js";
 import { type AttachTarget, createAttachEngine, parseAttachTarget } from "./engine-attach.js";
 import { createCamoufoxEngine } from "./engine-camoufox.js";
 import { createLightpandaEngine } from "./engine-lightpanda.js";
-import { findProfileChrome, readLockPid } from "./lifecycle.js";
+import { findProfileChrome, startedChromePid } from "./lifecycle.js";
 import { chromeNetwork, pinUserAgent, verifyCoherence } from "./network-chrome.js";
 import { networkEngineClash } from "./network.js";
 import { policyEngineClash } from "./policy.js";
@@ -17,6 +17,7 @@ import {
   readIdentitySettings,
   recordEngineClash,
   systemTimezone,
+  chromeEnv,
 } from "./settings.js";
 import { type Tuning, launchTuning } from "./tuning.js";
 import { IdleTimer, idleMs } from "./idle-timer.js";
@@ -224,6 +225,8 @@ const chromeEngine: Engine = {
         ...(network?.proxy ? { proxy: network.proxy } : {}),
         handleSIGINT: false,
         handleSIGTERM: false,
+        // Elsewhere Chrome gets this process's environment, as before.
+        ...(process.platform === "win32" ? { env: chromeEnv(process.env) } : {}),
         ignoreDefaultArgs:
           ignore === true
             ? true
@@ -264,10 +267,16 @@ const chromeEngine: Engine = {
       browser.once("disconnected", () => timer.dispose());
       idleTimer = timer;
     }
-    const pid = readLockPid(userDataDir);
+    const pid = startedChromePid(userDataDir);
     if (held) {
       // Playwright starts Chrome as the leader of its own process group; ps confirms it.
-      const pgid = pid !== undefined ? (findProfileChrome(userDataDir)?.pgid ?? pid) : undefined;
+      // Windows has no process groups: the pid stands for the tree taskkill ends.
+      const pgid =
+        pid !== undefined
+          ? process.platform === "win32"
+            ? pid
+            : (findProfileChrome(userDataDir)?.pgid ?? pid)
+          : undefined;
       held.update({ ...(pid !== undefined ? { chromePid: pid } : {}), ...(pgid !== undefined ? { pgid } : {}) });
       browser.once("disconnected", () => held.release());
     }

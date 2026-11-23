@@ -1,11 +1,11 @@
-import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { BrowserFunctions as BrowserApi } from "../../src/api.js";
 import type { CliDeps, VaultInput } from "../../src/cli/context.js";
 import * as session from "../../src/cli/session.js";
 import { parseExpiry } from "../../src/cli/session.js";
-import { type Sandbox, sandbox } from "../helpers/sandbox.js";
+import { type Sandbox, sandbox, expectMode } from "../helpers/sandbox.js";
 import { ctx, fakeIo } from "./helpers.js";
 
 let sb: Sandbox;
@@ -83,7 +83,7 @@ describe("export", () => {
     expect(await exportSession(fakeModule(calls), ["work", "--out", out, "--expires", "2d"], io, input())).toBe(0);
     expect(calls.exported[0]!.options.passphrase === PASS).toBe(true);
     expect(calls.exported[0]!.options.expiresInMs).toBe(2 * 24 * 3600_000);
-    expect(statSync(out).mode & 0o777).toBe(0o600);
+    expectMode(out, 0o600);
     expect(readFileSync(out, "utf8")).toContain("turno-browser-session");
     const text = [...io.lines, ...io.errors].join("\n");
     expect(text).toMatch(/3 cookies, storage of 2 sites/);

@@ -1,5 +1,4 @@
-import { readFileSync, rmSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { secretStore } from "turno-core/secrets";
 import { addIdentity, removeIdentity } from "../src/identities.js";
@@ -20,7 +19,7 @@ import {
   vaultSite,
 } from "../src/vault.js";
 import { type FakeSecretStore, fakeSecretStore } from "./helpers/fake-secret-store.js";
-import { type Sandbox, sandbox } from "./helpers/sandbox.js";
+import { type Sandbox, sandbox, expectMode } from "./helpers/sandbox.js";
 
 let sb: Sandbox;
 let fake: FakeSecretStore;
@@ -53,7 +52,7 @@ describe("the credential vault", () => {
     expect(index).not.toContain("alice");
     expect(index).not.toContain("battery");
     expect(index).not.toContain(TOTP_SECRET);
-    expect(statSync(vaultPath("work", sb.env)).mode & 0o777).toBe(0o600);
+    expectMode(vaultPath("work", sb.env), 0o600);
     expect(fake.services()).toEqual([vaultItem("work", "github")]);
     expect(fake.read(vaultItem("work", "github"))).not.toContain("\n");
     const cred = await readCredential("work", "github", opts());
@@ -81,7 +80,7 @@ describe("the credential vault", () => {
       ["github", true, false],
       ["mail", true, false],
     ]);
-    rmSync(join(fake.dir, encodeURIComponent(vaultItem("work", "mail"))));
+    fake.remove(vaultItem("work", "mail"));
     info = await vaultList("work", opts());
     expect(info.sites.find((s) => s.site === "mail")?.stored).toBe(false);
     await expect(readCredential("work", "mail", opts())).rejects.toThrow(/missing from the secret store/);

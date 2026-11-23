@@ -16,7 +16,7 @@ import {
   str,
 } from "turno-core/cli";
 import { findOnPath, tildify } from "turno-core/paths";
-import { AGENTS, agentReachable, execCommand, findEntry, recordRegistration } from "../agent-mcp.js";
+import { AGENTS, agentReachable, execCommand, findEntry, recordRegistration, spawnPlan } from "../agent-mcp.js";
 import type { Ctx } from "./context.js";
 import { describePolicy, readPolicyFile, rehearse } from "./identity.js";
 import { loginSummary } from "./login-summary.js";
@@ -86,7 +86,12 @@ export type RunCommand = (command: string, args: readonly string[], io: Io) => P
 
 const runCommand: RunCommand = (command, args, io) =>
   new Promise((resolve) => {
-    const child = spawn(command, [...args], { stdio: "inherit", env: io.env });
+    const plan = spawnPlan(command, args, io.env);
+    const child = spawn(plan.file, plan.args, {
+      stdio: "inherit",
+      env: io.env,
+      windowsVerbatimArguments: plan.verbatim,
+    });
     child.on("error", () => resolve(127));
     child.on("exit", (code) => resolve(code ?? 1));
   });

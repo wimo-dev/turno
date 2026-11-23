@@ -61,7 +61,7 @@ export function camoufoxRefusal(tool: string): string | undefined {
 /** How to install Camoufox, for errors and `turno browser doctor`. */
 export function camoufoxInstallHint(platform: NodeJS.Platform = process.platform): string {
   if (platform === "win32")
-    return "pip install -U camoufox, then camoufox fetch (turno-browser does not run on Windows; use WSL)";
+    return "pip install -U camoufox, then camoufox fetch, then set TURNO_CAMOUFOX_PATH to the camoufox.exe it downloaded";
   return "pip install -U camoufox && camoufox fetch (then set TURNO_CAMOUFOX_PATH if turno does not find it)";
 }
 

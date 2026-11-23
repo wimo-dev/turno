@@ -1,11 +1,11 @@
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseFlags } from "turno-core/cli";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { BackgroundState } from "../../src/background-state.js";
 import type { BackgroundSession, OpenSessionOptions } from "../../src/client.js";
 import { type BackgroundDoDeps, backgroundTransport } from "../../src/cli/do-background.js";
-import { type Sandbox, sandbox } from "../helpers/sandbox.js";
+import { type Sandbox, sandbox, expectMode } from "../helpers/sandbox.js";
 import { fakeIo } from "./helpers.js";
 
 /**
@@ -110,7 +110,7 @@ describe("the background transport of do", () => {
     expect(f.opened[0]!.session).toBeUndefined();
     const saved = JSON.parse(readFileSync(savedFile(), "utf8"));
     expect(saved).toMatchObject({ v: 1, identity: "school", serverPid: 4242, sessionId: "s1", name: "default" });
-    expect(statSync(savedFile()).mode & 0o777).toBe(0o600);
+    expectMode(savedFile(), 0o600);
 
     const second = await backgroundTransport(f.deps).target("school", p(), io);
     expect(second.describe(io).open).toBe(true);
