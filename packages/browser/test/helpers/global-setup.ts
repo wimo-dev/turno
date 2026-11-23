@@ -26,13 +26,18 @@ const LIVE = /^(TURNO_|CLAUDE|CODEX_|CURSOR_|ANTHROPIC_|XDG_)/;
 
 /**
  * What may appear under the guard HOME on Windows: the folders the setup itself makes (above),
- * and PowerShell's own caches, which every powershell.exe (the process table) writes under
- * LOCALAPPDATA.
+ * and what Windows and Playwright keep under LOCALAPPDATA for any process, whatever turno does:
+ * PowerShell's caches (every powershell.exe, the process table's included), Windows' own
+ * caches, and Playwright's list of the browsers it serves (`ms-playwright\b`).
  */
 const SETUP_DIRS = new Set(["AppData", join("AppData", "Local"), join("AppData", "Roaming")]);
-const POWERSHELL = join("AppData", "Local", "Microsoft", "Windows", "PowerShell");
+const SYSTEM_DIRS = [
+  join("AppData", "Local", "Microsoft", "Windows", "PowerShell"),
+  join("AppData", "Local", "Microsoft", "Windows", "Caches"),
+  join("AppData", "Local", "ms-playwright", "b"),
+];
 const allowed = (p: string) =>
-  SETUP_DIRS.has(p) || POWERSHELL === p || POWERSHELL.startsWith(`${p}${sep}`) || p.startsWith(`${POWERSHELL}${sep}`);
+  SETUP_DIRS.has(p) || SYSTEM_DIRS.some((d) => d === p || d.startsWith(`${p}${sep}`) || p.startsWith(`${d}${sep}`));
 
 /** Paths written under the guard HOME, relative to it. */
 export function guardFindings(home: string): string[] {
