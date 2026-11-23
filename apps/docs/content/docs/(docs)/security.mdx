@@ -35,7 +35,7 @@ It checks who can read or write turno's folders (`--fix` narrows them to owner o
 |---|---|---|
 | Agent logins (one per profile) | each agent's own config folder, for example `~/.claude-<profile>` | written by the agent itself; turno never reads, copies or proxies them |
 | MCP server secrets | macOS Keychain or Linux Secret Service (`secret-tool`), items `turno/<server>/<key>` | read at use time, passed on stdin (never in a command line), never logged |
-| OAuth tokens of remote MCP servers | the same secret store, items `turno/oauth/<server>@<variant>` | never in a file or a log; refreshed by mcpd and sent only to that server's own origin |
+| OAuth tokens of remote MCP servers | the same secret store, items `turno/oauth/<server>@<variant>` | never in a plain-text file or a log; refreshed by mcpd and sent only to that server's own origin |
 | Master gateway token | `~/.local/state/turno/mcpd.token` | file mode 600; used by turno only, for mcpd's own endpoints; never written into an agent config |
 | Per-profile gateway tokens | each profile's agent config, and `~/.local/state/turno/mcpd-tokens/<profile>.token` for the launchers of Codex, Copilot and Cursor | file mode 600; each one holds that profile's own token, derived from the master token |
 | Browser identities | `~/.local/share/turno/browser/<identity>` | live cookies of the sites you signed into: treat as credentials |
