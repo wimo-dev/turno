@@ -3,7 +3,7 @@ title: turno 0.6.1
 description: turno-browser runs on Windows, keeps its secrets there with DPAPI, and comes as a standalone executable for machines without Node.
 ---
 
-<ReleaseHeader date="2026-11-22" packages={["turno-cli@0.6.1", "turno-browser@0.10.0", "turno-core@0.5.0"]} />
+<ReleaseHeader date="2026-11-22" packages={["turno-cli@0.6.1", "turno-browser@0.10.1", "turno-core@0.5.0"]} />
 
 **[turno-browser](/browser)** now installs on Windows, and on any machine without Node as one executable.
 
@@ -36,6 +36,12 @@ On Windows, vault credentials and `keychain:` items live in `%LOCALAPPDATA%\turn
 Each turno-browser release on GitHub now carries one executable per platform (macOS arm64 and x64, Linux x64, and Windows x64 as experimental), with a `SHA256SUMS` file and build attestations you can check with `gh attestation verify`. It is the same package as on npm, with Node inside, and stores its data in the same places. The executables are not signed by Apple or Microsoft yet, so macOS and Windows warn the first time you open one; the page says how to open it.
 
 </Highlight>
+
+## Fixes
+
+**turno-browser 0.10.1** (2026-11-23), with no other package changed:
+
+- **A policy** that sends a page back to its allowed sites no longer leaves the agent's call waiting until the client gives up (60 seconds in most clients). A blocked link now returns in about a second instead of about 15.
 
 ## Links
 
