@@ -45,7 +45,8 @@ The Windows executable is experimental: the npm install is what CI tests on Wind
 Each archive holds the executable (`turno-browser`, or `turno-browser.exe`) and its license files. The one executable is both programs: `turno-browser <command>` is the CLI, and `turno-browser mcp` is the MCP server that `turno-browser-mcp` is in the npm package.
 
 ```sh
-version=0.9.0   # the version you want
+# The version you want, from 0.10.0 on:
+version=0.10.0
 platform=darwin-arm64
 base="https://github.com/wimo-dev/turno/releases/download/turno-browser%40$version"
 curl -fLO "$base/turno-browser-$platform.zip"
@@ -57,8 +58,10 @@ curl -fLO "$base/SHA256SUMS"
 Compare the archive with `SHA256SUMS`:
 
 ```sh
-shasum -a 256 -c SHA256SUMS --ignore-missing     # macOS
-sha256sum -c SHA256SUMS --ignore-missing         # Linux
+# macOS
+shasum -a 256 -c SHA256SUMS --ignore-missing
+# Linux
+sha256sum -c SHA256SUMS --ignore-missing
 ```
 
 On Windows, `Get-FileHash .\turno-browser-win-x64.zip -Algorithm SHA256` in PowerShell prints the hash to compare with the line in `SHA256SUMS`.
