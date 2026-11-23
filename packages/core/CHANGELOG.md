@@ -1,5 +1,14 @@
 # turno-core
 
+## 0.5.0
+
+### Minor Changes
+
+- d65d855: turno-browser runs on Windows 10 and 11 (x64): `npm install --global turno-browser`, no admin rights. It finds Google Chrome, Microsoft Edge and Brave in `Program Files`, `Program Files (x86)` and `%LOCALAPPDATA%`, and `install-browser` puts Chrome for Testing in `%LOCALAPPDATA%\ms-playwright`. Identities live in `%LOCALAPPDATA%\turno\data`, settings in `%APPDATA%\turno` and runtime state in `%LOCALAPPDATA%\turno\state`; the `TURNO_*_DIR` and `XDG_*` variables still move them. The background server and the live view listen on named pipes (`\\.\pipe\turno-browser-<id>-<hash>`) instead of socket files. A Chrome left running is found through its profile's lock and the process table, and ended with its helpers by `taskkill /T`; messages say `taskkill /PID <pid> /T /F` where they said `kill <pid>`. `setup` and `init` register the server as `cmd /c turno-browser-mcp --identity <id>`, and `init --yes` runs an agent's `.cmd` command through `cmd.exe` with each argument quoted. The vault and `keychain:` secrets use turno-core's Windows secret store (DPAPI files). Lightpanda has no Windows build.
+  
+  turno-core: the turno folders follow Windows' conventions (`%APPDATA%`, `%LOCALAPPDATA%`), `findOnPath` reads `PATHEXT`, a file replaced while another process reads it is retried instead of failing, and `killTree` ends a process tree on every platform. The Windows process table and the DPAPI store call WMI and DPAPI through .NET only, with no cmdlet, so Windows PowerShell answers in a fraction of a second even in the few variables an agent passes its servers (a cmdlet there took 20 seconds).
+- c80b30c: A secret store on Windows: each item (a vault credential or a `keychain:` secret) is a file in `%LOCALAPPDATA%\turno\secrets` encrypted with DPAPI for the current user, through Windows PowerShell 5.1 with the value on stdin, never in a command line. It needs no admin rights and no native module, has no size limit (Credential Manager caps an item at 2560 bytes), and checking whether an item exists only looks at the file. `turno-browser doctor` now names the secret store in use, and on Windows its folder.
+
 ## 0.4.0
 
 ### Minor Changes
