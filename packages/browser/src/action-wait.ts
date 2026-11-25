@@ -25,7 +25,7 @@ import type { UpstreamTab } from "./upstream.js";
  */
 
 /** How long after the action (or its last request) a new request still counts as its. */
-export const GRACE_MS = 100;
+const GRACE_MS = 100;
 /** Upstream's cap on the requests of an action, and on `load` after a navigation. */
 const REQUEST_CAP_MS = 5_000;
 const NAVIGATION_CAP_MS = 10_000;
@@ -56,7 +56,7 @@ export function installAdaptiveWait(tab: UpstreamTab): void {
 }
 
 /** Runs `callback` (the action) and waits for the page to be done with it. */
-export async function settleAfter<T>(tab: UpstreamTab, callback: () => Promise<T>): Promise<T> {
+async function settleAfter<T>(tab: UpstreamTab, callback: () => Promise<T>): Promise<T> {
   const settle = Math.max(0, tab.context.config.timeouts?.settle ?? 500);
   const watch = new ActionWatch(tab.page, settle);
   let result: T;

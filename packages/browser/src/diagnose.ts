@@ -207,7 +207,7 @@ async function diagnoseTarget(page: Page, target: string): Promise<Diagnosis | u
  * The stable code of a diagnosed failure, the first word of its message and the `code` of its JSON
  * form: an agent or a script can branch on it without reading the prose, which may change.
  */
-export type FailureCode =
+type FailureCode =
   | "ELEMENT_COVERED"
   | "ELEMENT_HIDDEN"
   | "ELEMENT_DISABLED"
@@ -215,7 +215,7 @@ export type FailureCode =
   | "ELEMENT_GONE"
   | "ELEMENT_NOT_STABLE";
 
-export function failureCode(d: Diagnosis | undefined): FailureCode {
+function failureCode(d: Diagnosis | undefined): FailureCode {
   if (!d) return "ELEMENT_GONE";
   switch (d.state) {
     case "covered":
