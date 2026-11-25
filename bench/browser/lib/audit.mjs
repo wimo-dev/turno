@@ -22,15 +22,18 @@ const norm = (s) =>
     .trim()
     .toLowerCase();
 
-/** The events of step `i`: from its start (less `slackMs` for clock rounding) to the next step's start. */
-function eventsOf(steps, i, events, slackMs) {
-  const from = steps[i].start - slackMs;
-  const to = i + 1 < steps.length ? steps[i + 1].start - slackMs : steps[i].end + 2000;
-  return events.filter((e) => e.t >= from && e.t < to);
+/**
+ * The events of step `i`: from its start to the next step's start. The page and the suite read
+ * the same clock, and a call cannot cause an event before it starts, so there is no slack: an
+ * event in the last millisecond of the previous call belongs to that call.
+ */
+function eventsOf(steps, i, events) {
+  const to = i + 1 < steps.length ? steps[i + 1].start : steps[i].end + 2000;
+  return events.filter((e) => e.t >= steps[i].start && e.t < to);
 }
 
 /** One outcome per action step of a run. */
-export function auditActions(steps, events, { slackMs = 5 } = {}) {
+export function auditActions(steps, events) {
   const out = [];
   for (const [i, s] of steps.entries()) {
     if (!s.intents || !LANDING[s.tool]) continue;
@@ -38,7 +41,7 @@ export function auditActions(steps, events, { slackMs = 5 } = {}) {
       out.push({ step: i, tool: s.tool, outcome: "refused" });
       continue;
     }
-    const landed = eventsOf(steps, i, events, slackMs).filter((e) => LANDING[s.tool].includes(e.type));
+    const landed = eventsOf(steps, i, events).filter((e) => LANDING[s.tool].includes(e.type));
     if (!landed.length) {
       out.push({ step: i, tool: s.tool, outcome: "none" });
       continue;
@@ -67,11 +70,11 @@ export function auditActions(steps, events, { slackMs = 5 } = {}) {
  * the click event to the result (the settle wait, any wait for the requests the click started,
  * and the result itself). `requests` tells whether the click made the page send a request.
  */
-export function clickTimings(steps, events, requests = [], { slackMs = 5 } = {}) {
+export function clickTimings(steps, events, requests = []) {
   const out = [];
   for (const [i, s] of steps.entries()) {
     if (s.tool !== "browser_click" || s.error) continue;
-    const own = eventsOf(steps, i, events, slackMs);
+    const own = eventsOf(steps, i, events);
     const down = own.find((e) => e.type === "pointerdown");
     const click = down && own.find((e) => e.type === "click" && e.t >= down.t);
     if (!click) continue;

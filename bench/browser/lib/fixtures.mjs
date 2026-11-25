@@ -19,11 +19,8 @@ import { createServer } from "node:http";
 const RECORDER = String.raw`(() => {
   const socket = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/actions');
   const queue = [];
-  let timer = 0;
   const flush = () => {
-    timer = 0;
-    if (!queue.length || socket.readyState !== WebSocket.OPEN) return;
-    socket.send(JSON.stringify(queue.splice(0)));
+    if (queue.length && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(queue.splice(0)));
   };
   socket.addEventListener('open', flush);
   const clean = (s) => String(s || '').replace(/\s+/g, ' ').trim();
@@ -47,7 +44,9 @@ const RECORDER = String.raw`(() => {
       const el = path.find((n) => n instanceof Element && n.matches(ACTIONABLE)) || path[0];
       if (!(el instanceof Element)) return;
       queue.push({ type, t: Date.now(), ts: e.timeStamp, trusted: e.isTrusted, tag: el.tagName.toLowerCase(), names: names(el), page: location.host + location.pathname });
-      if (!timer) timer = setTimeout(flush, 0);
+      // Sent at once, from the capturing listener: a click that submits a form or follows a
+      // link unloads the page right after, and a later send would be lost with it.
+      flush();
     }, { capture: true, passive: true });
   }
 })();`;

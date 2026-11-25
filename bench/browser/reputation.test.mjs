@@ -35,8 +35,14 @@ test("an action that lands on another element than the one named counts as wrong
     ["ok", "refused", "wrong"],
   );
   assert.deepEqual(auditActions(steps, events)[2].landed, ["Reject all"]);
-  // An event after the next call started belongs to that call, not to the one before.
-  assert.equal(auditActions([click("A", 0, 100), click("B", 101, 200)], [ev("click", 150, "B")])[0].outcome, "none");
+  // Each call owns the events from its start to the next call's start, even when one call
+  // starts in the millisecond the previous one caused its last event.
+  assert.deepEqual(
+    auditActions([click("A", 0, 100), click("B", 100, 200)], [ev("click", 99, "A"), ev("click", 100, "B")]).map(
+      (a) => a.outcome,
+    ),
+    ["ok", "ok"],
+  );
 });
 
 test("a click's time splits at the press and the click event, and says whether it sent a request", () => {
