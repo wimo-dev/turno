@@ -104,6 +104,8 @@ export interface Engine {
    * browser; undefined when it runs it. For the identity's engine, `identity` says which one.
    */
   refuse?(tool: string, identity?: IdentityRef): string | undefined;
+  /** The engine flags `createEngine` got, so the host's defaults know an engine a flag picks. */
+  flags?: EngineFlags;
 }
 
 /** True when the config asks for the browser the `chrome` engine launches. */
@@ -517,6 +519,7 @@ export function createEngine(config: McpConfig, flags: EngineFlags = {}, fallbac
   };
   return {
     id: base.id,
+    flags,
     launch: async (request) => {
       const engine = choose(request.identity);
       const settings = request.identity ? readIdentitySettings(request.identity.id, request.identity.env) : undefined;

@@ -31,7 +31,7 @@ describe("an identity without keys", () => {
     expect(e.keychain.value).toBe("mock");
     expect(e.record.flows.value).toBe(true);
     expect(e.record.screenshots.value).toBe(true);
-    expect(e.record.traces.value).toBe("failed");
+    expect(e.record.traces).toMatchObject({ value: false, origin: { from: "unavailable" } });
     expect([e.caps.vision, e.caps.pdf, e.caps.devtools, e.caps.network].map((c) => c.value)).toEqual([
       true,
       true,

@@ -91,7 +91,8 @@ async function connect(
 
 describe("host", () => {
   it("lists the stock tools first, then the turno tools, rendered like stock tools", async () => {
-    const client = await connect(await config(), [echoTool()], failingEngine());
+    // No default capabilities, so the list is upstream's core tools (the contract test pins the defaults).
+    const client = await connect({ ...(await config()), capabilities: [] }, [echoTool()], failingEngine());
     const { tools } = await client.listTools();
     const names = tools.map((t) => t.name);
     expect(names).toHaveLength(26);

@@ -10,7 +10,7 @@ import { addIdentity } from "../src/identities.js";
 import { listRecordings, recordingsDir, tracesTmpDir, zipTexts } from "../src/recordings.js";
 import { SESSION_META_KEY } from "../src/session.js";
 import { writeIdentitySettings } from "../src/settings.js";
-import { vaultAdd } from "../src/vault.js";
+import { vaultAdd, vaultSetSubmit } from "../src/vault.js";
 import { chromeUnavailable, stopSandboxProcesses, waitFor } from "./helpers/chrome.js";
 import { type FakeSecretStore, fakeSecretStore } from "./helpers/fake-secret-store.js";
 import { type Sandbox, sandbox } from "./helpers/sandbox.js";
@@ -280,13 +280,19 @@ describe.skipIf(reason !== undefined)(
       const web = await site();
       onTestFinished(() => web.close());
       addIdentity("rec", sb.env);
-      writeIdentitySettings("rec", { record: { flows: true, traces: true, screenshots: true } }, sb.env);
+      // One session, so browser_close ends the recording; the agent presses Sign in itself.
+      writeIdentitySettings(
+        "rec",
+        { record: { flows: true, traces: true, screenshots: true }, sharing: "session" },
+        sb.env,
+      );
       await vaultAdd(
         "rec",
         "local",
         { urls: [`${web.url}/login`], username: EMAIL, password: VAULT_PASSWORD },
         { env: sb.env },
       );
+      vaultSetSubmit("rec", "confirm", { env: sb.env });
       const client = await start("rec");
       await call(client, "browser_navigate", { url: `${web.url}/login` });
       const filled = await call(client, "browser_login", { site: "local" });

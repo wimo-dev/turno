@@ -211,7 +211,9 @@ function record(s: IdentitySettings | undefined, ctx: DefaultsContext): Effectiv
       ? file(r.traces)
       : (none ?? noPixels)
         ? auto(false, (none ?? noPixels)!)
-        : auto("failed", "kept only when a step fails");
+        : // Kept only for a failed step once the driver allows it: while Playwright traces in
+          // patchright, Chrome loads no image or frame from another site.
+          unavailable(false, "not yet available: tracing stops pages from loading images and frames of other sites");
   return { flows, screenshots, traces };
 }
 

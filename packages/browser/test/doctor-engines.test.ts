@@ -38,7 +38,11 @@ describe("doctor engine checks", () => {
   it("shows Lightpanda when found, and only informs when it is missing and unused", async () => {
     const found = await rows(base({ lightpanda: () => ({ path: "/opt/lightpanda", version: "1.1.0" }) }), "engines");
     expect(found.filter((c) => /Lightpanda/.test(c.text))).toEqual([
-      { area: "engines", level: "ok", text: "Lightpanda 1.1.0 at /opt/lightpanda (read mode)" },
+      {
+        area: "engines",
+        level: "ok",
+        text: "Lightpanda 1.1.0 at /opt/lightpanda (read mode); no identity uses it yet: turno-browser set <id> --engine lightpanda for read-only work",
+      },
     ]);
     const [missing] = await rows(base(), "engines");
     expect(missing).toMatchObject({ level: "info", fix: "brew install lightpanda-io/browser/lightpanda" });

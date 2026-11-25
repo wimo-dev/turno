@@ -52,8 +52,9 @@ turno-browser set school --record-traces false --record-max-size 500MB
 - `flows` saves every session's actions as a flow named `auto-<time>`; the newest 20 are kept. On
   by default.
 - `traces` records a Playwright trace (DOM snapshots, network, a screencast) of each browser
-  session. By default a trace is kept only when one of its steps failed: the trace of a task that
-  worked is deleted when it is saved. `--record-traces true` keeps every one, `false` records none.
+  session. Off by default for now: while Playwright traces, Chrome driven through patchright loads
+  no image or frame from another site, so a trace would change the pages it records.
+  `--record-traces true` turns them on and keeps every one, `false` records none.
 - `screenshots` takes a JPEG after each action. On by default, except in attach mode (your own
   tabs) and read mode (nothing is rendered).
 

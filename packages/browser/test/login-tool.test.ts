@@ -262,6 +262,8 @@ describe.skipIf(reason !== undefined)(
         { urls: [`${web.url}/typed`], username: USERNAME, password: PASSWORD },
         { env: sb.env },
       );
+      // The test reads the filled page, then presses Sign in itself.
+      vaultSetSubmit("human", "confirm", { env: sb.env });
       const client = await start("human", ["--humanize", "light"]);
       await call(client, "browser_navigate", { url: `${web.url}/typed` });
       const filled = await call(client, "browser_login", { site: "local" });

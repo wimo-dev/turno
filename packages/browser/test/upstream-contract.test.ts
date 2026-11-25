@@ -13,7 +13,7 @@ import { TURNO_TOOLS, checkTurnoTools } from "../src/tools.js";
 import { BACKGROUND_SWITCHES } from "../src/tuning.js";
 import { upstream } from "../src/upstream.js";
 import { type Sandbox, sandbox } from "./helpers/sandbox.js";
-import { TOOL_NAMES } from "./helpers/upstream-tools.js";
+import { DEFAULT_CAPS, DEFAULT_TOOL_NAMES } from "./helpers/upstream-tools.js";
 
 /**
  * What turno-browser relies on in the Playwright MCP program bundled in patchright-core.
@@ -99,7 +99,7 @@ describe("upstream contract (patchright-core 1.64.3)", () => {
     try {
       const { tools: listed } = await client.listTools();
       // The stock tools in upstream's order, then turno's.
-      expect(listed.map((t) => t.name)).toEqual([...TOOL_NAMES, ...TURNO_NAMES]);
+      expect(listed.map((t) => t.name)).toEqual([...DEFAULT_TOOL_NAMES, ...TURNO_NAMES]);
     } finally {
       await client.close();
     }
@@ -132,10 +132,17 @@ describe("upstream contract (patchright-core 1.64.3)", () => {
   });
 
   it("serves exactly the tool definitions of the stock program (names, schemas, annotations)", async () => {
-    for (const caps of [[], ["--caps", "vision,pdf,devtools"]]) {
-      const host = await listToolsOver([bin, "--identity", "contract", ...caps], sb.env, sb.home);
+    // With no --caps the host lists the default capabilities, so stock gets them by name.
+    for (const [caps, stockCaps] of [
+      [[], ["--caps", DEFAULT_CAPS.join(",")]],
+      [
+        ["--caps", "vision,pdf,devtools"],
+        ["--caps", "vision,pdf,devtools"],
+      ],
+    ]) {
+      const host = await listToolsOver([bin, "--identity", "contract", ...caps!], sb.env, sb.home);
       const stock = await listToolsOver(
-        [mcpEntryPath(), "--browser", "chrome", "--user-data-dir", join(sb.home, "stock"), ...caps],
+        [mcpEntryPath(), "--browser", "chrome", "--user-data-dir", join(sb.home, "stock"), ...stockCaps!],
         sb.env,
         sb.home,
       );
@@ -168,7 +175,7 @@ describe("upstream contract (patchright-core 1.64.3)", () => {
       const client = new Client({ name: "contract", version: "0.0.0" });
       await client.connect(new StreamableHTTPClientTransport(new URL(`${url}/mcp`)));
       const { tools: listed } = await client.listTools();
-      expect(listed.map((t) => t.name)).toEqual([...TOOL_NAMES, ...TURNO_NAMES]);
+      expect(listed.map((t) => t.name)).toEqual([...DEFAULT_TOOL_NAMES, ...TURNO_NAMES]);
       expect(client.getServerVersion()?.name).toBe("turno-browser");
       await client.close();
     } finally {

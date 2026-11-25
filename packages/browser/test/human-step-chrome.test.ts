@@ -274,7 +274,8 @@ describe.skipIf(reason)(`browser_request_human with a real Chrome${reason ? ` (s
     const web = await site();
     onTestFinished(() => web.close());
     addIdentity("work", sb.env);
-    const client = await start("work", ["--live"]);
+    // One session at a time: the other session's held call then reads the same tab.
+    const client = await start("work", ["--live", "--sharing", "session"]);
     await call(client, "browser_navigate", { url: `${web.url}/a` });
     const noView = await call(client, "browser_request_human", { instruction: "Go to B." });
     expect(noView.error).toBe(true);

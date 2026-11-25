@@ -1812,7 +1812,7 @@ function defaultCaps(config: McpConfig, settings: IdentitySettings | undefined, 
   if (config.capabilities) return config;
   let engine = "chrome";
   try {
-    const kind = engineChoice(options.engineFlags ?? {}, settings).kind;
+    const kind = engineChoice(options.engineFlags ?? options.engine?.flags ?? {}, settings).kind;
     engine = kind === "default" ? "chrome" : kind;
   } catch {
     /* the first launch reports a bad engine setting */
@@ -1847,6 +1847,7 @@ export function createHost(options: HostOptions): Host {
   checkTurnoTools(turnoTools, tools.browserTools);
   const turno = new Map(turnoTools.map((t) => [t.schema.name, t]));
   const engine = options.engine ?? createEngine(config, options.engineFlags);
+  const engineFlags = options.engineFlags ?? engine.flags ?? {};
   const schemas = [...stock.map((t) => t.schema), ...turnoTools.map((t) => t.schema)];
   const sessionsByName = new Map<string, number>();
   const title = (clientInfo: ClientInfo) => {
@@ -1869,7 +1870,7 @@ export function createHost(options: HostOptions): Host {
     redactor,
     guard,
     tabLocks: options.tabLocks ?? {},
-    engineFlags: options.engineFlags ?? {},
+    engineFlags,
     pressure: options.memory ?? memoryPressureProbe(),
     ...(given ? { caps: given } : {}),
     ...(live ? { live } : {}),
@@ -1923,7 +1924,7 @@ function liveServerFor(
     viewRefusal: (engine) => {
       if (engine) return viewRefusal(engine);
       try {
-        return viewRefusal(engineChoice(options.engineFlags ?? {}, settings()).kind);
+        return viewRefusal(engineChoice(options.engineFlags ?? options.engine?.flags ?? {}, settings()).kind);
       } catch {
         return undefined;
       }
