@@ -28,13 +28,18 @@ export const TOOL_NAMES = [
 ];
 
 /** The capabilities a server lists when it has no `--caps` (`defaults.ts`). */
-export const DEFAULT_CAPS = ["vision", "pdf", "devtools", "network"];
+export const DEFAULT_CAPS = ["vision", "pdf", "devtools", "network", "storage"];
 
 /** The tools upstream serves with those capabilities, in its order: what a server lists by default. */
 export const DEFAULT_TOOL_NAMES = [
   "browser_close",
   "browser_resize",
   "browser_console_messages",
+  "browser_cookie_list",
+  "browser_cookie_get",
+  "browser_cookie_set",
+  "browser_cookie_delete",
+  "browser_cookie_clear",
   "browser_resume",
   "browser_highlight",
   "browser_hide_highlight",
@@ -72,6 +77,8 @@ export const DEFAULT_TOOL_NAMES = [
   "browser_drag",
   "browser_hover",
   "browser_select_option",
+  "browser_storage_state",
+  "browser_set_storage_state",
   "browser_tabs",
   "browser_start_tracing",
   "browser_stop_tracing",
@@ -81,4 +88,14 @@ export const DEFAULT_TOOL_NAMES = [
   "browser_video_show_actions",
   "browser_video_hide_actions",
   "browser_wait_for",
+  "browser_localstorage_list",
+  "browser_localstorage_get",
+  "browser_localstorage_set",
+  "browser_localstorage_delete",
+  "browser_localstorage_clear",
+  "browser_sessionstorage_list",
+  "browser_sessionstorage_get",
+  "browser_sessionstorage_set",
+  "browser_sessionstorage_delete",
+  "browser_sessionstorage_clear",
 ];
