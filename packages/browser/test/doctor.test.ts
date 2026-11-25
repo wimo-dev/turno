@@ -8,6 +8,7 @@ import { browserEntries, recordRegistration } from "../src/agent-mcp.js";
 import { backgroundDir } from "../src/background-state.js";
 import { type DoctorCheck, chromeVersionFromPlist, runDoctor } from "../src/doctor.js";
 import { writeHealth } from "../src/health.js";
+import { VERIFIED_PATCHRIGHT } from "../src/patchright.js";
 import { addIdentity, identityDir } from "../src/identities.js";
 import { recordChallenge } from "../src/reputation.js";
 import { acquireRuntimeLock, runtimeLockPath } from "../src/runtime-lock.js";
@@ -77,6 +78,13 @@ describe("browser doctor: Chrome and the system", () => {
       expect(row).toMatchObject({ level: "warn", text: expect.stringContaining(`memory pressure is ${level}`) });
       expect(row?.manual).toMatch(/set <id> --resources low$/);
     }
+  });
+
+  it("warns when patchright-core is not the version the reputation suite last passed with", async () => {
+    const ok = find((await doctor()).checks, "engines", /^patchright-core/);
+    expect(ok).toMatchObject({ level: "ok", text: expect.stringContaining(VERIFIED_PATCHRIGHT.version) });
+    const other = find((await doctor({ patchrightVersion: () => "1.99.0" })).checks, "engines", /^patchright-core/);
+    expect(other).toMatchObject({ level: "warn", text: expect.stringContaining("1.99.0 is not") });
   });
 
   it("fails without Chrome, and when the smoke launch fails", async () => {
