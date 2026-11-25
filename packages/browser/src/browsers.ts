@@ -345,15 +345,32 @@ export function resolveBrowser(
 }
 
 /**
- * How login, export and import launch the identity's browser: Google Chrome's channel when
- * identity.json names none (as before identity.json had `browser`), else the resolved one.
+ * The browser of an identity whose identity.json names none: Google Chrome, the one a person uses
+ * every day, wherever it is installed (its channel at the standard path, else its path: a Chrome
+ * in ~/Applications, say). Chrome for Testing, a build for tests, runs only when identity.json
+ * names it. When Google Chrome is not installed, its channel, whose error says so.
+ */
+function unpinnedBrowserLaunch(
+  env: NodeJS.ProcessEnv = process.env,
+  options: { platform?: NodeJS.Platform; probe?: BrowserProbe } = {},
+): BrowserLaunch {
+  try {
+    return resolveBrowser("chrome", { env, ...options }).launch;
+  } catch {
+    return { channel: "chrome" };
+  }
+}
+
+/**
+ * How login, export and import launch the identity's browser: Google Chrome when identity.json
+ * names none (`unpinnedBrowserLaunch`), else the resolved one.
  */
 export function identityBrowserLaunch(
   settings: { browser?: BrowserChoice } | undefined,
   env: NodeJS.ProcessEnv,
   command?: string,
 ): BrowserLaunch {
-  if (settings?.browser === undefined) return { channel: "chrome" };
+  if (settings?.browser === undefined) return unpinnedBrowserLaunch(env);
   return resolveBrowser(settings.browser, { env, ...(command ? { command } : {}) }).launch;
 }
 

@@ -196,7 +196,9 @@ function locale(s: IdentitySettings | undefined, ctx: DefaultsContext): Effectiv
   if (typeof s?.locale === "string") return file(s.locale);
   if (s?.locale === false) return file(false);
   if (s?.languages?.length) return auto(false, "identity.json sets the languages");
-  return ctx.systemLocale ? auto(ctx.systemLocale, "the system's") : auto(false, "the system's is unknown");
+  return ctx.systemLocale
+    ? auto(ctx.systemLocale, "the system's, which Chrome reads itself")
+    : auto(false, "the system's is unknown");
 }
 
 function health(s: IdentitySettings | undefined, ctx: DefaultsContext): Effective<HealthCheck | false> {

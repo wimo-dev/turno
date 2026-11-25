@@ -348,7 +348,7 @@ describe("upstream contract (patchright-core 1.64.3)", () => {
   });
 
   it("skips patchright's catch-all route for init scripts on a context marked as routed, and never fills it", () => {
-    // passkey.ts sets routeInjecting: the route only turns the HTTP cache off, since the scripts it
+    // The host sets routeInjecting (`skipInjectRoute`): the route only turns the HTTP cache off, since the scripts it
     // would put into HTML are a list nothing adds to.
     expect(bundleSource).toContain("if (this.routeInjecting || this.context().routeInjecting) return;");
     expect(bundleSource).toMatch(/async installInjectRoute\(\) \{\n\s+if \(this\.routeInjecting\) return;/);

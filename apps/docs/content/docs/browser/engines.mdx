@@ -26,6 +26,13 @@ turno-browser set school --engine "" --attach ""
 turno-browser-mcp --engine lightpanda
 ```
 
+The Chrome engine leaves what a page reads about the screen and your preferences to Chrome, as in
+your own Chrome on this computer: the color scheme (light or dark), reduced motion and contrast
+follow the system, and a headless Chrome reports the computer's primary display (its size, pixel
+ratio and the space the menu bar and dock take) and the window Chrome would open on it, instead
+of a fixed 1280x720 page. A viewport you set (`--viewport-size`, a device or a config file) or a
+`--window-size` of your own wins.
+
 With [several agents in one browser](/docs/browser/sharing) and
 [human-like input](/docs/browser/actions#human-like-input): read mode works with `"sharing": "tabs"`, and attach mode
 with `humanize`. The other two pairs are refused with the reason, in `identity.json` and from

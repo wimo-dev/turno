@@ -156,7 +156,7 @@ turno-browser-mcp --identity school --humanize full
 | Level | What changes |
 |---|---|
 | `auto` (default) | `off`, `light` or `full` per page and step, as above. Read mode (Lightpanda) is always `off`. |
-| `off` | Nothing: Playwright's input. |
+| `off` | Playwright's input, except that a click lands at a point inside the target (away from its edges) instead of its exact center, which costs no time. |
 | `light` | The pointer travels a curve from where it last was on that page to a point inside the target (one arc, some 4 to 8% longer than the straight line), with small timing jitter; the button stays down for 40 to 90 ms; text up to 80 characters is typed key by key with per-key delays. |
 | `full` | `light`, plus a move time that follows the distance and the target's size, a slow-fast-slow speed, overshoot and correction on long moves, a short pause the first time a page is acted on, longer gaps between words, and an element out of view scrolled to in wheel notches. `browser_mouse_wheel` scrolls in notches too. |
 | `adaptive` | `light`, and `full` on a site where the identity met a captcha, "verify it's you" or block page (in the [reputation log](/docs/browser/identities#reputation-log) of the last 30 days, or in this session). |

@@ -65,7 +65,7 @@ export interface Tuning {
   disabledFeatures?: readonly string[];
   /** `"coherent"` when identity.json or the default asks for the coherent user agent (`network.ts`). */
   userAgent?: "coherent";
-  /** The locale Chrome launches with: identity.json's, else the system's (`defaults.ts`). */
+  /** The locale Chrome launches with when identity.json sets one; else Chrome reads the system's. */
   locale?: string;
 }
 
@@ -183,7 +183,11 @@ export function resolveTuning(
         }
       : {}),
     ...(defaults?.userAgent.value === "coherent" ? { userAgent: "coherent" as const } : {}),
-    ...(typeof defaults?.locale.value === "string" ? { locale: defaults.locale.value } : {}),
+    // Only identity.json's: the system's is the one Chrome reads itself (on macOS it maps es-MX to
+    // es-419, say), so a flag with it would make a page see other languages than plain Chrome.
+    ...(typeof defaults?.locale.value === "string" && defaults.locale.origin.from === "file"
+      ? { locale: defaults.locale.value }
+      : {}),
   };
 }
 

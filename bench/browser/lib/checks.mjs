@@ -34,6 +34,8 @@ const COMPARED_FIELDS = [
   "webgl",
   "csp",
   "documentAttributes",
+  "media",
+  "natives",
 ];
 
 const get = (obj, path) => path.split(".").reduce((o, k) => (o == null ? undefined : o[k]), obj);
@@ -147,6 +149,31 @@ function staticChecks(s, { headed, reference }) {
     );
   else out.push(check("window-size", "navigator", "pass", w));
 
+  const scr = s.screen ?? {};
+  if (!w.outerWidth || !scr.width)
+    out.push(check("window-in-screen", "consistency", "info", undefined, "no window or screen size"));
+  else if (w.outerWidth > scr.availWidth || w.outerHeight > scr.availHeight)
+    out.push(
+      check(
+        "window-in-screen",
+        "consistency",
+        "warn",
+        { window: w, screen: scr },
+        "the window is larger than the screen's work area",
+      ),
+    );
+  else if (w.innerWidth === scr.width && w.innerHeight === scr.height)
+    out.push(
+      check(
+        "window-in-screen",
+        "consistency",
+        "warn",
+        { window: w, screen: scr },
+        "the page is exactly the size of the screen",
+      ),
+    );
+  else out.push(check("window-in-screen", "consistency", "pass"));
+
   out.push(
     s.plugins === 0
       ? check("plugins", "navigator", "warn", 0, "no plugins, unlike a desktop Chrome")
@@ -207,7 +234,9 @@ export function consistencyChecks(report) {
   const w = report.worker;
   if (!w) out.push(check("worker-matches-page", "consistency", "info", undefined, "no worker report"));
   else {
-    const fields = ["userAgent", "platform", "languages", "timezone"].filter((f) => !same(w[f], s[f]));
+    const fields = ["userAgent", "platform", "languages", "timezone", "locale"].filter(
+      (f) => w[f] !== undefined && !same(w[f], s[f]),
+    );
     if (s.uaData && w.uaPlatform !== s.uaData.platform) fields.push("uaData.platform");
     out.push(
       fields.length
@@ -233,9 +262,33 @@ export function consistencyChecks(report) {
   return out;
 }
 
+/** A native method prints its own name; a Proxy or a wrapper over it does not. */
+const NATIVE_METHOD = /^function (\w+)\(\) \{ \[native code\] \}$/;
+
+/** Methods that do not print as the native method of their name, at load and during input. */
+function wrappedMethods(report) {
+  const out = [];
+  for (const [when, natives] of [
+    ["load", report.static?.natives],
+    ["input", report.inputNatives],
+  ]) {
+    for (const [name, text] of Object.entries(natives ?? {})) {
+      const m = NATIVE_METHOD.exec(text ?? "");
+      if (text !== null && (!m || m[1] !== name.split(".").pop())) out.push(`${name} (${when})`);
+    }
+  }
+  return out;
+}
+
 /** Checks on side effects the page sees while the automation works on it. */
 function protocolChecks(report) {
   const out = [];
+  const wrapped = wrappedMethods(report);
+  out.push(
+    wrapped.length
+      ? check("native-methods", "protocol", "warn", wrapped, "a method the page reads is not the native one")
+      : check("native-methods", "protocol", "pass", report.inputNatives ? "at load and during input" : "at load"),
+  );
   out.push(
     report.traps?.length
       ? check(

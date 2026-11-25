@@ -21,7 +21,7 @@ export function mcpEntryPath(): string {
 
 /**
  * The patchright-core release the reputation suite last passed with, and the Chrome it ran
- * on. turno's init scripts rely on internals of this release (see `passkey.ts`), so a bump is
+ * on. turno relies on internals of this release (`skipInjectRoute`, `passkey.ts`), so a bump is
  * verified before it ships: run `pnpm bench:reputation` on the new version, then update this
  * record (`doctor` and `pnpm check` compare the installed version with it).
  */
@@ -48,4 +48,16 @@ export function resolveFrom(name: string): string | undefined {
     }
   }
   return undefined;
+}
+
+/**
+ * patchright's client installs a catch-all route before the first init script or binding of a
+ * context (a `--init-script` of the user's, say) to put scripts into HTML responses. Its server
+ * never fills that list in 1.64.3, so the route only costs: a cacheable script was fetched again
+ * on reload (Playwright turns Chrome's HTTP cache off while it intercepts), documents came back
+ * with an empty `nextHopProtocol`, and a cross-site iframe failed to load. Marking the context as
+ * routed skips it; init scripts still go in through `Page.addScriptToEvaluateOnNewDocument`.
+ */
+export function skipInjectRoute(context: object): void {
+  (context as { routeInjecting?: boolean }).routeInjecting = true;
 }

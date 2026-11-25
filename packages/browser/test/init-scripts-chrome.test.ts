@@ -2,15 +2,16 @@ import { type Server, createServer } from "node:http";
 import { join } from "node:path";
 import type { BrowserContext } from "patchright-core";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { installPasskeyProbe } from "../src/passkey.js";
+import { skipInjectRoute } from "../src/patchright.js";
 import { chromeEnv } from "../src/settings.js";
 import { chromeUnavailable, stopSandboxProcesses } from "./helpers/chrome.js";
 import { type Sandbox, sandbox } from "./helpers/sandbox.js";
 
 /**
- * How turno's init scripts reach pages, on a real Chrome with the patchright-core this package
- * pins. The passkey probe marks the context as routed (`routeInjecting`), so patchright skips its
- * catch-all route and the scripts go in through `Page.addScriptToEvaluateOnNewDocument`. A
+ * How init scripts (a user's `--init-script`) reach pages, on a real Chrome with the
+ * patchright-core this package pins. The host marks the context as routed (`skipInjectRoute`), so
+ * patchright skips its catch-all route and the scripts go in through
+ * `Page.addScriptToEvaluateOnNewDocument`. A
  * patchright update that changes that internal shows up here: documents served by the
  * automation (an empty `nextHopProtocol`, which bot detectors read), Chrome's HTTP cache turned
  * off, a cross-site iframe that no longer loads, or an init script that stops reaching a frame.
@@ -70,7 +71,7 @@ describe.skipIf(reason)(`turno's init scripts on a real Chrome${reason ? ` (skip
       headless: true,
       env: chromeEnv(sb.env),
     });
-    await installPasskeyProbe(ctx, () => {});
+    skipInjectRoute(ctx);
     await ctx.addInitScript('window.order = (window.order || []).concat("init");');
   }, 60_000);
 

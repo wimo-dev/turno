@@ -18,7 +18,14 @@ import { startedChromePid } from "./lifecycle.js";
 import { acquireRuntimeLock } from "./runtime-lock.js";
 import { SEALED_FORMAT, SealError, seal, unseal } from "./sealed.js";
 import { names } from "./names.js";
-import { chromeEnv, keychainArgs, launchSettings, readIdentitySettings, systemTimezone } from "./settings.js";
+import {
+  SYSTEM_MEDIA,
+  chromeEnv,
+  keychainArgs,
+  launchSettings,
+  readIdentitySettings,
+  systemTimezone,
+} from "./settings.js";
 
 /**
  * Session export and import: an identity's cookies, localStorage and IndexedDB, as
@@ -80,9 +87,11 @@ async function withProfile<T>(
       viewport: null,
       ...(applied.args.length ? { args: applied.args } : {}),
       ...(applied.timezoneId ? { timezoneId: applied.timezoneId } : {}),
+      ...SYSTEM_MEDIA,
       ...keychainArgs(settings),
-      // Chrome gets the caller's environment (HOME, XDG dirs), not this process's.
-      env: chromeEnv(env),
+      // Chrome gets the caller's environment (HOME, XDG dirs), not this process's, and the
+      // identity's time zone and locale (`launchSettings`).
+      env: { ...chromeEnv(env), ...applied.env },
     });
     const pid = startedChromePid(dir);
     if (pid !== undefined) held.update({ chromePid: pid, pgid: pid });

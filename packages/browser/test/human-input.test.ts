@@ -213,15 +213,22 @@ describe("a humanized click", () => {
     expect(page.moves()).toEqual([]);
   });
 
-  it("leaves everything to Playwright at level off", async () => {
-    const { page, locator, wrapped } = setup("off");
+  it("at level off, only moves the click off the exact center, with no pause and no pointer path", async () => {
+    const { page, locator, wrapped, sleeps } = setup("off");
     await wrapped.click({ timeout: 1 });
     await wrapped.fill("abc");
-    expect(locator.calls).toEqual([
-      ["click", { timeout: 1 }],
-      ["fill", "abc", undefined],
-    ]);
+    const [click, fill] = locator.calls;
+    expect(fill).toEqual(["fill", "abc", undefined]);
+    const { position, ...rest } = click![1] as { position: { x: number; y: number } };
+    expect(rest).toEqual({ timeout: 1 });
+    // Inside the 120x40 box's inner 60 percent, and not its center.
+    expect(position.x).toBeGreaterThanOrEqual(24);
+    expect(position.x).toBeLessThanOrEqual(96);
+    expect(position.y).toBeGreaterThanOrEqual(10);
+    expect(position.y).toBeLessThanOrEqual(30);
+    expect(position).not.toEqual({ x: 60, y: 20 });
     expect(page.log).toEqual([["locator.click"]]);
+    expect(sleeps).toEqual([]);
   });
 
   it("pauses to read a page the first time it acts on it with full, and not again on the same URL", async () => {

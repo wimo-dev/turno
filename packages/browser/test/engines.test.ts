@@ -3,7 +3,8 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildArgv, extractEngine } from "../src/argv.js";
 import { fixReply } from "../src/cdp-relay.js";
-import { engineChoice, tuningClash } from "../src/engine.js";
+import { engineChoice, systemLook, tuningClash } from "../src/engine.js";
+import type { McpConfig } from "../src/upstream.js";
 import {
   defaultChromeUserDataDir,
   parseAttachTarget,
@@ -23,7 +24,8 @@ import { upstream } from "../src/upstream.js";
 import { type Sandbox, sandbox } from "./helpers/sandbox.js";
 
 /**
- * The engine module without a browser: which engine a launch picks, attach targets and
+ * The engine module without a browser: which engine a launch picks, what a Chrome launch leaves to
+ * Chrome (color scheme, headless window), attach targets and
  * `DevToolsActivePort`, Lightpanda discovery and the read mode tool list, the CDP relay's fix,
  * the server flags and the identity.json keys. The engines against real browsers are in
  * attach.test.ts and lightpanda.test.ts.
@@ -58,6 +60,50 @@ describe("engineChoice", () => {
   it("refuses attach together with lightpanda, and a bad target", () => {
     expect(() => engineChoice({ engine: "lightpanda", attach: "auto" }, undefined)).toThrow(/pick one/);
     expect(() => engineChoice({}, { attach: "http://example.com:9222" })).toThrow(/on this computer/);
+  });
+});
+
+describe("systemLook", () => {
+  const display = () => ({
+    width: 1512,
+    height: 982,
+    workAreaTop: 33,
+    workAreaBottom: 53,
+    devicePixelRatio: 2,
+    colorDepth: 30,
+  });
+  const config = (headless: boolean, viewport?: unknown) =>
+    ({
+      browser: { launchOptions: { headless }, contextOptions: viewport === undefined ? {} : { viewport } },
+    }) as unknown as McpConfig;
+  const media = { colorScheme: null, reducedMotion: null, forcedColors: null, contrast: null };
+
+  it("leaves the color scheme to Chrome, and gives headless the display and Chrome's default window", () => {
+    // Upstream's headless default viewport is not the user's: it gives way to Chrome's own window.
+    expect(systemLook(config(true, { width: 1280, height: 720 }), {}, [], {}, display)).toEqual({
+      contextOptions: media,
+      viewport: { viewport: null },
+      args: [
+        "--screen-info={3024x1964 devicePixelRatio=2 colorDepth=30 workAreaTop=66 workAreaBottom=106}",
+        "--window-size=1200,852",
+      ],
+    });
+    expect(systemLook(config(false, null), {}, [], {}, display)).toEqual({
+      contextOptions: media,
+      viewport: {},
+      args: [],
+    });
+  });
+
+  it("keeps a viewport, a device or a window size the user set", () => {
+    const vp = { width: 800, height: 600 };
+    const none = { contextOptions: media, viewport: {}, args: [] };
+    expect(systemLook(config(true, vp), { viewportSize: vp }, [], {}, display)).toEqual(none);
+    expect(systemLook(config(true, vp), {}, [], { PLAYWRIGHT_MCP_DEVICE: "iPhone 15" }, display)).toEqual(none);
+    expect(systemLook(config(true, vp), {}, ["--window-size=900,700"], {}, display)).toEqual({
+      ...none,
+      viewport: { viewport: null },
+    });
   });
 });
 

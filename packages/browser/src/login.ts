@@ -13,6 +13,7 @@ import type { McpConfig } from "./upstream.js";
 import { acquireRuntimeLock } from "./runtime-lock.js";
 import {
   type HealthCheck,
+  SYSTEM_MEDIA,
   chromeEnv,
   keychainArgs,
   launchSettings,
@@ -152,9 +153,11 @@ export async function loginIdentity(id: string, options: LoginOptions = {}): Pro
       ...(applied.args.length || proxy ? { args: [...applied.args, ...(proxy ? CHROME_PROXY_ARGS : [])] } : {}),
       ...(proxy ? { proxy } : {}),
       ...(applied.timezoneId ? { timezoneId: applied.timezoneId } : {}),
+      ...SYSTEM_MEDIA,
       ...keychainArgs(settings),
-      // Chrome gets the caller's environment (HOME, XDG dirs), not this process's.
-      env: chromeEnv(env),
+      // Chrome gets the caller's environment (HOME, XDG dirs), not this process's, and the
+      // identity's time zone and locale (`launchSettings`).
+      env: { ...chromeEnv(env), ...applied.env },
     });
     const sites = new Set<string>();
     // The last page that showed a sign-out link: the health check turno uses when the person

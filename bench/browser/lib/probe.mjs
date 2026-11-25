@@ -72,6 +72,8 @@ const PROBE_SCRIPT = String.raw`
         if (typeof e.getCoalescedEvents === 'function') ev.coalesced = e.getCoalescedEvents().length;
       }
       if (type === 'pointerdown' && e.target && e.target.id) report.boxes[e.target.id] = box(e.target);
+      // While the automation acts on the page: methods it might wrap only around its actions.
+      if ((type === 'pointerdown' || type === 'keydown') && !report.inputNatives) report.inputNatives = natives();
       if (type === 'keydown' || type === 'keyup') ev.key = e.key.length === 1 ? 'char' : e.key;
       if (type === 'input') { ev.inputType = e.inputType; ev.length = e.data ? e.data.length : 0; }
       if (type === 'wheel') { ev.dy = e.deltaY; ev.mode = e.deltaMode; }
@@ -86,6 +88,14 @@ const PROBE_SCRIPT = String.raw`
   }, { passive: true });
 
   const nativeFn = (fn) => typeof fn === 'function' && /\[native code\]/.test(Function.prototype.toString.call(fn));
+  // How the page's methods print: a native method names itself, a Proxy or a wrapper does not.
+  const fnToString = Function.prototype.toString;
+  function natives() {
+    const cc = window.CredentialsContainer && CredentialsContainer.prototype;
+    const show = (fn) => { try { return typeof fn === 'function' ? fnToString.call(fn) : null; } catch (e) { return 'throws'; } };
+    return cc ? { 'CredentialsContainer.get': show(cc.get), 'CredentialsContainer.create': show(cc.create) } : {};
+  }
+  const media = (q) => window.matchMedia(q).matches;
   const AUTOMATION = /^(cdc_|\$cdc_|__playwright|__pw|__puppeteer|_selenium|__selenium|__webdriver|__driver|__fxdriver|callPhantom|_phantom|domAutomation|__nightmare|__lastWatirAlert)/;
 
   async function collect() {
@@ -125,6 +135,13 @@ const PROBE_SCRIPT = String.raw`
       timezone: intl.timeZone,
       locale: intl.locale,
       screen: { width: screen.width, height: screen.height, availWidth: screen.availWidth, availHeight: screen.availHeight, colorDepth: screen.colorDepth, pixelRatio: window.devicePixelRatio },
+      media: {
+        colorScheme: media('(prefers-color-scheme: dark)') ? 'dark' : media('(prefers-color-scheme: light)') ? 'light' : null,
+        reducedMotion: media('(prefers-reduced-motion: reduce)'),
+        forcedColors: media('(forced-colors: active)'),
+        contrastMore: media('(prefers-contrast: more)'),
+      },
+      natives: natives(),
       window: { innerWidth: window.innerWidth, innerHeight: window.innerHeight, outerWidth: window.outerWidth, outerHeight: window.outerHeight },
       chrome: typeof window.chrome === 'object' && window.chrome ? Object.keys(window.chrome).sort() : null,
       notification: typeof Notification === 'function' ? Notification.permission : null,
@@ -147,8 +164,8 @@ const PROBE_SCRIPT = String.raw`
 })();
 `;
 
-// Runs in a dedicated worker the probe page starts: the navigator a worker sees, which an
-// override applied to pages only leaves as it was.
+// Runs in a dedicated worker the probe page starts: the navigator and Intl a worker sees, which
+// an override applied to pages only leaves as it was.
 const WORKER_SCRIPT = `
 const run = new URLSearchParams(location.search).get('run') || 'unnamed';
 fetch('/worker-report/' + encodeURIComponent(run), { method: 'POST', body: JSON.stringify({
@@ -156,6 +173,7 @@ fetch('/worker-report/' + encodeURIComponent(run), { method: 'POST', body: JSON.
   platform: navigator.platform,
   languages: Array.from(navigator.languages || []),
   timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+  locale: Intl.DateTimeFormat().resolvedOptions().locale,
   uaPlatform: navigator.userAgentData ? navigator.userAgentData.platform : null,
 }) }).catch(() => {});
 `;

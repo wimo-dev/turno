@@ -17,14 +17,18 @@ import { parseDuration, parseSize } from "./units.js";
  * (`<data>/browser/identities/<id>.json`), never inside it, so Chrome never reads or rewrites it
  * and copying a profile does not copy it by accident.
  *
- * - `timezone`: an IANA zone. Chrome gets it as `timezoneId`, only when it differs from the
- *   system's (an identity set up at home keeps that zone on a trip).
+ * - `timezone`: an IANA zone. Chrome gets it in its process environment (`TZ`), only when it
+ *   differs from the system's (an identity set up at home keeps that zone on a trip), so pages,
+ *   workers and Chrome itself read the same zone. Windows Chrome does not read `TZ`; there it is
+ *   Playwright's `timezoneId`.
  * - `languages`: the Accept-Language order, passed as Chrome's own `--accept-lang`, so the
  *   header keeps Chrome's q-values and `navigator.languages` matches it. Without it, `locale`
  *   gives `[locale, base language]`.
- * - `locale`: also passed as `--lang` (Chrome's UI and, on Linux and Windows, `Intl`). It is not
- *   Playwright's `locale` option: that one collapses Accept-Language to a single value, which no
- *   installed Chrome sends (measured with Chrome 157).
+ * - `locale`: also passed as `--lang` (Chrome's UI and, on Linux and Windows, `Intl`), and on
+ *   Linux as the Chrome process's `LANG`. It is not Playwright's `locale` option: that one
+ *   collapses Accept-Language to a single value, which no installed Chrome sends (measured with
+ *   Chrome 157), and does not reach workers. On macOS Chrome takes `Intl` from the system's
+ *   language list whatever the flags say.
  * - `region`: the two-letter country the identity's sites know it from. Recorded, not applied.
  * - `health`: a URL and a text or selector that proves the identity is signed in (session
  *   health, `health.ts`).
@@ -772,11 +776,20 @@ export function acceptLanguages(settings: Pick<IdentitySettings, "languages" | "
   return base === settings.locale ? [settings.locale] : [settings.locale, base];
 }
 
+/**
+ * Playwright's context options that otherwise emulate a light color scheme and no motion,
+ * contrast or forced-colors preference whatever the system says: null leaves Chrome's own, as in
+ * a person's Chrome.
+ */
+export const SYSTEM_MEDIA = { colorScheme: null, reducedMotion: null, forcedColors: null, contrast: null } as const;
+
 export interface LaunchSettings {
   /** Chrome flags to add. */
   args: string[];
-  /** Playwright's `timezoneId`, when the identity's zone is not the system's. */
+  /** Playwright's `timezoneId`: only on Windows, where Chrome does not read `TZ`. */
   timezoneId?: string;
+  /** Variables for the Chrome process's environment (`TZ`, and `LANG` on Linux). */
+  env?: Record<string, string>;
 }
 
 const hasArg = (args: readonly string[], flag: string) => args.some((a) => a === flag || a.startsWith(`${flag}=`));
@@ -784,22 +797,35 @@ const hasArg = (args: readonly string[], flag: string) => args.some((a) => a ===
 /**
  * What the chrome engine adds at launch for these settings. Flags and context options the user
  * already set (through `--config` or the Playwright MCP flags) always win.
+ *
+ * Everything goes in at launch, as a person's own Chrome would get it, never as a DevTools
+ * override of the page: a launch value reaches every page, frame and worker from their first
+ * line, while an override reaches only the targets the automation attached to.
  */
 export function launchSettings(
   settings: IdentitySettings | undefined,
   userArgs: readonly string[],
   systemTz: string,
   userContext: Record<string, unknown> = {},
-  /** The locale `defaults.ts` resolved: the file's, else the system's; undefined keeps Chrome's. */
+  /** The locale identity.json sets; undefined leaves Chrome's own, read from the system. */
   locale: string | undefined = settings?.locale || undefined,
+  platform: NodeJS.Platform = process.platform,
 ): LaunchSettings {
   const out: LaunchSettings = { args: [] };
   if (!settings && locale === undefined) return out;
-  if (locale && !hasArg(userArgs, "--lang")) out.args.push(`--lang=${locale}`);
+  const env: Record<string, string> = {};
+  if (locale && !hasArg(userArgs, "--lang")) {
+    out.args.push(`--lang=${locale}`);
+    // Linux Chrome also reads the process locale; macOS and Windows Chrome read their own settings.
+    if (platform === "linux") env.LANG = `${locale.replace(/-/g, "_")}.UTF-8`;
+  }
   const languages = acceptLanguages({ languages: settings?.languages, locale });
   if (languages && !hasArg(userArgs, "--accept-lang") && userContext.locale === undefined)
     out.args.push(`--accept-lang=${languages.join(",")}`);
-  if (settings?.timezone && settings.timezone !== systemTz && userContext.timezoneId === undefined)
-    out.timezoneId = settings.timezone;
+  if (settings?.timezone && settings.timezone !== systemTz && userContext.timezoneId === undefined) {
+    if (platform === "win32") out.timezoneId = settings.timezone;
+    else env.TZ = settings.timezone;
+  }
+  if (Object.keys(env).length) out.env = env;
   return out;
 }

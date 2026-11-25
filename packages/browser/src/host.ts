@@ -61,7 +61,8 @@ import { LiveServer } from "./live-server.js";
 import { MemoryWatch } from "./memory.js";
 import { names } from "./names.js";
 import { NETWORK_TOOLS, redactNetworkText } from "./network-redact.js";
-import { type PasskeyNote, type PasskeyPending, PasskeyWatch, installPasskeyProbe } from "./passkey.js";
+import { type PasskeyNote, type PasskeyProbe, PasskeyWatch, createPasskeyProbe } from "./passkey.js";
+import { skipInjectRoute } from "./patchright.js";
 import {
   type IdentityPolicy,
   blockedMessage,
@@ -438,9 +439,21 @@ interface Running {
   guard?: NavigationGuard;
   /** The passkey prompts of this browser's pages (`passkey.ts`). */
   passkeys?: PasskeyWatch;
+  /** Wraps a page's credential methods while the agent acts on it (`passkey.ts`). */
+  passkeyProbe?: PasskeyProbe;
   /** The devtools recordings the agent runs in this browser now ("a trace", "a video"). */
   devtools: Set<string>;
 }
+
+/** Calls that act on no page's content, or leave it: the passkey probe stays out of them. */
+const NO_PASSKEY_ARM: ReadonlySet<string> = new Set([
+  "browser_navigate",
+  "browser_navigate_back",
+  "browser_tabs",
+  "browser_close",
+  "browser_resize",
+  "browser_wait_for",
+]);
 
 /** The devtools capability's tools that start and stop a recording, and what each records. */
 const DEVTOOLS_START: ReadonlyMap<string, string> = new Map([
@@ -604,6 +617,7 @@ class SessionBackend extends EventEmitter implements ServerBackend {
         await launched.close().catch(() => {});
         throw new Error(clash);
       }
+      skipInjectRoute(launched.context);
       // Human-like input (`auto` by default): the input tools of this browser run on humanized tabs.
       const input =
         tuning.humanize.level === "off"
@@ -657,7 +671,11 @@ class SessionBackend extends EventEmitter implements ServerBackend {
       })
         ? new AgentCursor({ title, locale, ...(identity ? { identity: identity.id } : {}) })
         : undefined;
-      const humanized = input ? humanizeTools(stock, input) : stock;
+      // With humanize off too, a click lands inside its element rather than on its exact center,
+      // at no cost (`HumanInput.offCenter`); read mode lays out no page to aim in.
+      const aim =
+        input ?? (launched.engine === "lightpanda" ? undefined : new HumanInput({ ...tuning.humanize, level: "off" }));
+      const humanized = aim ? humanizeTools(stock, aim) : stock;
       // Every backend of this browser (each session's too, with "sharing": "tabs") runs these tools.
       const tools = cursor ? cursorTools(humanized, new CursorInput(cursor, input !== undefined)) : humanized;
       const backend = new BrowserBackend(sessionConfig, launched.context, tools, {
@@ -782,7 +800,7 @@ class SessionBackend extends EventEmitter implements ServerBackend {
           },
         });
       }
-      const passkeys = await this.watchPasskeys(launched, governor, locale);
+      const watched = this.watchPasskeys(launched, governor, locale);
       backend.on("dynamictoolschange", () => this.emit("dynamictoolschange"));
       backend.once("disconnected", () => {
         recording?.abandon();
@@ -807,7 +825,7 @@ class SessionBackend extends EventEmitter implements ServerBackend {
         ...(cursor ? { cursor } : {}),
         locale,
         ...(guard ? { guard } : {}),
-        ...(passkeys ? { passkeys } : {}),
+        ...(watched ? { passkeys: watched.watch, passkeyProbe: watched.probe } : {}),
         devtools: new Set<string>(),
       };
     })();
@@ -1053,7 +1071,13 @@ class SessionBackend extends EventEmitter implements ServerBackend {
     const end = step ? () => {} : watch.begin();
     try {
       if (outcome.kind === "open") {
-        const result = await this.callAny(name, args, signal, session, sample, progress);
+        const disarm = step ? undefined : await this.armPasskeys(name, key);
+        let result: ToolResult;
+        try {
+          result = await this.callAny(name, args, signal, session, sample, progress);
+        } finally {
+          disarm?.();
+        }
         const passkey = step ? undefined : (await this.current?.catch(() => undefined))?.passkeys?.running;
         const open = passkey ? this.steps.running : undefined;
         if (open) {
@@ -1107,6 +1131,21 @@ class SessionBackend extends EventEmitter implements ServerBackend {
     } finally {
       end();
     }
+  }
+
+  /**
+   * Wraps the credential methods of the session's current page for an action on it, so a passkey
+   * prompt the action starts is seen (`passkey.ts`). Not for a call that only reads, or one that
+   * leaves the page (the next document starts unwrapped). Returns what ends the action, or
+   * undefined when nothing was wrapped.
+   */
+  private async armPasskeys(name: string, key: string): Promise<(() => void) | undefined> {
+    if (this.readsOnly(name) || NO_PASSKEY_ARM.has(name)) return undefined;
+    const running = await this.current?.catch(() => undefined);
+    if (!running?.passkeyProbe || !running.launched.isOpen()) return undefined;
+    const page = await this.currentPageOf(key);
+    if (!page) return undefined;
+    return await running.passkeyProbe.arm(page).catch(() => undefined);
   }
 
   /** True for a call that changes nothing on the page (a snapshot, the tab list, `browser_extract`). */
@@ -1506,24 +1545,27 @@ class SessionBackend extends EventEmitter implements ServerBackend {
    * person until it settles, when they can see Chrome's own window (headed, or attach mode, where
    * only the agent's tabs count). The probe goes in only when someone can see the browser, the rule
    * of the agent cursor's `auto`: a headless Chrome with no live view could hand no step to anyone,
-   * so it gets no script at all. With the live view on, a headless Chrome still cannot show Chrome's
+   * so its pages are never wrapped. Otherwise a page is wrapped only while the agent acts on it
+   * (`armPasskeys`). With the live view on, a headless Chrome still cannot show Chrome's
    * passkey window (the view shows only the page), so it tells the agent. Read mode and Camoufox are
    * left out: Lightpanda has no WebAuthn, and the probe is checked on Chrome only.
    */
-  private async watchPasskeys(
+  private watchPasskeys(
     launched: LaunchedBrowser,
     governor: TabGovernor,
     locale: UiLocale,
-  ): Promise<PasskeyWatch | undefined> {
+  ): { watch: PasskeyWatch; probe: PasskeyProbe } | undefined {
     if (launched.engine === "lightpanda" || launched.engine === "camoufox") return undefined;
     const headless = this.host.config.browser?.launchOptions?.headless === true && !launched.userBrowser;
     if (!resolveCursor("auto", { headless, live: this.host.live !== undefined, engine: launched.engine }))
       return undefined;
     const agents = (page: Page) => !launched.userBrowser || governor.governs(page);
     const strings = uiStrings(locale).passkey;
-    let pending: PasskeyPending | undefined;
+    const probe = createPasskeyProbe((report, page, frame) => {
+      if (agents(page)) passkeys.report(report, page, frame);
+    });
     const passkeys = new PasskeyWatch({
-      pending: async (frame, id) => (pending ? await pending(frame, id) : true),
+      pending: probe.pending,
       // Its step waits in pieces like browser_request_human's, and `continue` reaches it.
       opened: (done) => {
         this.steps.open(
@@ -1556,19 +1598,7 @@ class SessionBackend extends EventEmitter implements ServerBackend {
           },
         ),
     });
-    try {
-      pending = await installPasskeyProbe(
-        launched.context,
-        (report, page, frame) => {
-          if (agents(page)) passkeys.report(report, page, frame);
-        },
-        agents,
-      );
-    } catch {
-      // A browser the probe cannot go into still works; its passkey prompts are just not seen.
-      return undefined;
-    }
-    return passkeys;
+    return { watch: passkeys, probe };
   }
 
   /**

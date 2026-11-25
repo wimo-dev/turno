@@ -137,10 +137,15 @@ that tells you to use your passkey in that window:
   run the browser with a window (`turno-browser-mcp` without `--headless`). A headless Chrome
   with the live view off does not watch for passkey requests at all. In attach mode only the
   agent's own tabs count; a passkey you use in one of your tabs is yours.
-- To see the requests, turno adds a small script to every frame of the agent's pages that wraps
-  `navigator.credentials.create` and `get`, only when someone can see the browser (a Chrome
-  window, or the live view on), like the agent cursor's `auto`. It reads only whether the call is
-  for a passkey and its `mediation`, and how it settled. Read mode and Camoufox do not have it.
+- To see the requests, turno wraps `navigator.credentials.create` and `get` in the frames of a
+  sign-in page (a password field, a field with passkey autofill, or an address that names
+  sign-in, sign-up or passkeys) only while the agent acts on it (a click, typing, a key), and puts
+  Chrome's own methods back 3 seconds after the action; a request already made is followed until
+  it settles. At any other time, at load included, the page reads Chrome's own methods. It does
+  so only when someone can see the browser (a Chrome window, or the live view on), like the agent
+  cursor's `auto`, and reads only whether the call is for a passkey and its `mediation`, and how it
+  settled. A passkey request a page makes on its own, outside the agent's actions, is not seen:
+  you still get Chrome's window, and the agent is not told. Read mode and Camoufox do not have it.
 
 With the other settings:
 
