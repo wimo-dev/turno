@@ -147,6 +147,7 @@ async function site(): Promise<{
     "/still": `<title>quiet</title><button id="noop">Noop</button>
       <button id="load" onclick="fetch('/api/slow').then((r) => r.text()).then((t) => { document.title = t; })">Load</button>
       <a id="file" href="/api/file">Export</a>
+      <button id="ask" onclick="if (confirm('Delete it?')) document.title = 'confirmed'">Delete</button>
       <script>new MutationObserver(() => { document.title = "mutated"; }).observe(document.body, { subtree: true, childList: true, attributes: true, characterData: true });</script>`,
     // A button below the fold, under a banner that covers the whole viewport.
     "/covered-below": `<title>covered below</title><div style="height:3000px"></div><button id="save" onclick="document.title='saved'">Save</button>
@@ -393,6 +394,19 @@ describe.skipIf(reason !== undefined)(
       expect(await call(client, "browser_click", { target: "#load" })).toContain("- Page Title: loaded");
       // A link that downloads a file navigates nowhere: its request never finishes as a page.
       expect((await elapsed("#file")).ms).toBeLessThan(2500);
+    }, 90_000);
+
+    it("answers a dialog a click opened while the agent cursor draws and steps are recorded", async () => {
+      const web = await site();
+      onTestFinished(() => web.close());
+      // The page runs no script while the dialog is open: nothing may wait on it until it is answered.
+      writeIdentitySettings("asks", { cursor: "on", record: { screenshots: true } }, sb.env);
+      const client = await start("asks");
+      await call(client, "browser_navigate", { url: `${web.url}/still` });
+      const t0 = performance.now();
+      expect(await call(client, "browser_click", { target: "#ask" })).toContain('"confirm" dialog');
+      expect(performance.now() - t0).toBeLessThan(4000);
+      expect(await call(client, "browser_handle_dialog", { accept: true })).toContain("- Page Title: confirmed");
     }, 90_000);
 
     it("blocks what identity.json lists and serves cacheable static files from the identity's own disk cache", async () => {

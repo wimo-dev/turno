@@ -681,7 +681,12 @@ class SessionBackend extends EventEmitter implements ServerBackend {
         live: this.host.live !== undefined,
         engine: launched.engine,
       })
-        ? new AgentCursor({ title, locale, ...(identity ? { identity: identity.id } : {}) })
+        ? new AgentCursor({
+            title,
+            locale,
+            ...(identity ? { identity: identity.id } : {}),
+            blocked: (page) => (this.dialogs.get(page) ?? 0) > 0,
+          })
         : undefined;
       // With humanize off too, a click lands inside its element rather than on its exact center,
       // at no cost (`HumanInput.offCenter`); read mode lays out no page to aim in.
@@ -1629,7 +1634,8 @@ class SessionBackend extends EventEmitter implements ServerBackend {
         element: args.element ?? args.startElement,
         ok: !result.isError,
         ...(page ? { page } : {}),
-        screenshot: true,
+        // Behind an open dialog the page paints nothing: the screenshot would wait out its 5 s.
+        screenshot: !(page && this.dialogs.get(page)),
       });
   }
 
