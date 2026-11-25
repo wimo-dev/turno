@@ -77,7 +77,7 @@ export class StorageGuard {
   /** Reads the cookies and the page's web storage; every value the rule masks joins the redactor. */
   async refresh(context: BrowserContext, page: Page | undefined): Promise<StorageSeen> {
     const [cookies, web] = await Promise.all([
-      context.cookies().catch(() => [] as StateCookie[]) as Promise<StateCookie[]>,
+      (async () => (await context.cookies()) as unknown as StateCookie[])().catch(() => [] as StateCookie[]),
       webStorage(page),
     ]);
     for (const c of cookies)
@@ -161,7 +161,7 @@ export class StorageGuard {
    * tool hands it the file.
    */
   patchRestore(context: BrowserContext): void {
-    if (this.patched.has(context)) return;
+    if (this.patched.has(context) || typeof context.setStorageState !== "function") return;
     this.patched.add(context);
     const restore = context.setStorageState.bind(context);
     type Arg = Parameters<BrowserContext["setStorageState"]>[0];
