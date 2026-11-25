@@ -145,7 +145,20 @@ describe("precedence: server flags, then identity.json browser, then Google Chro
     expect(withIdentityBrowser(base, { browser: "brave" }, { browserFromFlags: true }, brave)).toBe(base);
     const byPath = config({ channel: "chrome", executablePath: "/x/chrome" });
     expect(withIdentityBrowser(byPath, { browser: "brave" }, {}, brave)).toBe(byPath);
-    expect(withIdentityBrowser(base, {}, {}, brave)).toBe(base);
+    const chrome = (choice: string) => ({ choice, label: "", launch: { channel: "chrome" } });
+    expect(withIdentityBrowser(base, {}, {}, chrome)).toBe(base);
+  });
+
+  it("runs Google Chrome without a setting, from its path when its channel does not find it", () => {
+    const userChrome = join(sb.home, "Applications", "Google Chrome.app", "Contents", "MacOS", "Google Chrome");
+    const home = (choice: string) =>
+      resolveBrowser(choice, { env: sb.env, platform: "darwin", probe: machine({ [userChrome]: "158.0.0.0" }) });
+    expect(
+      withIdentityBrowser(config({ channel: "chrome", headless: true }), {}, {}, home).browser.launchOptions,
+    ).toEqual({
+      headless: true,
+      executablePath: userChrome,
+    });
   });
 
   it("turns the sandbox off for Chrome for Testing on Linux, as upstream does for --browser chromium", () => {

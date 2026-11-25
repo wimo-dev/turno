@@ -64,7 +64,7 @@ defaults (not in identity.json; decided at every launch):
   ...
 ```
 
-The [agent cursor](/docs/browser/agent-cursor) row is the `cursor` setting. They are applied at every Chrome start: languages go to Chrome's own `--accept-lang`, the locale to `--lang`, and the time zone is emulated only when it differs from the machine's. Without a locale or languages, Chrome gets the system's locale (`LANG` and the other locale variables, or the macOS region setting); `--locale off` leaves Chrome's own.
+The [agent cursor](/docs/browser/agent-cursor) row is the `cursor` setting. They are applied at every Chrome start, the way a person's own Chrome would get them, so pages, frames and workers all read the same values: languages go to Chrome's own `--accept-lang`, the locale to `--lang` (and to `LANG` on Linux), and the time zone to the `TZ` of Chrome's process when it differs from the machine's (on Windows, where Chrome does not read `TZ`, it is emulated). Without a locale or languages, Chrome reads the system's language itself, as it does for a person, so a page sees the same languages as in your own Chrome on this computer. On macOS Chrome formats dates and numbers (`Intl`) in the system's language whatever the locale says; a locale other than the system's changes the languages a site reads, not the format.
 
 ## Defaults
 
@@ -83,7 +83,7 @@ Every feature has a default that turno works out when Chrome starts, from what i
 | [Human-like input](/docs/browser/actions#human-like-input) | `auto` | off on localhost and for reading, light to act, full on sign-in, payment and support pages and challenged sites |
 | [Tab sharing](/docs/browser/sharing) | `tabs` | `session` in attach mode |
 | [Coherent user agent](/docs/browser/network#a-coherent-user-agent) | on | headless Chrome only, once `login` has read that Chrome's client hints |
-| Locale | the system's | when `identity.json` has no locale or languages |
+| Locale | the system's, read by Chrome itself | when `identity.json` has no locale or languages |
 | Cookie key | the system keychain | new identities created at a terminal on macOS with Google Chrome |
 | [Health check](#session-health) | the one `login` finds | when `identity.json` has none |
 | [Natural language actions](/docs/browser/natural-language-and-captchas#which-model-answers) | on | when the client offers MCP sampling, an API key is in the environment, or the Claude Code CLI or Codex is on the PATH; off when the policy turns them off |

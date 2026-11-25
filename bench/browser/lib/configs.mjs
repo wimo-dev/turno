@@ -95,6 +95,18 @@ export const BUILTIN = [
       "worker-matches-page": "pass",
     },
   },
+  {
+    name: "timezone-other",
+    description: "a time zone other than the computer's (identity.json timezone)",
+    identity: { timezone: "Pacific/Auckland" },
+    expect: { "worker-matches-page": "pass", "headers-match-navigator": "pass" },
+  },
+  {
+    name: "locale-other",
+    description: "a locale other than the computer's (identity.json locale)",
+    identity: { locale: "fr-FR" },
+    expect: { "worker-matches-page": "pass", "headers-match-navigator": "pass" },
+  },
 ];
 
 const NAME = /^[a-z0-9][a-z0-9-]{0,39}$/;

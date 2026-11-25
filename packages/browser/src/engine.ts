@@ -1,6 +1,8 @@
+import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { Browser, BrowserContext, Page } from "patchright-core";
 import { storagePartitioningArgs } from "./chrome-features.js";
+import { headlessDisplayArgs, primaryDisplay } from "./display.js";
 import { type AttachTarget, createAttachEngine, parseAttachTarget } from "./engine-attach.js";
 import { createCamoufoxEngine } from "./engine-camoufox.js";
 import { createLightpandaEngine } from "./engine-lightpanda.js";
@@ -16,6 +18,7 @@ import {
   launchSettings,
   readIdentitySettings,
   recordEngineClash,
+  SYSTEM_MEDIA,
   systemTimezone,
   chromeEnv,
 } from "./settings.js";
@@ -174,6 +177,55 @@ function profileInUse(identity: IdentityRef | undefined, userDataDir: string): E
   );
 }
 
+/** What `systemLook` adds to a Chrome launch. */
+interface SystemLook {
+  /** Context options that leave Chrome's own media features (color scheme, motion, contrast). */
+  contextOptions: Record<string, unknown>;
+  /** `{ viewport: null }` when a headless Chrome lays its page out in its own window. */
+  viewport: { viewport?: null };
+  /** The headless display switches (`display.ts`). */
+  args: string[];
+}
+
+/**
+ * Chrome's own look of the computer, as plain Chrome shows it: no emulated color scheme or other
+ * media feature (Playwright's defaults are a light scheme and no preferences, whatever the
+ * system says), and in headless the primary display and Chrome's default window instead of the
+ * fixed viewport. A viewport, a device or a media feature the user set (flag, environment or
+ * config file) wins, and so do the user's own `--window-size` or `--screen-info`.
+ */
+export function systemLook(
+  config: McpConfig,
+  cliOptions: Record<string, unknown>,
+  userArgs: readonly string[],
+  env: NodeJS.ProcessEnv = process.env,
+  display = primaryDisplay,
+): SystemLook {
+  const out: SystemLook = { contextOptions: { ...SYSTEM_MEDIA }, viewport: {}, args: [] };
+  const headless = config.browser.launchOptions.headless === true;
+  if (!headless || config.browser.contextOptions?.viewport === null || userSetViewport(config, cliOptions, env))
+    return out;
+  out.viewport = { viewport: null };
+  const own = (flag: string) => userArgs.some((a) => a === flag || a.startsWith(`${flag}=`));
+  if (!own("--window-size") && !own("--screen-info")) out.args = headlessDisplayArgs(display());
+  return out;
+}
+
+/** Whether the viewport (or a device, which brings one) is the user's, not upstream's headless default. */
+function userSetViewport(config: McpConfig, cliOptions: Record<string, unknown>, env: NodeJS.ProcessEnv): boolean {
+  if (cliOptions.viewportSize !== undefined || cliOptions.device !== undefined) return true;
+  if (env.PLAYWRIGHT_MCP_VIEWPORT_SIZE || env.PLAYWRIGHT_MCP_DEVICE) return true;
+  if (!config.configFile) return false;
+  try {
+    const file = JSON.parse(readFileSync(resolve(config.configFile), "utf8")) as {
+      browser?: { contextOptions?: Record<string, unknown> };
+    };
+    return file.browser?.contextOptions?.viewport !== undefined;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * The installed Chrome on a persistent profile, launched by turno with the options upstream's
  * `createPersistentBrowser` uses: the resolved launch and context options, no signal handlers
@@ -182,14 +234,19 @@ function profileInUse(identity: IdentityRef | undefined, userDataDir: string): E
  *
  * For an identity it also takes the identity's runtime lock before Chrome starts,
  * records Chrome's PID and process group in it, gives it back when Chrome closes, and applies
- * identity.json: languages and locale as Chrome flags, the time zone as `timezoneId`. With
- * `backgroundThrottling` it drops Playwright's three anti-throttling switches and
- * turns off its focus emulation (`launchTuning`). Third-party storage partitioning, which
- * Playwright turns off, stays on (`chrome-features.ts`).
+ * identity.json: languages and locale as Chrome flags, the time zone in Chrome's environment
+ * (`launchSettings`). With `backgroundThrottling` it drops Playwright's three anti-throttling
+ * switches and turns off its focus emulation (`launchTuning`). Third-party storage partitioning,
+ * which Playwright turns off, stays on (`chrome-features.ts`).
+ *
+ * What a page reads about the screen and the user's preferences is Chrome's own, as in a person's
+ * Chrome on this computer (`systemLook`): Playwright's emulated light color scheme and its other
+ * media defaults are left off, and a headless Chrome gets the computer's primary display and the
+ * window Chrome would open on it (`display.ts`) instead of the 1280x720 viewport.
  */
 const chromeEngine: Engine = {
   id: "chrome",
-  async launch({ config, clientInfo, title, identity, tuning, secret }) {
+  async launch({ config, clientInfo, cliOptions, title, identity, tuning, secret }) {
     const userDataDir = config.browser.userDataDir;
     if (userDataDir === undefined) throw new Error("the chrome engine needs a profile directory");
     const { tools } = upstream();
@@ -223,6 +280,7 @@ const chromeEngine: Engine = {
         config.browser.contextOptions,
         identity ? tuning?.locale : undefined,
       );
+      const look = systemLook(config, cliOptions, userArgs);
       const tuned = tuning ? launchTuning(tuning) : { ignoreDefaultArgs: [], contextOptions: {} };
       // Chrome's third-party storage partitioning stays on, as in a person's Chrome (`chrome-features.ts`).
       // The low-resource preset's features go in the same list: Chrome reads only the last one.
@@ -237,15 +295,18 @@ const chromeEngine: Engine = {
       const launchOptions = {
         tracesDir,
         ...config.browser.launchOptions,
+        ...look.contextOptions,
         ...tuned.contextOptions,
         ...config.browser.contextOptions,
-        args: [...(partitioning?.args ?? []), ...userArgs, ...applied.args, ...(network?.args ?? [])],
+        ...look.viewport,
+        args: [...(partitioning?.args ?? []), ...userArgs, ...look.args, ...applied.args, ...(network?.args ?? [])],
         ...(applied.timezoneId ? { timezoneId: applied.timezoneId } : {}),
         ...(network?.proxy ? { proxy: network.proxy } : {}),
         handleSIGINT: false,
         handleSIGTERM: false,
-        // Elsewhere Chrome gets this process's environment, as before.
-        ...(process.platform === "win32" ? { env: chromeEnv(process.env) } : {}),
+        // Windows needs its USERPROFILE fixed (`chromeEnv`); elsewhere Chrome gets this process's
+        // environment, as before, plus the identity's time zone and locale.
+        ...(process.platform === "win32" || applied.env ? { env: { ...chromeEnv(process.env), ...applied.env } } : {}),
         ignoreDefaultArgs:
           ignore === true
             ? true
@@ -495,7 +556,20 @@ export function withIdentityBrowser(
 ): McpConfig {
   const choice = settings?.browser;
   const lo = config.browser.launchOptions;
-  if (choice === undefined || flags.browserFromFlags || lo.executablePath !== undefined) return config;
+  if (flags.browserFromFlags || lo.executablePath !== undefined) return config;
+  if (choice === undefined) {
+    // Google Chrome, also where its channel does not look (`unpinnedBrowserLaunch`).
+    if (lo.channel !== undefined && lo.channel !== "chrome") return config;
+    let launch: ResolvedBrowser["launch"];
+    try {
+      launch = resolve("chrome").launch;
+    } catch {
+      return config;
+    }
+    if (!("executablePath" in launch)) return config;
+    const { channel: _channel, ...rest } = lo;
+    return { ...config, browser: { ...config.browser, launchOptions: { ...rest, ...launch } } };
+  }
   const { launch } = resolve(choice);
   const { channel: _channel, ...rest } = lo;
   const launchOptions: McpConfig["browser"]["launchOptions"] = { ...rest, ...launch };

@@ -413,23 +413,42 @@ describe("launch settings", () => {
   it("derives the languages from the locale, and adds --lang for Chrome's UI and Intl", () => {
     expect(acceptLanguages({ ...base, locale: "es-MX" })).toEqual(["es-MX", "es"]);
     expect(acceptLanguages({ ...base, locale: "en" })).toEqual(["en"]);
-    expect(launchSettings({ ...base, locale: "es-MX" }, [], "UTC")).toEqual({
+    expect(launchSettings({ ...base, locale: "es-MX" }, [], "UTC", {}, undefined, "darwin")).toEqual({
       args: ["--lang=es-MX", "--accept-lang=es-MX,es"],
     });
   });
 
-  it("emulates the time zone only when it differs from the system's", () => {
-    expect(launchSettings({ ...base, timezone: "Asia/Tokyo" }, [], "Europe/Madrid")).toEqual({
+  it("gives Chrome's process the time zone (TZ) only when it differs from the system's, and emulates it on Windows", () => {
+    const tokyo = { ...base, timezone: "Asia/Tokyo" };
+    expect(launchSettings(tokyo, [], "Europe/Madrid", {}, undefined, "darwin")).toEqual({
+      args: [],
+      env: { TZ: "Asia/Tokyo" },
+    });
+    expect(launchSettings(tokyo, [], "Europe/Madrid", {}, undefined, "win32")).toEqual({
       args: [],
       timezoneId: "Asia/Tokyo",
     });
     expect(launchSettings({ ...base, timezone: "Europe/Madrid" }, [], "Europe/Madrid")).toEqual({ args: [] });
   });
 
+  it("gives a Linux Chrome the locale in its process environment too", () => {
+    expect(launchSettings({ ...base, locale: "es-MX" }, [], "UTC", {}, undefined, "linux")).toEqual({
+      args: ["--lang=es-MX", "--accept-lang=es-MX,es"],
+      env: { LANG: "es_MX.UTF-8" },
+    });
+  });
+
   it("never overrides flags or context options the user set", () => {
     const user = ["--lang=fr", "--accept-lang=fr-FR"];
     expect(
-      launchSettings({ ...base, locale: "es-MX", timezone: "Asia/Tokyo" }, user, "UTC", { timezoneId: "Europe/Paris" }),
+      launchSettings(
+        { ...base, locale: "es-MX", timezone: "Asia/Tokyo" },
+        user,
+        "UTC",
+        { timezoneId: "Europe/Paris" },
+        undefined,
+        "linux",
+      ),
     ).toEqual({ args: [] });
   });
 });

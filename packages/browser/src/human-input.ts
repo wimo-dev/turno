@@ -62,6 +62,12 @@ export const HUMANIZED_TOOLS: ReadonlySet<string> = new Set([
  */
 const PREPARE_TIMEOUT_MS = 3000;
 
+/** How long `offCenter` waits for the element's box: past it, the click runs as Playwright's own. */
+const QUICK_BOX_MS = 100;
+
+/** Below this many pixels a side, the center is the only point to aim at. */
+const MIN_AIM_PX = 6;
+
 /** A scroll longer than this is a jump (a person drags the scroll bar or presses End). */
 const MAX_WHEEL_PX = 3000;
 
@@ -301,6 +307,24 @@ export class HumanInput {
     }
   }
 
+  /**
+   * A click's options with humanize off: the same click, at a point of the element a person could
+   * have aimed at (`pickPoint`, in its inner 60 percent) instead of its exact center, which no
+   * person hits time after time. Only the element's size is read, with no wait and no pointer
+   * path, so the click costs what Playwright's own does; an element not on the page yet, or too
+   * small to aim inside, gets Playwright's center.
+   */
+  private async offCenter(
+    locator: Locator,
+    options?: Record<string, unknown>,
+  ): Promise<Record<string, unknown> | undefined> {
+    if (options?.position !== undefined) return options;
+    const box = await locator.boundingBox({ timeout: QUICK_BOX_MS }).catch(() => null);
+    if (!box || box.width < MIN_AIM_PX || box.height < MIN_AIM_PX) return options;
+    const point = pickPoint({ x: 0, y: 0, width: box.width, height: box.height }, this.rng);
+    return { ...options, position: point };
+  }
+
   /** A humanized view of one of the page's locators. */
   wrapLocator(locator: Locator, page: Page): Locator {
     const original = locator;
@@ -309,7 +333,7 @@ export class HumanInput {
     const wrapped = overlay(locator, {
       click: async (options?: Options) => {
         const l = level();
-        if (l === "off") return await original.click(options);
+        if (l === "off") return await original.click(await this.offCenter(original, options));
         const at = await this.aim(page, original, l);
         if (!at) return await original.click(options);
         const timing = clickTiming(l, this.rng);
@@ -318,7 +342,7 @@ export class HumanInput {
       },
       dblclick: async (options?: Options) => {
         const l = level();
-        if (l === "off") return await original.dblclick(options);
+        if (l === "off") return await original.dblclick(await this.offCenter(original, options));
         const at = await this.aim(page, original, l);
         if (!at) return await original.dblclick(options);
         const timing = clickTiming(l, this.rng);

@@ -82,7 +82,8 @@ What it does:
   Workers take them from their page, and a tab a tool opens has them before it loads. A popup a
   page opens gets them as soon as it exists, which can be after its first document loaded.
 - **Languages and time zone** come from the identity (`--languages`, `--timezone`) or from the
-  computer, as without the setting.
+  computer, as without the setting. They are set when Chrome starts (its own `--accept-lang` and
+  `--lang`, and the `TZ` of its process), so workers read the same as their page.
 - **The launch check**: before the agent gets the browser, turno loads a page of its own (answered
   inside Chrome, so nothing goes out) and compares what it reads: no `HeadlessChrome`, brands and
   full version list that name the Chrome that runs, the high entropy values this Chrome reports

@@ -142,6 +142,7 @@ Configurations are data in `bench/browser/lib/configs.mjs`: server flags, `ident
 | `lightpanda` | read mode on Lightpanda (needs `lightpanda` on PATH or `TURNO_LIGHTPANDA_PATH`; tools read mode refuses count as failed tasks) |
 | `camoufox` | Camoufox as the engine (needs Camoufox and a matching `playwright-core`, see [Camoufox](/docs/browser/engines#camoufox)) |
 | `user-agent-coherent`, `user-agent-coherent-tz` | `"userAgent": "coherent"`, the second with a time zone other than the computer's; both expect the headless token gone and the consistency checks to pass |
+| `timezone-other`, `locale-other` | a time zone (`Pacific/Auckland`) or a locale (`fr-FR`) other than the computer's; both expect a worker to read what its page reads, and the headers to match |
 
 A configuration the server does not accept (an unknown `identity.json` key, engine or flag, or a Lightpanda or Camoufox that is not installed) is reported as unsupported instead of failing. More go in a JSON file passed with `--config-file`, for example a before and after of an update, or Chrome Beta:
 
@@ -179,10 +180,10 @@ Every run of both configurations succeeded, with the same calls and tokens: a sh
 
 `pnpm bench:fingerprint` opens a local probe page through the server and runs fixed steps with the stock tools: a click, a hover, a typed text, a text typed with `slowly`, and a click on a button below the fold. The page records what any site can observe and posts it to the bench, so reading the result never touches the page:
 
-- **navigator**: user agent, client hints and their agreement with it, languages, plugins, WebGL renderer, window size, permissions;
+- **navigator**: user agent, client hints and their agreement with it, languages, plugins, WebGL renderer, window size and its fit in the screen, color scheme and other media preferences, permissions;
 - **automation markers**: `navigator.webdriver` and how it is defined, globals that Playwright, Puppeteer or Selenium leave, and any global plain Chrome does not have;
-- **consistency**: the headers of the page's own request against what the page reads (User-Agent, Accept-Language, the client hints brands and platform), a dedicated worker against its page (user agent, platform, languages, time zone), and the language dates are formatted in against the first language;
-- **protocol side effects**: DOM calls that come from outside the page's own scripts, whether the page's Content Security Policy holds, and the old `Runtime.enable` console leak;
+- **consistency**: the headers of the page's own request against what the page reads (User-Agent, Accept-Language, the client hints brands and platform), a dedicated worker against its page (user agent, platform, languages, time zone, date format), and the language dates are formatted in against the first language;
+- **protocol side effects**: DOM calls that come from outside the page's own scripts, whether `navigator.credentials` methods print as Chrome's own at load and during input, whether the page's Content Security Policy holds, and the old `Runtime.enable` console leak;
 - **input events**: `isTrusted`, timing, coordinates and coalesced events of every pointer, key and wheel event, and the pointer path before the click.
 
 The reference is the same installed Chrome started directly on the probe page, with no automation at all and a throwaway profile; `matches-plain-chrome` lists the fields that differ. Each check is `pass`, `info` (a fact, not a problem), `warn` (something a detector can see) or `fail` (a contradiction or a plain automation marker).

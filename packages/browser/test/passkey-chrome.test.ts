@@ -19,9 +19,10 @@ import { type Sandbox, sandbox } from "./helpers/sandbox.js";
  * every ceremony at once as a person with Touch ID would.
  *
  * The sign-in page starts passkey autofill (conditional mediation) on load, which must not stop
- * the agent (its start and settle reach the server before the modal ones, and no note is about it); a click on "Create a passkey" and one on "Sign in with a passkey" (modal) each hand
- * the browser to the person, the step ends when the ceremony settles, and a result says how it
- * went, without any credential data.
+ * the agent (no note is about it); a click on "Create a passkey" and one on "Sign in with a
+ * passkey" (modal) each hand the browser to the person, the step ends when the ceremony settles,
+ * and a result says how it went, without any credential data. Outside the agent's actions the
+ * page reads Chrome's own credential methods.
  */
 
 const pkg = fileURLToPath(new URL("..", import.meta.url));
@@ -164,8 +165,18 @@ describe.skipIf(reason)(`a page's passkey prompt on a real Chrome${reason ? ` (s
       .find((p) => p.url().startsWith(origin)) as Page;
     const log = () => tab.evaluate("window.log.join(',')", undefined, undefined, false) as Promise<string>;
 
-    // Passkey autofill starts on load: no step, no note. The page reports in order, so its start
-    // and its settle reached the server before the create below.
+    const native = () =>
+      tab.evaluate(
+        "['get', 'create'].map((m) => Function.prototype.toString.call(CredentialsContainer.prototype[m])).join(' ')",
+        undefined,
+        undefined,
+        false,
+      ) as Promise<string>;
+    const NATIVE = "function get() { [native code] } function create() { [native code] }";
+    // What a page reads at load: Chrome's own methods.
+    expect(await native()).toBe(NATIVE);
+
+    // Passkey autofill starts on load: no step, no note.
     expect(loaded).not.toContain("### Passkey");
     const snapshot = await call("browser_snapshot");
     expect(snapshot).not.toContain("### Passkey");
@@ -183,6 +194,10 @@ describe.skipIf(reason)(`a page's passkey prompt on a real Chrome${reason ? ` (s
 
     const after = await call("browser_snapshot");
     expect(after).not.toContain("### Passkey");
+    // A short while after the agent's last action, the page has Chrome's own methods back.
+    const back = Date.now() + 10_000;
+    while ((await native()) !== NATIVE && Date.now() < back) await new Promise((r) => setTimeout(r, 100));
+    expect(await native()).toBe(NATIVE);
 
     // A page that navigates while the person has not answered takes the request with it: the
     // step ends then, not at its timeout. With no presence the authenticator never answers.

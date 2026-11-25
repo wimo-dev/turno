@@ -115,7 +115,7 @@ const gaps = (xs: number[]) => xs.slice(1).map((x, i) => x - xs[i]!);
 describe.skipIf(reason !== undefined)(
   reason ? `human-like input on real Chrome (skipped: ${reason})` : "human-like input on real Chrome",
   () => {
-    it("leaves Playwright's input as it was by default: one move to the exact center, text inserted", async () => {
+    it("keeps Playwright's input on localhost, except that the click lands off the exact center: one move, text inserted", async () => {
       const web = await site();
       onTestFinished(() => web.close());
       const client = await start("plain");
@@ -125,7 +125,8 @@ describe.skipIf(reason !== undefined)(
       const log = await pageLog(client);
       // No press time is asked for, but a busy machine spaces the events: only the path is checked.
       expect(log.movesBeforeDown[0]).toBeLessThanOrEqual(1);
-      expect(log.clicks[0]).toMatchObject({ id: "btn", dx: 0, dy: 0 });
+      expect(log.clicks[0]?.id).toBe("btn");
+      expect(Math.abs(log.clicks[0]!.dx) + Math.abs(log.clicks[0]!.dy)).toBeGreaterThan(0.5);
       expect(log.keys).toHaveLength(0); // fill inserts the text without key events
       expect(log.value).toBe("hello");
     }, 60_000);

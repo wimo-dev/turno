@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import type { BrowserContext, Frame, Page } from "patchright-core";
+import type { Frame, JSHandle, Page } from "patchright-core";
 import type { StepRun, StepSettle } from "./human-step.js";
 import { formatPause } from "./live.js";
 
@@ -9,33 +9,40 @@ import { formatPause } from "./live.js";
  * The host sees the ceremony start and hands the browser to the person the way
  * `browser_request_human` does (`human-step.ts`), and the step ends when the ceremony settles.
  *
- * How the ceremony is seen: an init script in the main world of every frame wraps
- * `CredentialsContainer.prototype.create` and `.get` (a `Proxy`, so their name and length stay as
- * they were) and reports through a binding when a call starts and when its promise settles: the
- * operation, the `mediation` value, whether a `publicKey` member was passed, and on settle the
- * error's name. Never the options themselves (challenge, user, allowed credentials) or the
- * credential. A page can call the binding too, so a report is only a reason to show the person a
- * banner, never something the host trusts further.
+ * How the ceremony is seen: while the agent acts on a sign-in page (a click, typing, a key: never
+ * a snapshot or a navigation), the host wraps `CredentialsContainer.prototype.create` and `.get`
+ * in the main world of that page's frames (a `Proxy`, so their name and length stay as they were),
+ * and the wrapper notes when a call starts and when its promise settles: the operation, the
+ * `mediation` value, whether a `publicKey` member was passed, and on settle the error's name.
+ * Never the options themselves (challenge, user, allowed credentials) or the credential. A short
+ * while after the action ends, the original methods go back, and a call already made keeps
+ * reporting until it settles. A page can call the wrapper too, so a report is only a reason to
+ * show the person a banner, never something the host trusts further.
  *
- * Why this mechanism, measured with patchright-core 1.64.3 and Chrome:
+ * Why this mechanism, measured with patchright-core 1.64.3 and Chrome 158:
  *
- * - patchright's client `addInitScript` and `exposeBinding` first install a catch-all route
- *   (`installInjectRoute`) to put scripts into HTML responses. Its server never fills that list in
- *   this version, so the route only costs: with it, a cacheable script was fetched again on
- *   reload (Playwright turns Chrome's HTTP cache off while it intercepts) and a cross-site iframe
- *   failed to load. Marking the context as already routed (`routeInjecting`) skips it, and the
- *   scripts still go in through `Page.addScriptToEvaluateOnNewDocument`, in every frame,
- *   cross-site iframes included.
- * - patchright does not enable the Runtime domain, so a binding reaches a new document only once
- *   patchright looks up that frame's main world, 50 to 200 ms after the document starts. The
- *   wrapper therefore looks the binding up when it reports, and holds reports until it is there.
- * - A raw CDP `Runtime.addBinding` (in the main world or a named isolated world) never reached a
- *   new document without `Runtime.enable`, which patchright leaves off on purpose.
+ * - A wrapper is a trace a page can read: a `Proxy` over a native function prints as
+ *   `function () { [native code] }`, without the name a native method has. Installed in every
+ *   document from its first line (an init script, as before), every page saw it at load, where
+ *   fingerprinting scripts run. Only while the agent acts on a page that shows a sign-in form, a
+ *   page reading the methods at load, or at any other time, sees Chrome's own.
+ * - No other place sees the call: an isolated world has its own copy of the prototype, which the
+ *   page's calls never reach, and the DevTools protocol's WebAuthn domain only adds virtual
+ *   authenticators, which would take the place of the person's own Touch ID, phone or key.
+ * - Nothing is exposed to the page to report through: the host holds the wrapper's state through a
+ *   handle and waits on it (`next`), so no binding or global is added, and no init script either
+ *   (patchright adds init scripts to a cross-site iframe only after it starts running, so they were
+ *   never in time there anyway).
+ *
+ * What is not seen: a ceremony a page starts on its own, outside the agent's actions (on load,
+ * say), or on a page with no sign-in form, a password field or a sign-in address; the person still
+ * sees Chrome's passkey window when they can see the browser.
  *
  * A document that goes away (the page navigates, to an identity provider say, or a policy takes
- * the tab back) drops its pending request without settling it. So when the frame of a ceremony
- * navigates, the host asks the wrapper there whether the request is still pending: a navigation
- * within the document keeps it, a new document has none, and the ceremony ends as `left`.
+ * the tab back) drops its pending request without settling it, and the wrapper's state with it. So
+ * when the frame of a ceremony navigates, the host asks the wrapper there whether the request is
+ * still pending: a navigation within the document keeps it, a new document has none, and the
+ * ceremony ends as `left`.
  */
 
 export type PasskeyOp = "create" | "get";
@@ -111,50 +118,73 @@ export function parseReport(raw: unknown): PasskeyReport | undefined {
   return out;
 }
 
+/** The wrapper's state in one document, as the host's handle reaches it. */
+interface ProbeState {
+  pending: Set<string>;
+  armed: boolean;
+  /** Resolves with the reports not taken yet, once there is one or the wrapper is taken off. */
+  next(): Promise<{ events: unknown[]; pending: number; armed: boolean }>;
+  arm(): void;
+  restore(): void;
+}
+
 /**
- * The page side: wraps the two methods and reports through `binding`. Runs in the main world as
- * an init script, so it is self-contained (sent as source) and runs once per realm even when
- * Chrome runs it twice in a cross-site iframe.
+ * The page side: wraps the two methods and keeps what happens for the host to take (`next`).
+ * Runs in the main world through a handle, so it is self-contained (sent as source) and adds no
+ * global: the methods themselves lead to the state, under a symbol only the host knows.
  */
-function passkeyProbe(binding: string): void {
+function armProbe(mark: string): ProbeState | undefined {
   const proto = (globalThis as unknown as { CredentialsContainer?: { prototype: Record<string, unknown> } })
     .CredentialsContainer?.prototype;
-  if (!proto) return;
-  const mark = Symbol.for(binding);
-  // The ids of this document's requests not settled yet: the host reads them after a navigation.
-  const pending = new Set<string>();
-  const queue: unknown[] = [];
-  let waiting = 0;
-  const flush = (): void => {
-    const send = (globalThis as Record<string, unknown>)[binding];
-    if (typeof send !== "function") {
-      // The binding reaches a new document a moment after it starts: try again shortly, for a while.
-      if (waiting++ < 200) setTimeout(flush, 50);
-      return;
-    }
-    waiting = 0;
-    while (queue.length) {
-      try {
-        const result = (send as (r: unknown) => unknown)(queue.shift());
-        if (result && typeof (result as Promise<unknown>).catch === "function")
-          (result as Promise<unknown>).catch(() => {});
-      } catch {
-        /* the page replaced the binding: nothing to report to */
-      }
-    }
+  if (!proto) return undefined;
+  const key = Symbol.for(mark);
+  const existing = (proto.get as Record<symbol, ProbeState> | undefined)?.[key];
+  if (existing) {
+    existing.arm();
+    return existing;
+  }
+  const ops = ["create", "get"] as const;
+  const originals: Record<string, unknown> = {};
+  const wrapped: Record<string, unknown> = {};
+  const events: unknown[] = [];
+  let wake: (() => void) | undefined;
+  const signal = (): void => {
+    const w = wake;
+    wake = undefined;
+    w?.();
+  };
+  const state: ProbeState = {
+    pending: new Set<string>(),
+    armed: false,
+    next: () =>
+      new Promise((resolve) => {
+        const done = () => resolve({ events: events.splice(0), pending: state.pending.size, armed: state.armed });
+        if (events.length) done();
+        else wake = done;
+      }),
+    arm() {
+      for (const op of ops) if (wrapped[op] && proto[op] === originals[op]) proto[op] = wrapped[op];
+      state.armed = true;
+    },
+    restore() {
+      for (const op of ops) if (wrapped[op] && proto[op] === wrapped[op]) proto[op] = originals[op];
+      state.armed = false;
+      signal();
+    },
   };
   const report = (r: unknown): void => {
-    queue.push(r);
-    if (queue.length > 50) queue.shift();
-    if (waiting === 0) flush();
+    events.push(r);
+    if (events.length > 50) events.shift();
+    signal();
   };
   let seq = 0;
-  for (const op of ["create", "get"] as const) {
+  for (const op of ops) {
     const original = proto[op];
-    if (typeof original !== "function" || (original as unknown as Record<symbol, unknown>)[mark]) continue;
-    proto[op] = new Proxy(original, {
-      get(target, key, receiver) {
-        return key === mark ? pending : Reflect.get(target, key, receiver);
+    if (typeof original !== "function") continue;
+    originals[op] = original;
+    wrapped[op] = new Proxy(original, {
+      get(target, k, receiver) {
+        return k === key ? state : Reflect.get(target, k, receiver);
       },
       apply(target, self, args) {
         const result = Reflect.apply(target, self, args) as Promise<unknown>;
@@ -162,18 +192,18 @@ function passkeyProbe(binding: string): void {
         if (!options || typeof options !== "object" || !result || typeof result.then !== "function") return result;
         const id = `${Date.now().toString(36)}${(++seq).toString(36)}${Math.random().toString(36).slice(2, 8)}`;
         const mediation = typeof options.mediation === "string" ? options.mediation : undefined;
-        pending.add(id);
+        state.pending.add(id);
         report({ id, op, phase: "start", publicKey: !!options.publicKey, ...(mediation ? { mediation } : {}) });
         // The page gets the promise this returns, so a rejection it leaves unhandled stays unhandled.
         return result.then(
           (value) => {
-            pending.delete(id);
+            state.pending.delete(id);
             report({ id, op, phase: "settle", ok: true });
             return value;
           },
           (error: unknown) => {
             const name = error && typeof (error as Error).name === "string" ? (error as Error).name : "Error";
-            pending.delete(id);
+            state.pending.delete(id);
             report({ id, op, phase: "settle", ok: false, error: name });
             throw error;
           },
@@ -181,40 +211,142 @@ function passkeyProbe(binding: string): void {
       },
     });
   }
+  state.arm();
+  return state;
+}
+
+/**
+ * Whether a frame shows a sign-in page: a password field, a field passkey autofill serves
+ * (`autocomplete` with `webauthn`), or an address that names sign-in, sign-up or passkeys. Runs
+ * in the isolated world, where the page cannot see it.
+ */
+function signInSignal(): boolean {
+  if (
+    /log[-_]?[io]n|sign[-_]?(in|up|on)|auth|passkey|webauthn|account|register|verify|mfa|2fa|sso/i.test(location.href)
+  )
+    return true;
+  return !!document.querySelector('input[type="password" i], input[autocomplete*="webauthn" i]');
 }
 
 /** Whether the request `id` is still pending in the document `frame` shows now. */
-export type PasskeyPending = (frame: Frame, id: string) => Promise<boolean>;
+type PasskeyPending = (frame: Frame, id: string) => Promise<boolean>;
 
-/**
- * Puts the probe in every frame of `context`, now and on every new document. Returns how to ask
- * a frame whether a request is still pending there.
- */
-export async function installPasskeyProbe(
-  context: BrowserContext,
+/** The host's side of the wrapper, for one browser. */
+export interface PasskeyProbe {
+  /**
+   * Wraps the methods in the frames of `page` that show a sign-in page, for an action the agent
+   * is about to run. Returns what to call when the action is over: the originals go back after
+   * `graceMs`, unless another action armed the page again.
+   */
+  arm(page: Page): Promise<() => void>;
+  /** Whether a request is still pending in what a frame shows now. */
+  pending: PasskeyPending;
+}
+
+/** How long the wrapper stays after an action: a page asks for a passkey once its click handler has fetched a challenge. */
+const PASSKEY_GRACE_MS = 3000;
+
+interface ArmedFrame {
+  handle: JSHandle<ProbeState | undefined>;
+  page: Page;
+}
+
+export function createPasskeyProbe(
   onReport: (report: PasskeyReport, page: Page, frame: Frame) => void,
-  existing: (page: Page) => boolean = () => true,
-): Promise<PasskeyPending> {
-  // A name no page can guess, in patchright's own form for callback names.
-  const binding = `f${randomBytes(16).toString("hex")}`;
-  // patchright's client installs a catch-all route before its first init script or binding;
-  // marking the context as routed skips it (see the module comment for what it costs).
-  (context as unknown as { routeInjecting?: boolean }).routeInjecting = true;
-  await context.exposeBinding(binding, (source: { page?: Page; frame?: Frame }, raw: unknown) => {
-    const report = parseReport(raw);
-    if (report && source.page && source.frame) onReport(report, source.page, source.frame);
-  });
-  const script = `(${passkeyProbe.toString()})(${JSON.stringify(binding)});`;
-  await context.addInitScript(script);
-  // Documents open now (the first blank tab) started before the init script.
-  for (const page of context.pages().filter(existing))
-    for (const frame of page.frames()) await frame.evaluate(script, undefined, undefined, false).catch(() => {});
-  const ask = `([mark, id]) => {
-    const set = globalThis.CredentialsContainer?.prototype.get?.[Symbol.for(mark)];
-    return set instanceof Set && set.has(id);
-  }`;
-  // The main world, where the wrapper is; a frame that is gone has nothing pending.
-  return async (frame, id) => (await frame.evaluate(ask, [binding, id], undefined, false).catch(() => false)) === true;
+  graceMs = PASSKEY_GRACE_MS,
+): PasskeyProbe {
+  // A name no page can guess.
+  const mark = `f${randomBytes(16).toString("hex")}`;
+  const frames = new Map<Frame, ArmedFrame>();
+  const pages = new Map<Page, { actions: number; timer?: ReturnType<typeof setTimeout> }>();
+
+  // Takes the reports of one frame until its document goes away, or the wrapper is off with
+  // nothing pending.
+  const listen = async (frame: Frame, armed: ArmedFrame): Promise<void> => {
+    try {
+      for (;;) {
+        const r = await armed.handle.evaluate((s) => s?.next());
+        if (!r) return;
+        for (const raw of r.events) {
+          const report = parseReport(raw);
+          if (report) onReport(report, armed.page, frame);
+        }
+        if (!r.armed && r.pending === 0) return;
+      }
+    } catch {
+      // The document went away, with its requests.
+    } finally {
+      if (frames.get(frame) === armed) frames.delete(frame);
+      await armed.handle.dispose().catch(() => {});
+    }
+  };
+
+  const armFrame = async (page: Page, frame: Frame): Promise<void> => {
+    const known = frames.get(frame);
+    if (known) {
+      const again = await known.handle
+        .evaluate((s) => {
+          s?.arm();
+          return true;
+        })
+        .catch(() => false);
+      if (again) return;
+      // The frame shows another document now.
+      frames.delete(frame);
+    }
+    if (!(await frame.evaluate(signInSignal, undefined, undefined, true).catch(() => false))) return;
+    // The main world (false): the page's own methods.
+    const handle = (await frame.evaluateHandle(armProbe, mark, undefined, false).catch(() => undefined)) as
+      | JSHandle<ProbeState | undefined>
+      | undefined;
+    if (!handle) return;
+    if (!(await handle.evaluate((s) => !!s).catch(() => false))) {
+      await handle.dispose().catch(() => {});
+      return;
+    }
+    const armed = { handle, page };
+    frames.set(frame, armed);
+    void listen(frame, armed);
+  };
+
+  const disarm = async (page: Page): Promise<void> => {
+    for (const [, armed] of frames)
+      if (armed.page === page) await armed.handle.evaluate((s) => s?.restore()).catch(() => {});
+  };
+
+  return {
+    async arm(page) {
+      if (page.isClosed()) return () => {};
+      let entry = pages.get(page);
+      if (!entry) {
+        entry = { actions: 0 };
+        pages.set(page, entry);
+        page.once("close", () => pages.delete(page));
+      }
+      const own = entry;
+      if (own.timer) clearTimeout(own.timer);
+      own.timer = undefined;
+      own.actions++;
+      await Promise.all(page.frames().map((f) => armFrame(page, f)));
+      let done = false;
+      return () => {
+        if (done) return;
+        done = true;
+        if (--own.actions > 0) return;
+        own.timer = setTimeout(() => {
+          own.timer = undefined;
+          if (own.actions === 0) void disarm(page);
+        }, graceMs);
+        own.timer.unref?.();
+      };
+    },
+    async pending(frame, id) {
+      const armed = frames.get(frame);
+      if (!armed) return false;
+      // A frame that is gone, or shows another document, has nothing pending.
+      return (await armed.handle.evaluate((s, i) => s?.pending.has(i) ?? false, id).catch(() => false)) === true;
+    },
+  };
 }
 
 interface Ceremony {
@@ -253,7 +385,7 @@ export interface PasskeyDeps {
   paused(): boolean;
   /** Hands the browser to the person on `page` until `settle` settles; how it went. */
   handoff(page: Page, settle: StepSettle): Promise<StepRun | { error: string }>;
-  /** Whether the request is still pending in what `frame` shows now (`installPasskeyProbe`). */
+  /** Whether the request is still pending in what `frame` shows now (`createPasskeyProbe`). */
   pending: PasskeyPending;
   /** A step started; `done` resolves once it ended and its note is kept. */
   opened?(done: Promise<void>): void;
