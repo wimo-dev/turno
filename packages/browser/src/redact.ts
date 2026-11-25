@@ -50,15 +50,19 @@ export function variantsOf(value: string): string[] {
 
 /** Most values read from sensitive fields kept at once; the oldest go first. */
 const MAX_FIELD_VALUES = 256;
+/** Most cookie and storage values masked at once (`storage-mask.ts`); the oldest go first. */
+const MAX_MASKED_VALUES = 4096;
 
 export class Redactor {
   private readonly entries = new Map<string, Entry>();
   private readonly fields = new Set<string>();
+  private readonly masked = new Set<string>();
 
   /** Redact `value` from now on, shown as `[vault: <label>]`; `ttlMs` for a one-time code. */
   add(value: string, label: string, ttlMs?: number, now: number = Date.now()): void {
     if (value.length < MIN_LENGTH) return;
     this.fields.delete(value);
+    this.masked.delete(value);
     this.entries.set(value, {
       label,
       variants: variantsOf(value),
@@ -74,7 +78,8 @@ export class Redactor {
   addField(value: string, mark: string, ttlMs?: number, now: number = Date.now()): void {
     if (value.length < MIN_LENGTH) return;
     const known = this.entries.get(value);
-    if (known && !this.fields.has(value)) return;
+    if (known && !this.fields.has(value) && !this.masked.has(value)) return;
+    this.masked.delete(value);
     this.fields.delete(value);
     this.fields.add(value);
     this.entries.set(value, {
@@ -86,6 +91,29 @@ export class Redactor {
     for (const old of this.fields) {
       if (this.fields.size <= MAX_FIELD_VALUES) break;
       this.fields.delete(old);
+      this.entries.delete(old);
+    }
+  }
+
+  /**
+   * Mask a cookie or web storage value from now on, shown as `mark` (`storage-mask.ts`): a
+   * session cookie read by any tool, `document.cookie` included. A value the vault or a
+   * sensitive field already hides keeps its label.
+   */
+  addMasked(value: string, mark: string): void {
+    if (value.length < MIN_LENGTH) return;
+    if (this.masked.has(value)) {
+      // Seen again: it moves to the end, so the values still in the browser are the last to go.
+      this.masked.delete(value);
+      this.masked.add(value);
+      return;
+    }
+    if (this.entries.has(value)) return;
+    this.masked.add(value);
+    this.entries.set(value, { label: "masked value", mark, variants: variantsOf(value) });
+    for (const old of this.masked) {
+      if (this.masked.size <= MAX_MASKED_VALUES) break;
+      this.masked.delete(old);
       this.entries.delete(old);
     }
   }
@@ -120,6 +148,7 @@ export class Redactor {
       if (e.until !== undefined && now > e.until) {
         this.entries.delete(value);
         this.fields.delete(value);
+        this.masked.delete(value);
         continue;
       }
       for (const v of e.variants) pairs.push([v, e.mark ?? `[vault: ${e.label}]`]);

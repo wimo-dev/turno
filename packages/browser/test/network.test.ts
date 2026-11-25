@@ -554,6 +554,13 @@ describe("the chrome engine's network launch options", () => {
       await expect(chromeNetwork(settings, c, sb.env, () => {})).rejects.toThrow(message);
   });
 
+  it("follows the system's proxy without a key, and turns it off with proxy false", async () => {
+    expect((await chromeNetwork(settingsOf({}), config({}), sb.env, () => {})).args).toEqual([]);
+    expect((await chromeNetwork(settingsOf({ proxy: false }), config({}), sb.env, () => {})).args).toEqual([
+      "--no-proxy-server",
+    ]);
+  });
+
   it("routes WebRTC through the proxy too", async () => {
     const out = await chromeNetwork(
       settingsOf({ proxy: { server: "http://p.example.com:8080" } }),

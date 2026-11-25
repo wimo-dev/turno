@@ -34,7 +34,8 @@ describe("an identity without keys", () => {
     expect(e.record.flows.value).toBe(true);
     expect(e.record.screenshots.value).toBe(true);
     expect(e.record.traces).toMatchObject({ value: false, origin: { from: "unavailable" } });
-    expect([e.caps.vision, e.caps.pdf, e.caps.devtools, e.caps.network].map((c) => c.value)).toEqual([
+    expect([e.caps.vision, e.caps.pdf, e.caps.devtools, e.caps.network, e.caps.storage].map((c) => c.value)).toEqual([
+      true,
       true,
       true,
       true,
@@ -52,6 +53,8 @@ describe("an identity without keys", () => {
     const attach = resolveDefaults(undefined, { identity: true, engine: "attach" });
     expect(attach.sharing).toEqual({ value: "session", origin: { from: "auto", because: "attach mode" } });
     expect(attach.record.screenshots.value).toBe(false);
+    // Attach mode's cookies are the user's own Chrome's.
+    expect(attach.caps.storage.value).toBe(false);
     expect(resolveDefaults(undefined, { identity: true, engine: "lightpanda" }).humanize.value).toBe("off");
     const policed = resolveDefaults(undefined, {
       ...HEADLESS,
@@ -101,6 +104,34 @@ describe("natural language actions and captcha solving", () => {
       origin: { from: "auto", because: "a person answers (browser_request_human): no key" },
     });
     expect(resolveDefaults(undefined, { ...policed, captchaKey: { solver: "x" } }).captcha.value).toBe(false);
+  });
+});
+
+describe("the proxy", () => {
+  const proxy = (ctx: Partial<DefaultsContext>, proxySetting?: false) =>
+    resolveDefaults(proxySetting === false ? { created: "", updated: "", proxy: false } : undefined, {
+      ...HEADLESS,
+      ...ctx,
+    }).proxy;
+
+  it("reports the system's when the identity has none, and says it sets none otherwise", () => {
+    expect(
+      describeEffective(
+        "proxy",
+        proxy({ systemProxy: { source: "macOS network settings", server: "http://proxy.example.com:8080" } }),
+      ),
+    ).toBe("proxy: on (auto: the system's: http://proxy.example.com:8080 (macOS network settings))");
+    expect(proxy({ systemProxy: null })).toEqual({
+      value: false,
+      origin: { from: "auto", because: "the system sets none" },
+    });
+    // false keeps Chrome off the system's proxy too.
+    expect(proxy({ systemProxy: { source: "environment", server: "http://p.example.com" } }, false).origin.from).toBe(
+      "file",
+    );
+    expect(
+      proxy({ engine: "attach", systemProxy: { source: "environment", server: "http://p.example.com" } }).value,
+    ).toBe(false);
   });
 });
 

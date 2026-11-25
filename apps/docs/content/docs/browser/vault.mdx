@@ -20,6 +20,24 @@ A password or a one-time code never comes back to the agent, whoever typed it. A
 
 Values are matched as typed and in the usual encodings; one shorter than four characters is masked in snapshots only. A value the page hashes or encodes some other way, and what a screenshot shows, are not covered.
 
+## Cookies and stored tokens
+
+The `storage` capability is on by default: the agent can list, read, set and delete cookies, localStorage and sessionStorage items, and save or restore the storage state. The values that keep an identity signed in read `[masked]`. A value is masked when any of these holds:
+
+- the cookie is `HttpOnly`: the page's own scripts cannot read it, and sites put their sessions there;
+- its name reads like a credential: `session`, `sess`, `sid` (`SID`, `__Secure-3PSID`), `token`, `auth` (`ESTSAUTH`, `auth_token`), `jwt`, `csrf`, `xsrf`, `login`, `logged_in`, `remember`, `sso`, `saml`, `oidc`, `secret`, `key`, `identity`;
+- it holds a run that looks random, of 64 bits or more: session identifiers are random by design, so one under any name is caught.
+
+The rule was measured on the cookies of 60 popular sites, signed out: it masks about three in four of them (HttpOnly 24%, a random value 41%, the name 9%), and what stays readable is consent flags, themes, locales, currencies and timestamps. The name rule alone catches 74 of 96 well-known session cookie names; the rest (`xs`, `li_at`, `ct0`, `d`) are HttpOnly or random, and the other two rules catch them. Analytics and advertising identifiers are masked too: the rule leans that way.
+
+A cookie keeps its name, domain, path, expiry and flags. A JSON item keeps its layout, with only its tokens masked: `{"access_token":"[masked]","expires_at":1767225600}`. The storage state file `browser_storage_state` writes is masked the same way.
+
+After every browser call the server reads the browser's cookies and the current page's web storage, and every masked value that looks random is hidden from every result, not only the storage tools': `document.cookie` through `browser_evaluate`, a response body, a console message, a page snapshot, a file a tool writes, the prompt of a [natural language action](/docs/browser/natural-language-and-captchas). A short or plain value (`none`, a date) is masked in the storage tools only, so the page text stays readable.
+
+Writes keep working. A value of your own is written as given. A mask written back stands for the value it hides, in the same cookie (name, domain and path) or the same item and field only: `browser_cookie_set` with `[masked]`, an edited JSON item with its masked fields left as they were, and `browser_set_storage_state` with a masked file all keep the session. A mask anywhere else is refused, so a write cannot carry a value to another cookie or site.
+
+What is not covered: a script (`browser_evaluate`, `browser_run_code_unsafe`) can transform a value before returning it (base64, reversed, split), which no redaction of the result catches; a screenshot or PDF shows what the page shows; a trace the agent starts with `browser_start_tracing` (the `devtools` capability) saves the network traffic, cookie headers included, to the workspace; and a response body saved to a file with `filename` that is not text is written as it is. Where that matters, an [identity policy](/docs/browser/policy) can turn `storage`, `evaluate` or `run_code` off (any policy turns `run_code` off), and `--caps` without `devtools` leaves tracing out. In [attach mode](/docs/browser/engines#attach-to-your-chrome) the storage tools are off by default: those are your own Chrome's cookies.
+
 ## Secrets
 
 An `identity.json` never holds a secret. It names one as `keychain:<item>` (`proxy.password`, `act.key`, `captcha.key`), and so does a replay parameter (`--param password=keychain:<item>`). The value lives in the login Keychain on macOS, the Secret Service on Linux, or a DPAPI-encrypted file on Windows:

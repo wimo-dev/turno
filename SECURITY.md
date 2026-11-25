@@ -166,6 +166,15 @@ What it guards against:
   show `[redacted]` for `Authorization`, `Proxy-Authorization`, `Cookie` and `Set-Cookie`
   values and for query, form and JSON fields named like a token, code, session, key, secret
   or password, in their results and in the files they save.
+- **Session cookies and stored tokens.** The storage tools (cookies, localStorage,
+  sessionStorage, the storage state file) are listed by default. After every browser call the
+  server reads the browser's cookies and the current page's web storage. A value is masked when
+  its cookie is HttpOnly, its name reads like a credential (`session`, `sid`, `token`, `auth`,
+  `csrf`, `login`), or it holds a random-looking run of 64 bits or more: it reads `[masked]` in
+  the storage tools and, when it looks random, in every other result and written file too
+  (`document.cookie` through `browser_evaluate`, a response body, a console message, a
+  snapshot, the act model's prompt). Names, domains, paths, expiry and flags stay. A mask the
+  agent writes back keeps the value it stands for, in the same cookie or item only.
 - **Being recorded.** `browser_login` refuses to run while the server saves traces, sessions
   or video (Playwright's own `--save-*` options), or has the devtools capability. An identity's
   own recordings stop around it (see below).
@@ -184,6 +193,10 @@ What it does not guard against:
   an honest model, not against a model or a page set on extracting a secret.
 - Anything running as your user can ask the secret store for the items, as it can for every
   other secret turno keeps (see out of scope).
+- A script (`browser_evaluate`, `browser_run_code_unsafe`) can transform a cookie or token
+  before returning it, a screenshot shows what the page shows, and a trace the agent starts with
+  the devtools capability saves the network traffic, cookie headers included, to the workspace.
+  An identity policy can turn `storage`, `evaluate` and `run_code` off.
 
 ### Recordings and flows
 

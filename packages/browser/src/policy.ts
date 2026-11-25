@@ -43,6 +43,28 @@ const POLICY_FEATURES = {
   evaluate: { tools: ["browser_evaluate"] },
   /** Code in the server process; off under any policy. */
   run_code: { tools: ["browser_run_code_unsafe"] },
+  /** Cookies, localStorage, sessionStorage and the storage state file (the `storage` capability). */
+  storage: {
+    tools: [
+      "browser_cookie_list",
+      "browser_cookie_get",
+      "browser_cookie_set",
+      "browser_cookie_delete",
+      "browser_cookie_clear",
+      "browser_storage_state",
+      "browser_set_storage_state",
+      "browser_localstorage_list",
+      "browser_localstorage_get",
+      "browser_localstorage_set",
+      "browser_localstorage_delete",
+      "browser_localstorage_clear",
+      "browser_sessionstorage_list",
+      "browser_sessionstorage_get",
+      "browser_sessionstorage_set",
+      "browser_sessionstorage_delete",
+      "browser_sessionstorage_clear",
+    ],
+  },
   /** Request routing and offline mode (the `network` capability); off with allowedDomains. */
   network: { tools: ["browser_route", "browser_route_list", "browser_unroute", "browser_network_state_set"] },
 } as const satisfies Record<string, { tools: readonly string[]; setting?: string }>;

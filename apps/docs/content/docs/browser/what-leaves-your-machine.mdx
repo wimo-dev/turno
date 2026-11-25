@@ -27,6 +27,12 @@ The browser goes where you or your agent sends it, as your own Chrome would. Eac
 
 An instruction that contains a value the server hides (a vault value or a sensitive field) is refused before it reaches the model. A model reply is redacted too before anything reads it.
 
+## The proxy exit check
+
+When an identity's traffic goes through a proxy (its own, the server's or the system's), turno-browser makes one HTTPS request through that proxy to `https://get.geojs.io/v1/ip/geo.json` when the browser starts, at most once a day per proxy, to learn the exit's country and time zone and [check them against the identity's](/docs/browser/network#where-the-proxy-exits). The request carries no cookie, no identity name and no header but `Host`, a generic `User-Agent` and `Accept`; GeoJS sees the proxy's exit address, as any site does. Only the country and the time zone are kept, in the identity's state folder. Without a proxy nothing is sent. Set `TURNO_BROWSER_EXIT_CHECK=0` in the server's environment to turn it off.
+
+Cookies and stored tokens the agent reads through the storage tools never leave: their session values are masked before any result goes back to the agent (see [Cookies and stored tokens](/docs/browser/vault#cookies-and-stored-tokens)).
+
 ## Commands you run
 
 | Command | What it reaches |

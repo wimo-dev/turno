@@ -4,6 +4,7 @@ import { type ActFallback, resolveAct } from "./act-chain.js";
 import type { HumanizeLevel } from "./humanize.js";
 import type { IdentityPolicy } from "./policy.js";
 import type { HealthCheck, IdentitySettings } from "./settings.js";
+import { type SystemProxy, describeSystemProxy } from "./system-proxy.js";
 
 /**
  * The defaults of an identity, resolved in code at every launch from the context the browser
@@ -20,9 +21,8 @@ import type { HealthCheck, IdentitySettings } from "./settings.js";
  *
  * `act` and `captcha` follow what the environment offers: a model for natural language actions
  * (`act-chain.ts`: MCP sampling, an API key, a subscription CLI) and a captcha solver key
- * (`captcha.ts`). Some defaults wait on work that is not done yet: the system proxy and the
- * masking of `storage` values. Each has an entry that says "not yet available" until it lands,
- * so the place where it plugs in is already here.
+ * (`captcha.ts`). The proxy reports the system's (`system-proxy.ts`), which Chrome follows on
+ * its own, and `storage` is on because its values reach the model masked (`storage-guard.ts`).
  */
 
 /** Where an effective value came from. */
@@ -77,6 +77,10 @@ export interface DefaultsContext {
    * none; undefined: not looked at.
    */
   captchaKey?: { solver: string } | { missing: string };
+  /** The server sets a proxy of its own (`--proxy-server`, the config's `launchOptions.proxy`). */
+  serverProxy?: boolean;
+  /** The system's proxy (`system-proxy.ts`); null: it sets none; undefined: not read. */
+  systemProxy?: SystemProxy | null;
 }
 
 /** turno-browser-mcp's flags that win over identity.json. */
@@ -89,7 +93,7 @@ export interface DefaultsFlags {
 }
 
 /** The capabilities of Playwright MCP that turno lists by default, in the order `--caps` takes them. */
-export const DEFAULT_CAPS = ["vision", "pdf", "devtools", "network"] as const;
+export const DEFAULT_CAPS = ["vision", "pdf", "devtools", "network", "storage"] as const;
 
 /** Every effective value `show`, `status`, `doctor` and the host read. */
 export interface EffectiveSettings {
@@ -108,7 +112,7 @@ export interface EffectiveSettings {
     /** `"failed"`: traced, and a trace kept only when a step in it failed. */
     traces: Effective<boolean | "failed">;
   };
-  caps: Record<(typeof DEFAULT_CAPS)[number] | "storage", Effective<boolean>>;
+  caps: Record<(typeof DEFAULT_CAPS)[number], Effective<boolean>>;
   submit: Effective<"auto" | "confirm">;
   act: Effective<boolean>;
   captcha: Effective<boolean>;
@@ -231,7 +235,7 @@ function record(s: IdentitySettings | undefined, ctx: DefaultsContext): Effectiv
   return { flows, screenshots, traces };
 }
 
-/** The tools a policy turns off: the `network` capability with allowedDomains or in its disabled list. */
+/** The tools a policy turns off: the `network` capability with allowedDomains, or a feature in its disabled list. */
 function policyOff(policy: IdentityPolicy | undefined, feature: string): boolean {
   if (!policy) return false;
   if (feature === "network" && policy.allowedDomains) return true;
@@ -239,7 +243,6 @@ function policyOff(policy: IdentityPolicy | undefined, feature: string): boolean
 }
 
 function caps(s: IdentitySettings | undefined, ctx: DefaultsContext): EffectiveSettings["caps"] {
-  const storage = unavailable(false, "not yet available: cookie and token values are not masked yet");
   if (ctx.caps) {
     const given = (cap: string) => flag(ctx.caps!.includes(cap));
     return {
@@ -247,9 +250,16 @@ function caps(s: IdentitySettings | undefined, ctx: DefaultsContext): EffectiveS
       pdf: given("pdf"),
       devtools: given("devtools"),
       network: given("network"),
-      storage: ctx.caps.includes("storage") ? flag(true) : storage,
+      storage: given("storage"),
     };
   }
+  // Session cookie and token values are masked in every result (`storage-mask.ts`). Attach mode
+  // is the user's own Chrome: clearing or restoring its cookies is not turno's to offer.
+  const storage = policyOff(ctx.policy, "storage")
+    ? auto(false, "the policy turns it off")
+    : ctx.engine === "attach"
+      ? auto(false, "attach mode: the cookies are your own Chrome's")
+      : byDefault(true);
   return {
     vision: byDefault(true),
     pdf: byDefault(true),
@@ -300,11 +310,21 @@ function captcha(s: IdentitySettings | undefined, ctx: DefaultsContext): Effecti
     : auto(false, `a person answers (browser_request_human): ${ctx.captchaKey.missing}`);
 }
 
-/** A feature that turns on with a key: on with its object, off with `false`, and its default otherwise. */
-function keyed(value: unknown, missing: Effective<boolean>): Effective<boolean> {
-  if (value === false) return file(false);
-  if (value !== undefined) return file(true);
-  return missing;
+/**
+ * The proxy: identity.json's (or `false`, which also keeps Chrome off the system's), the
+ * server's own, else the system's. Chrome follows the system's settings whenever turno passes no
+ * proxy switch, so the default only reports it.
+ */
+function proxy(s: IdentitySettings | undefined, ctx: DefaultsContext): Effective<boolean> {
+  if (s?.proxy === false) return file(false);
+  if (s?.proxy) return file(true);
+  if (ctx.serverProxy) return flag(true);
+  if (ctx.engine === "attach") return auto(false, "attach mode: your Chrome follows its own settings");
+  if (ctx.engine === "lightpanda") return auto(false, "read mode does not read the system's proxy");
+  if (ctx.engine === "camoufox") return auto(false, "Camoufox follows Firefox's own proxy setting");
+  if (ctx.systemProxy === undefined) return atLaunch("the system's proxy, when one is set");
+  if (ctx.systemProxy === null) return auto(false, "the system sets none");
+  return auto(true, `the system's: ${describeSystemProxy(ctx.systemProxy)}`);
 }
 
 /** Every effective value of an identity in this context. */
@@ -331,8 +351,7 @@ export function resolveDefaults(
     submit: submit(ctx),
     act: act(settings, ctx),
     captcha: captcha(settings, ctx),
-    // Detecting the system's proxy lands separately.
-    proxy: keyed(settings?.proxy, unavailable(false, "not yet available: the system proxy is not read yet")),
+    proxy: proxy(settings, ctx),
   };
 }
 

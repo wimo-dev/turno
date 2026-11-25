@@ -77,6 +77,7 @@ Every feature has a default that turno works out when Chrome starts, from what i
 | [Screenshots](/docs/browser/flows#recordings-and-traces) | after each action, under a disk cap | never of a page that shows a vault value; not in attach or read mode |
 | [Traces](/docs/browser/flows#recordings-and-traces) | off (not yet available: while tracing, Chrome loads no image or frame of another site) | `--record-traces true` turns them on |
 | `vision`, `pdf`, `devtools`, `network` tools | listed | `devtools` not with `record.traces: true`; `network` not when the policy turns it off |
+| [`storage` tools](/docs/browser/vault#cookies-and-stored-tokens) | listed, session values masked | not in attach mode or when the policy turns it off |
 | [Vault submit](/docs/browser/vault) | `auto` | `confirm` when you chose it, or when the policy says `autoSubmit: false` |
 | [Low-resource preset](/docs/browser/tabs#low-resource-mode) | `auto` | on while the system reports memory pressure |
 | Background throttling | on | headless without the live view |
@@ -87,6 +88,7 @@ Every feature has a default that turno works out when Chrome starts, from what i
 | Cookie key | the system keychain | new identities created at a terminal on macOS with Google Chrome |
 | [Health check](#session-health) | the one `login` finds | when `identity.json` has none |
 | [Natural language actions](/docs/browser/natural-language-and-captchas#which-model-answers) | on | when the client offers MCP sampling, an API key is in the environment, or the Claude Code CLI or Codex is on the PATH; off when the policy turns them off |
+| [Proxy](/docs/browser/network#the-systems-proxy) | the system's | when `identity.json` has none; `--proxy-server off` connects directly |
 | [Captcha solving](/docs/browser/natural-language-and-captchas#captcha-solving) | a person answers | solved when `TURNO_BROWSER_CAPTCHA_ENDPOINT` and `TURNO_BROWSER_CAPTCHA_KEY` are set |
 
 To keep a default from applying, set the key: a value, or for a key with no off value of its own, `off` (format 14 of `identity.json`):

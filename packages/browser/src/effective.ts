@@ -2,9 +2,11 @@ import type { PressureLevel } from "turno-core/memory";
 import { resolveActFallback } from "./act-chain.js";
 import { captchaKeyOf } from "./captcha.js";
 import { type EffectiveSettings, resolveDefaults, systemLocale } from "./defaults.js";
+import { exitReport } from "./exit-geo.js";
 import { engineChoice } from "./engine.js";
 import { readDetectedHealth } from "./health-detect.js";
-import { readIdentitySettings } from "./settings.js";
+import { type IdentitySettings, readIdentitySettings, systemTimezone } from "./settings.js";
+import { describeSystemProxy, systemProxy } from "./system-proxy.js";
 import { vaultSummary } from "./vault.js";
 
 export interface EffectiveOptions {
@@ -13,6 +15,8 @@ export interface EffectiveOptions {
   pressure?: PressureLevel;
   /** Whether the server runs headless, when the caller knows it (a running server does). */
   headless?: boolean;
+  /** Reads the system's proxy (tests give their own). */
+  systemProxy?: () => ReturnType<typeof systemProxy>;
 }
 
 /**
@@ -40,6 +44,11 @@ export function effectiveSettings(id: string, options: EffectiveOptions = {}): E
   const vault = vaultSummary(id, env);
   const detectedHealth = readDetectedHealth(id, env);
   const locale = systemLocale(env);
+  // Only read when it can apply: an identity proxy (or `false`) and other engines do not need it.
+  const proxyApplies = settings?.proxy === undefined && engine === "chrome";
+  const system = proxyApplies
+    ? ((options.systemProxy ?? (() => systemProxy(process.platform, env)))() ?? null)
+    : undefined;
   return resolveDefaults(settings, {
     actFallback: resolveActFallback(env),
     captchaKey: captchaKeyOf(env),
@@ -51,5 +60,35 @@ export function effectiveSettings(id: string, options: EffectiveOptions = {}): E
     ...(locale ? { systemLocale: locale } : {}),
     ...(detectedHealth ? { detectedHealth } : {}),
     ...(vault?.chosen ? { vaultSubmit: vault.submit } : {}),
+    ...(system !== undefined ? { systemProxy: system } : {}),
   });
+}
+
+/** The proxy an identity's traffic goes through, as `show` and `status` report it; undefined: none. */
+export function proxyInUse(
+  settings: IdentitySettings | undefined,
+  effective: EffectiveSettings,
+  env: NodeJS.ProcessEnv = process.env,
+  read: () => ReturnType<typeof systemProxy> = () => systemProxy(process.platform, env),
+): { server?: string; system?: string } | undefined {
+  if (settings?.proxy) return { server: settings.proxy.server };
+  if (effective.proxy.origin.from !== "auto" || effective.proxy.value !== true) return undefined;
+  const sys = read();
+  return sys ? { ...(sys.server ? { server: sys.server } : {}), system: describeSystemProxy(sys) } : undefined;
+}
+
+/** What the last exit lookup through the identity's proxy found wrong (no lookup is made here). */
+export function exitProblems(
+  id: string,
+  settings: IdentitySettings | undefined,
+  effective: EffectiveSettings,
+  server: string | undefined,
+  env: NodeJS.ProcessEnv = process.env,
+): string[] {
+  if (!server) return [];
+  const locale = typeof effective.locale.value === "string" ? effective.locale.value : settings?.languages?.[0];
+  return (
+    exitReport(id, env, server, { timezone: settings?.timezone ?? systemTimezone(), ...(locale ? { locale } : {}) })
+      ?.problems ?? []
+  );
 }
