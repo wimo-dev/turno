@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { WIDGETS, solveCaptchaTool, taskApiSolver } from "../src/captcha.js";
+import { WIDGETS, resolveCaptchaSource, solveCaptchaTool, taskApiSolver } from "../src/captcha.js";
 import { Redactor, VaultGuard } from "../src/redact.js";
 import { readChallenges, readSolves, recordChallenge, recordSolve, reputationReport } from "../src/reputation.js";
 import { addIdentity } from "../src/identities.js";
@@ -126,13 +126,25 @@ describe("browser_solve_captcha", () => {
     vault: { identity: { id: "shop", env: sb.env }, redactor: new Redactor(), guard: new VaultGuard() },
   });
 
-  it("is refused while identity.json does not turn it on, and says only the person can", async () => {
+  it("is refused without a solver key, and hands the captcha to the person", async () => {
     writeIdentitySettings("shop", { region: "MX" }, sb.env);
     const res = await solveCaptchaTool().handle(ctx(), {});
     expect(res.isError).toBe(true);
     expect((res.content[0] as { text: string }).text).toMatch(
-      /captcha solving is off for identity "shop"; only the person can turn it on .*Otherwise ask them to answer it in the browser window/,
+      /captcha solving is off for identity "shop" \(no solver key: .*\); only the person can configure a solver .*browser_request_human/,
     );
+  });
+
+  it("takes its key from identity.json first, else from the environment's endpoint and key together", () => {
+    const own = { provider: "task-api" as const, endpoint: "https://own.example.com", key: "keychain:s" };
+    const env = { TURNO_BROWSER_CAPTCHA_ENDPOINT: "https://env.example.com", TURNO_BROWSER_CAPTCHA_KEY: KEY };
+    expect(resolveCaptchaSource(own, env)).toEqual({ kind: "identity", settings: own });
+    expect(resolveCaptchaSource(undefined, env)).toMatchObject({ kind: "env", key: KEY });
+    expect(resolveCaptchaSource(false, env).kind).toBe("none");
+    expect(resolveCaptchaSource(undefined, { TURNO_BROWSER_CAPTCHA_KEY: KEY }).kind).toBe("none");
+    expect(
+      resolveCaptchaSource(undefined, { ...env, TURNO_BROWSER_CAPTCHA_ENDPOINT: "http://env.example.com" }).kind,
+    ).toBe("none");
   });
 
   it("needs a page", async () => {

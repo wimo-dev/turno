@@ -261,6 +261,17 @@ describe("browser doctor: identities", () => {
         level: "ok",
         text: "identity.json: time zone Europe/Madrid, languages es-ES, es, region ES",
       },
+      {
+        area: "identity school",
+        level: "info",
+        text: "natural language actions: only with a client that offers MCP sampling (TURNO_BROWSER_ACT_CLI=off keeps the Claude Code CLI and Codex out of it)",
+        fix: "set OPENAI_API_KEY or ANTHROPIC_API_KEY, install the Claude Code CLI or Codex, or name a provider: turno-browser set school --act-provider chat-completions --act-endpoint <url> --act-model <name>",
+      },
+      {
+        area: "identity school",
+        level: "ok",
+        text: "captchas go to a person (browser_request_human): no solver key: identity.json has no captcha group and TURNO_BROWSER_CAPTCHA_ENDPOINT with TURNO_BROWSER_CAPTCHA_KEY are not both set",
+      },
       { area: "identity school", level: "ok", text: "browser: Google Chrome 157.0.8103.79 (the default)" },
       { area: "identity school", level: "ok", text: "not in use: no process holds it" },
       {

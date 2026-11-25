@@ -1,6 +1,6 @@
 import type { Page } from "patchright-core";
 import { secretStore } from "turno-core/secrets";
-import { type CaptchaSettings, captchaTimeoutMs } from "./opt-in-settings.js";
+import { type CaptchaSettings, allowedEndpoint, captchaTimeoutMs } from "./opt-in-settings.js";
 import { recordSolve } from "./reputation.js";
 import { readIdentitySettings } from "./settings.js";
 import type { TurnoTool } from "./tools.js";
@@ -8,7 +8,9 @@ import { type ToolResult, type ToolSchema, upstream } from "./upstream.js";
 import { names } from "./names.js";
 
 /**
- * Captcha solving, off by default (identity.json `captcha`). `browser_solve_captcha` finds a
+ * Captcha solving, on when a solver key is configured (identity.json `captcha`, its key in the
+ * secret store, or `CAPTCHA_ENV` in the environment) and otherwise left to a person
+ * (`browser_request_human`). `browser_solve_captcha` finds a
  * captcha widget on the current tab, sends its kind, site key and the page URL to the solver
  * service the person configured, and puts the token it returns into the page's response field
  * (and the widget's callback, when it names one). The agent then submits the form itself.
@@ -38,6 +40,65 @@ export const WIDGETS = {
 } as const;
 
 type WidgetKind = keyof typeof WIDGETS;
+
+/**
+ * A solver for the task protocol named by the environment, for identities whose identity.json
+ * has no `captcha` group: the service's address and its account key.
+ */
+const CAPTCHA_ENV = {
+  endpoint: "TURNO_BROWSER_CAPTCHA_ENDPOINT",
+  key: "TURNO_BROWSER_CAPTCHA_KEY",
+} as const;
+
+/** Where an identity's solver key comes from, or why there is none. */
+export type CaptchaSource =
+  | { kind: "identity"; settings: CaptchaSettings }
+  | { kind: "env"; settings: CaptchaSettings; key: string }
+  | { kind: "none"; reason: string };
+
+/**
+ * The solver of an identity: its identity.json group (the key a `keychain:` reference into the
+ * secret store) first, else the environment's endpoint and key. `false` (or no key at all) leaves
+ * captchas to the person.
+ */
+export function resolveCaptchaSource(
+  captcha: CaptchaSettings | false | undefined,
+  env: NodeJS.ProcessEnv,
+): CaptchaSource {
+  if (captcha === false) return { kind: "none", reason: "identity.json turns captcha solving off" };
+  if (captcha) return { kind: "identity", settings: captcha };
+  const endpoint = env[CAPTCHA_ENV.endpoint]?.trim();
+  const key = env[CAPTCHA_ENV.key]?.trim();
+  if (!endpoint || !key)
+    return {
+      kind: "none",
+      reason: `no solver key: identity.json has no captcha group and ${CAPTCHA_ENV.endpoint} with ${CAPTCHA_ENV.key} are not both set`,
+    };
+  if (!allowedEndpoint(endpoint))
+    return {
+      kind: "none",
+      reason: `${CAPTCHA_ENV.endpoint} must be an https:// URL (or http:// on this machine) without a user or password`,
+    };
+  return {
+    kind: "env",
+    settings: { provider: "task-api", endpoint, key: `env:${CAPTCHA_ENV.key}` },
+    key,
+  };
+}
+
+/** The captcha solver key the environment holds, for the defaults (`defaults.ts`), or why there is none. */
+export function captchaKeyOf(env: NodeJS.ProcessEnv): { solver: string } | { missing: string } {
+  const key = resolveCaptchaSource(undefined, env);
+  return key.kind === "none" ? { missing: key.reason } : { solver: captchaSourceLabel(key) };
+}
+
+/** Where the key came from, for results, `show` and `doctor`. */
+export function captchaSourceLabel(source: Exclude<CaptchaSource, { kind: "none" }>): string {
+  const host = new URL(source.settings.endpoint).host;
+  return source.kind === "env"
+    ? `task-api at ${host}, key from ${CAPTCHA_ENV.key} in the environment`
+    : `${source.settings.provider} at ${host}, key from identity.json (${source.settings.key})`;
+}
 
 /** A widget found on a page. The site key is public: it is in the page's markup. */
 interface CaptchaWidget {
@@ -253,12 +314,21 @@ async function applyToken(
   return { fields, callback };
 }
 
-/** The configured solver, its key from the secret store; the key joins the redactor first. */
+/** The configured solver, its key from the environment or the secret store; the key joins the redactor first. */
 async function resolveSolver(
   ctx: Parameters<TurnoTool["handle"]>[0],
-  settings: CaptchaSettings,
+  source: Exclude<CaptchaSource, { kind: "none" }>,
 ): Promise<CaptchaSolver> {
   const vault = ctx.vault!;
+  const settings = source.settings;
+  if (source.kind === "env") {
+    vault.redactor.add(source.key, "captcha solver key");
+    return taskApiSolver({
+      endpoint: settings.endpoint,
+      key: source.key,
+      ...(ctx.providers?.fetch ? { fetch: ctx.providers.fetch } : {}),
+    });
+  }
   const item = settings.key.slice("keychain:".length);
   const store = vault.store ?? secretStore(vault.identity.env);
   if (!store) throw new SolverError(`captcha.key names ${settings.key}, but this machine has no secret store`);
@@ -308,16 +378,17 @@ export function solveCaptchaTool(): TurnoTool {
       if (!vault || !ctx.stock)
         return fail("browser_solve_captcha needs a browser identity (turno-browser-mcp --identity <id>)");
       const { identity } = vault;
-      let settings: CaptchaSettings | undefined;
+      let source: CaptchaSource;
       try {
-        settings = readIdentitySettings(identity.id, identity.env)?.captcha || undefined;
+        source = resolveCaptchaSource(readIdentitySettings(identity.id, identity.env)?.captcha, identity.env);
       } catch (error) {
         return fail((error as Error).message);
       }
-      if (!settings)
+      if (source.kind === "none")
         return fail(
-          `captcha solving is off for identity "${identity.id}"; only the person can turn it on (${names().identity("set", identity.id)} --captcha-provider task-api --captcha-endpoint <url> --captcha-key keychain:<item>). Otherwise ask them to answer it in the browser window.`,
+          `captcha solving is off for identity "${identity.id}" (${source.reason}); only the person can configure a solver (${names().identity("set", identity.id)} --captcha-provider task-api --captcha-endpoint <url> --captcha-key keychain:<item>). Hand the captcha to the person with browser_request_human.`,
         );
+      const settings = source.settings;
       if (!page) return fail("there is no page open: navigate to the page with the captcha first");
       let url: URL;
       try {
@@ -352,7 +423,7 @@ export function solveCaptchaTool(): TurnoTool {
         }
       };
       try {
-        const solver = ctx.providers?.solver ?? (await resolveSolver(ctx, settings));
+        const solver = ctx.providers?.solver ?? (await resolveSolver(ctx, source));
         const { token } = await solver.solve({ widget, pageUrl: page.url(), signal: controller.signal });
         const applied = await applyToken(page, widget, token);
         log(true);
@@ -368,7 +439,7 @@ export function solveCaptchaTool(): TurnoTool {
               text: [
                 "### Captcha",
                 `Widget: ${WIDGETS[widget.kind].label}${widgets.length > 1 ? ` (the first of ${widgets.length} on the page)` : ""}`,
-                `Solver: ${solver.label}, ${seconds} s`,
+                `Solver: ${solver.label}, ${seconds} s (${source.kind === "env" ? `key from ${CAPTCHA_ENV.key} in the environment` : "key from identity.json"})`,
                 placed,
                 `Logged in the reputation log of "${identity.id}".`,
                 "Next: submit the form now; the token expires in about two minutes.",
@@ -382,7 +453,9 @@ export function solveCaptchaTool(): TurnoTool {
         const why = controller.signal.aborted
           ? `the solver did not answer within ${timeoutMs / 1000} s`
           : (error as Error).message;
-        return fail(`the captcha was not solved: ${why}. Ask the person to answer it in the browser window.`);
+        return fail(
+          `the captcha was not solved: ${why}. Hand it to the person with browser_request_human, or ask them to answer it in the browser window.`,
+        );
       } finally {
         clearTimeout(timer);
         ctx.signal?.removeEventListener("abort", onAbort);

@@ -7,7 +7,7 @@ import { type Sandbox, sandbox } from "./helpers/sandbox.js";
 
 /**
  * `turno browser set` (and `turno identity set browser:<id>`) with the format 8 flags: natural
- * language actions and captcha solving, both off until set, keys only as keychain: references.
+ * language actions and captcha solving, keys only as keychain: references.
  * The real turno-browser of the workspace writes identity.json under the sandbox HOME.
  */
 
@@ -36,7 +36,7 @@ describe("turno browser set --act and --captcha-*", () => {
     const on = await browser(["set", "work", "--act"]);
     expect(on.code).toBe("0");
     expect(settings("work")).toMatchObject({ version: 8, act: {} });
-    expect(on.out).toMatch(/act\s+on: MCP sampling \(your client's model\)/);
+    expect(on.out).toMatch(/act\s+on: MCP sampling when the client offers it, else off/);
     expect(on.out).toMatch(/natural language actions: each call sends the instruction and a snapshot of the page/);
 
     const provider = await browser([
@@ -62,7 +62,7 @@ describe("turno browser set --act and --captcha-*", () => {
       maxSteps: 5,
     });
     expect(provider.out).toMatch(
-      /act\s+on: MCP sampling, else chat-completions example-model at https:\/\/models\.example\.com\/v1/,
+      /act\s+on: MCP sampling when the client offers it, else chat-completions example-model at https:\/\/models\.example\.com\/v1/,
     );
 
     expect((await browser(["set", "work", "--act-max-steps", "99"])).code).toMatch(
@@ -111,7 +111,7 @@ describe("turno browser set --act and --captcha-*", () => {
       version: 8,
       captcha: { provider: "task-api", endpoint: "https://solver.example.com", key: "keychain:captcha-solver" },
     });
-    expect(on.out).toMatch(/captcha\s+on: task-api at https:\/\/solver\.example\.com/);
+    expect(on.out).toMatch(/captcha\s+solver: task-api at solver\.example\.com, key from identity\.json/);
     expect(on.out).toMatch(
       /the solver service sees the page address and the captcha, and solving a site's captchas by machine may break its terms; use it only for your own accounts/,
     );

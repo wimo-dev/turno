@@ -17,6 +17,9 @@ export function sandbox(): Sandbox {
     HOME: home,
     TMPDIR: process.env.TMPDIR,
     TURNO_NO_UPDATE_CHECK: "1",
+    // A Claude Code CLI or Codex on this machine's PATH must not change what turno-browser
+    // reports for natural language actions.
+    TURNO_BROWSER_ACT_CLI: "off",
   };
   return {
     home,

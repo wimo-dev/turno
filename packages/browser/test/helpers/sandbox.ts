@@ -36,6 +36,9 @@ export function sandbox(): Sandbox {
     PATH: process.env.PATH,
     HOME: home,
     TMPDIR: process.env.TMPDIR,
+    // A Claude Code CLI or Codex on this machine's PATH must not change what a test's server
+    // lists, nor answer its calls: the tests of the provider chain set their own CLIs.
+    TURNO_BROWSER_ACT_CLI: "off",
     ...(process.platform === "win32" ? windowsEnv(home) : {}),
   };
   return {

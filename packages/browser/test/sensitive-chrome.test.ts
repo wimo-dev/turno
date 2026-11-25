@@ -347,7 +347,7 @@ describe.skipIf(reason !== undefined)(
       const challenged = await call(client, "browser_navigate", { url: `${site.url}/challenge` });
       expect(challenged.error, challenged.text).toBe(false);
       expect(challenged.text).toMatch(
-        /### Challenge\nThis page \(127\.0\.0\.1\) shows a captcha\. A person should handle it/,
+        /### Challenge\nThis page \(127\.0\.0\.1\) shows a captcha\. No captcha solver key is configured, so a person should handle it/,
       );
       expect(challenged.text).toContain("browser_request_human");
       expect((await call(client, "browser_snapshot")).text).not.toContain("### Challenge");

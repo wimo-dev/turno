@@ -231,17 +231,6 @@ describe("browser_act", () => {
     expect(held.calls).toEqual([]);
     expect(first.text).toContain("Stopped: The user paused the browser; no further step was run.");
   });
-
-  it("is refused while identity.json does not turn it on", async () => {
-    writeIdentitySettings("work", { act: null, region: "MX" }, sb.env);
-    const { model, requests } = scripted([DONE]);
-    const r = await run(actTool(), ctx(fakeStock().stock, model), { instruction: "press Go" });
-    expect(r.isError).toBe(true);
-    expect(r.text).toMatch(
-      /natural language actions are off for identity "work"; the person turns them on with turno-browser set work --act/,
-    );
-    expect(requests).toHaveLength(0);
-  });
 });
 
 describe("browser_extract", () => {

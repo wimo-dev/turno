@@ -1,4 +1,6 @@
 import type { PressureLevel } from "turno-core/memory";
+import { resolveActFallback } from "./act-chain.js";
+import { captchaKeyOf } from "./captcha.js";
 import { type EffectiveSettings, resolveDefaults, systemLocale } from "./defaults.js";
 import { engineChoice } from "./engine.js";
 import { readDetectedHealth } from "./health-detect.js";
@@ -39,6 +41,8 @@ export function effectiveSettings(id: string, options: EffectiveOptions = {}): E
   const detectedHealth = readDetectedHealth(id, env);
   const locale = systemLocale(env);
   return resolveDefaults(settings, {
+    actFallback: resolveActFallback(env),
+    captchaKey: captchaKeyOf(env),
     identity: true,
     engine,
     ...(options.headless === undefined ? {} : { headless: options.headless }),

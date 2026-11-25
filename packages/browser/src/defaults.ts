@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import type { PressureLevel } from "turno-core/memory";
+import { type ActFallback, resolveAct } from "./act-chain.js";
 import type { HumanizeLevel } from "./humanize.js";
 import type { IdentityPolicy } from "./policy.js";
 import type { HealthCheck, IdentitySettings } from "./settings.js";
@@ -17,9 +18,11 @@ import type { HealthCheck, IdentitySettings } from "./settings.js";
  * the caller does not know yet (the CLI has no server, so no `headless`) comes back with an
  * undefined value and the rule that decides it at launch.
  *
- * Some defaults wait on work that is not done yet: the `act` provider chain, captcha key
- * detection, the system proxy and the masking of `storage` values. Each has an entry that says
- * "not yet available" until it lands, so the place where it plugs in is already here.
+ * `act` and `captcha` follow what the environment offers: a model for natural language actions
+ * (`act-chain.ts`: MCP sampling, an API key, a subscription CLI) and a captcha solver key
+ * (`captcha.ts`). Some defaults wait on work that is not done yet: the system proxy and the
+ * masking of `storage` values. Each has an entry that says "not yet available" until it lands,
+ * so the place where it plugs in is already here.
  */
 
 /** Where an effective value came from. */
@@ -65,6 +68,15 @@ export interface DefaultsContext {
   vaultSubmit?: "auto" | "confirm";
   /** The server's `--caps` list, when it was given: it is the whole list then. */
   caps?: readonly string[];
+  /** What the environment offers natural language actions (`resolveActFallback`); undefined: not looked at. */
+  actFallback?: ActFallback;
+  /** Whether the client offers MCP sampling; undefined when no client is known (the CLI). */
+  sampling?: boolean;
+  /**
+   * The captcha solver key the environment holds, as `captcha.ts` labels it, or why there is
+   * none; undefined: not looked at.
+   */
+  captchaKey?: { solver: string } | { missing: string };
 }
 
 /** turno-browser-mcp's flags that win over identity.json. */
@@ -252,6 +264,40 @@ function submit(ctx: DefaultsContext): Effective<"auto" | "confirm"> {
   return byDefault("auto");
 }
 
+/**
+ * Natural language actions: off with `false` or when the policy turns them off, else on when a
+ * model answers. identity.json's group, when there, decides the order (`resolveAct`); without
+ * it, the chain does, and the origin says which model and why.
+ */
+function act(s: IdentitySettings | undefined, ctx: DefaultsContext): Effective<boolean> {
+  if (s?.act === false) return file(false);
+  if (policyOff(ctx.policy, "act")) return auto(false, "the policy turns it off");
+  if (!ctx.actFallback)
+    return s?.act !== undefined
+      ? file(true)
+      : atLaunch("on when the client offers MCP sampling, an API key is set or a CLI is found");
+  const r = resolveAct(s?.act, ctx.actFallback, ctx.sampling);
+  if (s?.act !== undefined) return file(r.path !== "off");
+  if (r.path === "off") return auto(false, r.reason);
+  if (ctx.sampling === undefined && ctx.actFallback.kind === "none")
+    return atLaunch(`only with a client that offers MCP sampling (${r.reason})`);
+  return auto(true, `${r.label}: ${r.reason}`);
+}
+
+/** Captcha solving: on with a solver key (identity.json, else the environment), else a person answers. */
+function captcha(s: IdentitySettings | undefined, ctx: DefaultsContext): Effective<boolean> {
+  if (s?.captcha === false) return file(false);
+  if (policyOff(ctx.policy, "captcha")) return auto(false, "the policy turns it off");
+  if (s?.captcha !== undefined) return file(true);
+  if (!ctx.captchaKey)
+    return atLaunch(
+      "on when TURNO_BROWSER_CAPTCHA_ENDPOINT and TURNO_BROWSER_CAPTCHA_KEY are set, else a person answers",
+    );
+  return "solver" in ctx.captchaKey
+    ? auto(true, ctx.captchaKey.solver)
+    : auto(false, `a person answers (browser_request_human): ${ctx.captchaKey.missing}`);
+}
+
 /** A feature that turns on with a key: on with its object, off with `false`, and its default otherwise. */
 function keyed(value: unknown, missing: Effective<boolean>): Effective<boolean> {
   if (value === false) return file(false);
@@ -281,10 +327,8 @@ export function resolveDefaults(
     record: record(settings, ctx),
     caps: caps(settings, ctx),
     submit: submit(ctx),
-    // The provider chain (MCP sampling, an API key, the subscription CLI) lands separately.
-    act: keyed(settings?.act, unavailable(false, "not yet available: no model provider is detected yet")),
-    // Detecting a solver key in the environment or the vault lands separately.
-    captcha: keyed(settings?.captcha, unavailable(false, "not yet available: no solver key is detected yet")),
+    act: act(settings, ctx),
+    captcha: captcha(settings, ctx),
     // Detecting the system's proxy lands separately.
     proxy: keyed(settings?.proxy, unavailable(false, "not yet available: the system proxy is not read yet")),
   };
@@ -348,12 +392,17 @@ export function effectiveEntries(e: EffectiveSettings): [string, Effective<unkno
   ];
 }
 
+/** The keys `show`, `status` and `doctor` give rows of their own, with the model or solver and why. */
+export const SAID_APART: readonly string[] = ["act", "captcha"];
+
 /**
  * The values identity.json leaves to their defaults, one line each: "resources: low (auto: memory
- * pressure)". With `"auto"`, only those the context decides (not the fixed defaults).
+ * pressure)". With `"auto"`, only those the context decides (not the fixed defaults); `except`
+ * leaves keys out.
  */
-export function defaultLines(e: EffectiveSettings, only?: "auto"): string[] {
+export function defaultLines(e: EffectiveSettings, only?: "auto", except: readonly string[] = []): string[] {
   return effectiveEntries(e)
+    .filter(([key]) => !except.includes(key))
     .filter(([, v]) => fromDefault(v.origin) && (!only || v.origin.from === "auto" || v.origin.from === "launch"))
     .map(([key, v]) => describeEffective(key, v));
 }

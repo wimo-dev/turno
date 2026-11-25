@@ -62,6 +62,15 @@ const ENVIRONMENT: readonly { title: string; rows: readonly (readonly [string, s
         "TURNO_PLAYWRIGHT_CORE",
         "the playwright-core folder the camoufox engine runs on (default: the one next to turno-browser)",
       ],
+      [
+        "TURNO_BROWSER_ACT_CLI",
+        "off: natural language actions never run the Claude Code CLI or Codex (MCP sampling and API keys still count)",
+      ],
+      [
+        "TURNO_BROWSER_CAPTCHA_ENDPOINT",
+        "a task-api captcha solver's URL, for identities without a captcha group (with TURNO_BROWSER_CAPTCHA_KEY)",
+      ],
+      ["TURNO_BROWSER_CAPTCHA_KEY", "that solver's account key, hidden from every result"],
     ],
   },
   {
@@ -76,6 +85,10 @@ const ENVIRONMENT: readonly { title: string; rows: readonly (readonly [string, s
       [
         "TURNO_BROWSER_PROMPTED_PARAMS",
         "set by turno browser replay for the server it starts: the parameters typed at its hidden prompt",
+      ],
+      [
+        "TURNO_BROWSER_ACT_CHILD",
+        "set by turno-browser for the Claude Code CLI or Codex it runs: a turno-browser under it never runs one again",
       ],
     ],
   },

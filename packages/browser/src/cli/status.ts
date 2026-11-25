@@ -8,9 +8,10 @@ import { cookieHosts } from "../cookie-hosts.js";
 import { readLastUsed } from "../last-used.js";
 import { vaultSummary } from "../vault.js";
 import type { Ctx } from "./context.js";
-import { type Effective, type EffectiveSettings, defaultLines } from "../defaults.js";
+import { type ActKey, describeAct } from "../act-chain.js";
+import { type Effective, type EffectiveSettings, SAID_APART, defaultLines } from "../defaults.js";
 import { effectiveSettings } from "../effective.js";
-import { describePolicy, localTime } from "./identity.js";
+import { captchaJson, describePolicy, localTime } from "./identity.js";
 
 /**
  * `status [<id>] [--json]`: one look at what turno-browser has on this machine. For each
@@ -29,8 +30,10 @@ const VERSION = (
 type Settings = NonNullable<ReturnType<Ctx["api"]["checkIdentitySettings"]>["settings"]>;
 
 /** What identity.json sets, with the defaults filled in (`defaults.ts`), for `status`. */
-function settingsSummary(s: Settings | undefined, e: EffectiveSettings) {
+function settingsSummary(s: Settings | undefined, e: EffectiveSettings, env: NodeJS.ProcessEnv) {
   const on = (v: Effective<unknown>) => v.value !== undefined && v.value !== false && v.value !== "off";
+  const act = describeAct(s?.act as ActKey, env);
+  const captcha = captchaJson(s?.captcha, env);
   return {
     timezone: s?.timezone ?? null,
     languages: s?.languages ?? null,
@@ -47,12 +50,16 @@ function settingsSummary(s: Settings | undefined, e: EffectiveSettings) {
       traces: e.record.traces.value ?? false,
       screenshots: on(e.record.screenshots),
     },
-    act: on(e.act),
+    /** Whether natural language actions are on, the model they resolve to, and why. */
+    act: act.path !== "off",
+    actProvider: act,
+    /** Whether a captcha solver key is configured, where from, and why. */
     captcha: on(e.captcha),
+    captchaSolver: captcha,
     proxy: (s?.proxy || undefined)?.server ?? null,
     health: (e.health.value || undefined)?.url ?? null,
-    /** The values identity.json leaves to their defaults, with where each comes from. */
-    defaults: defaultLines(e),
+    /** The values identity.json leaves to their defaults, with where each comes from (act and captcha above). */
+    defaults: defaultLines(e, undefined, SAID_APART),
     /** identity.json `policy` as written: allowed hosts, disabled features, auto submit. */
     policy: s?.policy ?? null,
   };
@@ -77,8 +84,6 @@ function settingsLine(s: ReturnType<typeof settingsSummary>): string {
       .filter(([, on]) => on)
       .map(([k, v]) => (v === "failed" ? `records ${k} (kept when a step fails)` : `records ${k}`))
       .join(", "),
-    s.act ? "act on" : "",
-    s.captcha ? "captcha solving on" : "",
     s.proxy ? `proxy ${s.proxy}` : "",
     s.policy ? `policy: ${describePolicy(s.policy)}` : "",
   ];
@@ -120,7 +125,7 @@ export async function status(c: Ctx, args: string[], io: Io): Promise<number> {
       id,
       profile: tildify(m.identityDir(id, env), env),
       settingsFile: tildify(path, env),
-      settings: settingsSummary(settings, effectiveSettings(id, { env })),
+      settings: settingsSummary(settings, effectiveSettings(id, { env }), env),
       problems,
       inUse,
       holder: holder ?? null,
@@ -164,6 +169,16 @@ export async function status(c: Ctx, args: string[], io: Io): Promise<number> {
             `${i.settings.defaults.length} values not in identity.json (${c.names.browser} status ${i.id} lists them)`,
           )
         : i.settings.defaults.join("; "),
+    ]);
+    rows.push([
+      "act",
+      `${i.settings.act ? i.settings.actProvider.label : "off"} ${s.muted(`(${i.settings.actProvider.reason})`)}`,
+    ]);
+    rows.push([
+      "captcha",
+      i.settings.captcha
+        ? i.settings.captchaSolver.label
+        : `a person answers (browser_request_human) ${s.muted(`(${i.settings.captchaSolver.reason})`)}`,
     ]);
     if (i.background)
       rows.push(["background", `server pid ${i.background.pid} since ${localTime(i.background.startedAt)}`]);

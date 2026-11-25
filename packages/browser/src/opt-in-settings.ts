@@ -3,8 +3,9 @@ import { names } from "./names.js";
 
 /**
  * The format 8 keys of identity.json: natural language actions (`act`) and captcha solving
- * (`captcha`). Both are off until the key is there, and both send page content to a third
- * party the user picks, so neither has a default provider:
+ * (`captcha`). Both send page content to a third party. Without the key, `act-chain.ts` finds a
+ * model (MCP sampling, an API key in the environment, a subscription CLI) and `captcha.ts` a
+ * solver key in the environment; with it, the group below decides:
  *
  *     "act": {
  *       "sampling": true,                    // ask the agent's own client (MCP sampling) first

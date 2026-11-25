@@ -3,6 +3,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { CreateMessageRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createEngine, type Engine, type IdentityRef } from "../src/engine.js";
+import type { ActFallback } from "../src/act-chain.js";
 import { createHost, serve } from "../src/host.js";
 import { writeIdentitySettings } from "../src/settings.js";
 import { TURNO_TOOLS, type TurnoTool, allOptInTools, checkTurnoTools, turnoZod } from "../src/tools.js";
@@ -21,6 +22,9 @@ beforeEach(() => {
   sb = sandbox();
 });
 afterEach(() => sb.cleanup());
+
+const NONE: ActFallback = { kind: "none", reason: "nothing in this test" };
+const CLI: ActFallback = { kind: "cli", clis: [{ cli: "claude", command: "/usr/local/bin/claude" }] };
 
 const SOLVER = { provider: "task-api" as const, endpoint: "https://solver.example.com", key: "keychain:solver" };
 
@@ -43,6 +47,7 @@ async function connect(options: {
   turnoTools?: TurnoTool[];
   engine?: Engine;
   sampling?: (text: string, meta: unknown) => string;
+  actFallback?: ActFallback;
 }): Promise<Client> {
   // No default capabilities: these tests count upstream's core tools and the opt-in ones.
   const cfg = { ...(await config()), capabilities: [] };
@@ -54,6 +59,7 @@ async function connect(options: {
       engine: options.engine ?? noBrowser,
       ...(options.turnoTools ? { turnoTools: options.turnoTools } : {}),
       ...(options.identity ? { identity: options.identity } : {}),
+      providers: { actFallback: options.actFallback ?? NONE },
     }),
     serverSide,
   );
@@ -82,6 +88,26 @@ const LISTED = TOOL_NAMES.length + TURNO_TOOLS.length;
 const names = async (client: Client) => (await client.listTools()).tools.map((t) => t.name);
 
 describe("opt-in tools in the host", () => {
+  it("list natural language actions per connection: with the client's sampling, or with a model in the environment", async () => {
+    writeIdentitySettings("work", { region: "MX" }, sb.env);
+    const identity = { id: "work", env: sb.env };
+    const act = ["browser_act", "browser_extract", "browser_observe"];
+    expect((await names(await connect({ identity }))).slice(LISTED)).toEqual([]);
+    expect((await names(await connect({ identity, sampling: () => "{}" }))).slice(LISTED)).toEqual(act);
+    expect((await names(await connect({ identity, actFallback: CLI }))).slice(LISTED)).toEqual(act);
+    expect((await names(await connect({ actFallback: CLI }))).slice(LISTED)).toEqual([]);
+  });
+
+  it("list captcha solving only with a solver key, from identity.json or the environment", async () => {
+    writeIdentitySettings("shop", { region: "MX" }, sb.env);
+    const env = { ...sb.env, TURNO_BROWSER_CAPTCHA_ENDPOINT: "https://solver.example.com" };
+    expect(await names(await connect({ identity: { id: "shop", env } }))).not.toContain("browser_solve_captcha");
+    const withKey = { ...env, TURNO_BROWSER_CAPTCHA_KEY: "solver-key-0123456789" };
+    expect((await names(await connect({ identity: { id: "shop", env: withKey } }))).slice(LISTED)).toEqual([
+      "browser_solve_captcha",
+    ]);
+  });
+
   it("are not listed by default, nor for an identity that does not turn them on", async () => {
     const plain = await connect({});
     expect(await names(plain)).toHaveLength(LISTED);
@@ -93,8 +119,9 @@ describe("opt-in tools in the host", () => {
       expect(listed).not.toContain(t);
   });
 
-  it("are listed after the turno tools when identity.json turns them on", async () => {
-    writeIdentitySettings("work", { act: {} }, sb.env);
+  it("are listed after the turno tools when identity.json names a provider and a solver", async () => {
+    const act = { provider: "chat-completions" as const, endpoint: "https://models.example.com/v1", model: "m" };
+    writeIdentitySettings("work", { act }, sb.env);
     expect((await names(await connect({ identity: { id: "work", env: sb.env } }))).slice(LISTED)).toEqual([
       "browser_act",
       "browser_extract",

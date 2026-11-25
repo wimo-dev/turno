@@ -17,10 +17,19 @@ import {
 } from "turno-core/cli";
 import { tildify } from "turno-core/paths";
 import type { BrowserFunctions } from "../api.js";
-import { type EffectiveSettings, defaultLines, describeOrigin, effectiveEntries, fromDefault } from "../defaults.js";
+import {
+  type EffectiveSettings,
+  SAID_APART,
+  defaultLines,
+  describeOrigin,
+  effectiveEntries,
+  fromDefault,
+} from "../defaults.js";
 import { effectiveSettings } from "../effective.js";
 import { findCamoufox } from "../engine-camoufox.js";
 import { findLightpanda } from "../engine-lightpanda.js";
+import { type ActKey, describeAct } from "../act-chain.js";
+import { captchaSourceLabel, resolveCaptchaSource } from "../captcha.js";
 import type { CliNames, Ctx } from "./context.js";
 
 /** `show --json` (`turno identity show browser:<id> --json` in turno). */
@@ -35,6 +44,8 @@ export const SHOW_JSON = jsonOutput([
   "health",
   "login",
   "effective",
+  "act",
+  "captcha",
 ]);
 /** `set --json`: what changed, or would. */
 export const SET_JSON = jsonOutput(["id", "settingsFile", "dryRun", "changes", "settings"]);
@@ -525,17 +536,26 @@ function captchaPatch(
   }
 }
 
-/** How an identity's natural language actions get a model, in a few words. */
-function describeAct(a: ActSettings | undefined): string | undefined {
-  if (!a) return undefined;
-  const provider = a.provider ? `${a.provider} ${a.model ?? ""} at ${a.endpoint ?? ""}`.replace(/\s+/g, " ") : "";
-  const how =
-    a.sampling === false
-      ? provider
-      : provider
-        ? `MCP sampling, else ${provider}`
-        : "MCP sampling (your client's model)";
-  return `on: ${how}`;
+/** How an identity's natural language actions get a model, and why, in one line. */
+function actLine(act: ActKey, env: NodeJS.ProcessEnv): string {
+  const r = describeAct(act, env);
+  return `${r.path === "off" ? "off" : `on: ${r.label}`} (${r.reason})`;
+}
+
+/** `show --json`'s `captcha`: where the solver key comes from, or why captchas go to the person. */
+export function captchaJson(captcha: CaptchaSettings | false | undefined, env: NodeJS.ProcessEnv) {
+  const source = resolveCaptchaSource(captcha, env);
+  return source.kind === "none"
+    ? { path: "human", label: "browser_request_human", reason: source.reason }
+    : { path: source.kind, label: captchaSourceLabel(source), reason: "a solver key is configured" };
+}
+
+/** Where an identity's captcha solver key comes from, or that captchas go to the person. */
+function captchaLine(captcha: CaptchaSettings | false | undefined, env: NodeJS.ProcessEnv): string {
+  const source = resolveCaptchaSource(captcha, env);
+  return source.kind === "none"
+    ? `a person answers captchas (browser_request_human): ${source.reason}`
+    : `solver: ${captchaSourceLabel(source)}`;
 }
 
 /** The format 10 `live` key: the live view and take-over. */
@@ -680,6 +700,8 @@ export function show(c: Ctx, id: string, args: string[], io: Io): number {
       health: health ?? null,
       login: login ?? null,
       effective: effectiveJson(effective),
+      act: problems.length ? null : describeAct(settings?.act as ActKey, io.env),
+      captcha: problems.length ? null : captchaJson(settings?.captcha, io.env),
     });
     return Exit.ok;
   }
@@ -751,9 +773,6 @@ export function show(c: Ctx, id: string, args: string[], io: Io): number {
     if (settings.attach !== undefined) rows.push(["engine", `attach to your Chrome (${settings.attach})`]);
     const recorded = describeRecord(settings.record);
     if (recorded) rows.push(["recording", recorded]);
-    const act = describeAct(settings.act || undefined);
-    if (act) rows.push(["act", act]);
-    if (settings.captcha) rows.push(["captcha", `on: ${settings.captcha.provider} at ${settings.captcha.endpoint}`]);
     if (settings.policy) rows.push(["policy", describePolicy(settings.policy)]);
     if (settings.live?.enabled === false) rows.push(["live view", "off"]);
     if (settings.live?.enabled)
@@ -761,6 +780,13 @@ export function show(c: Ctx, id: string, args: string[], io: Io): number {
         "live view",
         `on (${c.names.browser} live ${id}); a paused call waits up to ${settings.live.wait ?? "2m"}`,
       ]);
+  }
+  // On by default, so said for every identity: which model or solver, and why.
+  if (!problems.length) {
+    rows.push(["act", actLine(settings?.act as ActKey, io.env)]);
+    rows.push(["captcha", captchaLine(settings?.captcha, io.env)]);
+  }
+  if (settings) {
     rows.push(["created", localTime(settings.created)]);
     rows.push(["updated", localTime(settings.updated)]);
   }
@@ -792,7 +818,7 @@ export function show(c: Ctx, id: string, args: string[], io: Io): number {
   const width = Math.max(...rows.map(([k]) => k.length));
   for (const [k, v] of rows) io.out(s.kv(k, v, width));
   io.out(s.muted("defaults (not in identity.json; decided at every launch):"));
-  for (const line of defaultLines(effective)) io.out(`  ${line}`);
+  for (const line of defaultLines(effective, undefined, SAID_APART)) io.out(`  ${line}`);
   for (const problem of problems) io.out(s.note("err", `identity.json ${problem}`));
   if (health?.status === "needs_auth") io.out(s.note("info", `sign in again: ${c.names.browser} login ${id}`));
   return Exit.ok;
@@ -889,10 +915,13 @@ What turno-browser records for this identity (${b} record):
   --record-max-size <size>        cap of the traces and screenshots, "10MB" to "10GB" (default 200MB)
 Vault sign-ins and passwords never reach a flow, a trace or a screenshot.
 
-Off by default, for your own accounts only (they send page content to a third
-party you pick, and many sites' terms forbid them; the server lists their tools from its next start):
-  --act                           natural language actions (browser_act, browser_extract,
-                                  browser_observe) with your client's model (MCP sampling)
+On when something answers them, for your own accounts only (they send page content to a
+third party, and many sites' terms forbid them; the server lists their tools from its next start).
+Without a provider, natural language actions (browser_act, browser_extract, browser_observe) use
+your client's model (MCP sampling), else OPENAI_API_KEY or ANTHROPIC_API_KEY from the environment,
+else the Claude Code CLI or Codex on the PATH; captcha solving needs a solver key, here or in
+TURNO_BROWSER_CAPTCHA_ENDPOINT with TURNO_BROWSER_CAPTCHA_KEY, and otherwise goes to the person:
+  --act                           natural language actions in that order (the same as no group)
   --act-provider chat-completions a model API to use when the client has no sampling, with
   --act-endpoint <url>            its base URL (https, or http on this machine),
   --act-model <name>              the model name it expects and
@@ -905,7 +934,7 @@ party you pick, and many sites' terms forbid them; the server lists their tools 
   --captcha-endpoint <url>        service that speaks the createTask protocol, at this URL,
   --captcha-key keychain:<item>   with its account key in the secret store
   --captcha-timeout <duration>    longest wait for a solution (default 3m)
-  --no-act, --no-captcha          turn them off
+  --no-act, --no-captcha          remove the group: back to the order above
 
 The live view and take-over (${b} live, pause, resume):
   --live <bool>                   serve a view of the agent's tab on 127.0.0.1 and let you pause
@@ -1056,7 +1085,7 @@ function optInNotes(c: Ctx, id: string, patch: SettingsPatch): string[] {
   const restart = `its tools are listed once browser-${id} starts again (${c.host.restart})`;
   if (patch.act)
     notes.push(
-      `natural language actions: each call sends the instruction and a snapshot of the page to the model (your client's, or the provider you set), with vault values and sensitive fields hidden; ${restart}. Undo with --no-act.`,
+      `natural language actions: each call sends the instruction and a snapshot of the page to the model (your client's, or the provider you set), with vault values and sensitive fields hidden; ${restart}. Undo with --no-act; to keep them off, add "act" to the identity's policy (disabled).`,
     );
   if (patch.captcha)
     notes.push(

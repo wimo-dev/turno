@@ -1,5 +1,6 @@
 import { readFileSync, statSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { ActFallback } from "../src/act-chain.js";
 import { type DefaultsContext, describeEffective, resolveDefaults } from "../src/defaults.js";
 import { effectiveSettings } from "../src/effective.js";
 import { writeDetectedHealth } from "../src/health-detect.js";
@@ -18,6 +19,7 @@ beforeEach(() => {
 afterEach(() => sb.cleanup());
 
 const HEADLESS: DefaultsContext = { identity: true, headless: true, engine: "chrome", pressure: "normal" };
+const FILE = { created: "2026-11-25T00:00:00.000Z", updated: "2026-11-25T00:00:00.000Z" };
 
 describe("an identity without keys", () => {
   it("gets the new defaults, each with where it came from", () => {
@@ -61,6 +63,44 @@ describe("an identity without keys", () => {
     const cli = resolveDefaults(undefined, { identity: true, engine: "chrome" });
     expect(cli.resources.value).toBeUndefined();
     expect(cli.userAgent.origin.from).toBe("launch");
+  });
+});
+
+describe("natural language actions and captcha solving", () => {
+  it("follow the model and the solver key the environment offers, and say which", () => {
+    const none: ActFallback = { kind: "none", reason: "nothing found" };
+    const cli: ActFallback = { kind: "cli", clis: [{ cli: "codex", command: "/bin/codex" }] };
+    expect(resolveDefaults(undefined, { ...HEADLESS, actFallback: cli }).act).toEqual({
+      value: true,
+      origin: {
+        from: "auto",
+        because:
+          "MCP sampling when the client offers it, else Codex (gpt-5.6-terra): found /bin/codex on PATH, run headless with your own login",
+      },
+    });
+    expect(resolveDefaults(undefined, { ...HEADLESS, actFallback: none, sampling: true }).act.value).toBe(true);
+    expect(resolveDefaults(undefined, { ...HEADLESS, actFallback: none, sampling: false }).act).toMatchObject({
+      value: false,
+      origin: { from: "auto" },
+    });
+    // The CLI knows no client: only one that offers sampling would answer.
+    expect(resolveDefaults(undefined, { ...HEADLESS, actFallback: none }).act.origin.from).toBe("launch");
+    const policed: DefaultsContext = { ...HEADLESS, actFallback: cli, policy: { disabled: ["act", "captcha"] } };
+    expect(resolveDefaults(undefined, policed).act.value).toBe(false);
+    expect(resolveDefaults({ ...FILE, act: false }, { ...HEADLESS, actFallback: cli }).act).toEqual({
+      value: false,
+      origin: { from: "file" },
+    });
+
+    expect(resolveDefaults(undefined, { ...HEADLESS, captchaKey: { solver: "task-api at s.test" } }).captcha).toEqual({
+      value: true,
+      origin: { from: "auto", because: "task-api at s.test" },
+    });
+    expect(resolveDefaults(undefined, { ...HEADLESS, captchaKey: { missing: "no key" } }).captcha).toEqual({
+      value: false,
+      origin: { from: "auto", because: "a person answers (browser_request_human): no key" },
+    });
+    expect(resolveDefaults(undefined, { ...policed, captchaKey: { solver: "x" } }).captcha.value).toBe(false);
   });
 });
 
