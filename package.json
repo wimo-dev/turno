@@ -14,6 +14,7 @@
     "test:e2e": "pnpm --filter turno-cli run test:e2e",
     "bench:browser": "node bench/browser/eval.mjs",
     "bench:fingerprint": "node bench/browser/fingerprint.mjs",
+    "bench:reputation": "node bench/browser/reputation.mjs",
     "typecheck": "pnpm --filter \"./packages/*\" run typecheck",
     "lint": "biome check && knip",
     "format": "biome format --write",

@@ -38,10 +38,16 @@ import { parseArgs } from "node:util";
 import { checkReport, compareWithBaseline, pointerPath } from "./lib/checks.mjs";
 import { dumpDom, findChrome, startPlainChrome } from "./lib/chrome.mjs";
 import { isHeaded, knownConfigs, readConfigsFile, resolveConfig } from "./lib/configs.mjs";
-import { startProbeSite } from "./lib/probe.mjs";
-import { PUBLIC_ENV, compareDetector, detectors, loadParsers, publicDetectorsAllowed } from "./lib/public.mjs";
+import { probeSteps, startProbeSite } from "./lib/probe.mjs";
+import {
+  PUBLIC_ENV,
+  compareDetector,
+  detectors,
+  loadParsers,
+  publicDetectorsAllowed,
+  visitDetectors,
+} from "./lib/public.mjs";
 import { DEFAULT_BIN, UnsupportedConfig, buildVersions, startServer, warmUp } from "./lib/server.mjs";
-import { refOf } from "./lib/tasks.mjs";
 
 const { values } = parseArgs({
   options: {
@@ -94,46 +100,6 @@ if (values.list) {
 }
 
 const allowPublic = publicDetectorsAllowed();
-const TEXT = "hello world";
-
-/** The value a browser_evaluate result carries (upstream prints it as JSON under "### Result"). */
-function evaluateValue(text) {
-  const body = /### Result\n([\s\S]*?)(?:\n### |$)/.exec(text)?.[1]?.trim() ?? "";
-  try {
-    return JSON.parse(body);
-  } catch {
-    return body;
-  }
-}
-
-/** The fixed steps on the probe page. The first click comes before any other pointer action. */
-async function probeSteps(agent, url) {
-  await agent.must("browser_navigate", { url });
-  const snap = await agent.must("browser_snapshot");
-  await agent.must("browser_click", { target: refOf(snap, "button", "Click target") });
-  await agent.must("browser_hover", { target: refOf(snap, "button", "Hover target") });
-  await agent.must("browser_type", { target: refOf(snap, "textbox", "Type here"), text: TEXT });
-  await agent.must("browser_type", { target: refOf(snap, "textbox", "Type slowly"), text: TEXT, slowly: true });
-  await agent.must("browser_click", { target: refOf(snap, "button", "Far button") });
-}
-
-async function visitDetectors(agent, list) {
-  const out = {};
-  for (const d of list) {
-    try {
-      await agent.must("browser_navigate", { url: d.url });
-      await agent.must("browser_wait_for", { time: Math.ceil(d.settleMs / 1000) });
-      const html = evaluateValue(
-        await agent.must("browser_evaluate", { function: "() => document.documentElement.outerHTML" }),
-      );
-      out[d.id] = d.read(typeof html === "string" ? html : "");
-    } catch (err) {
-      out[d.id] = { ok: false, error: String(err?.message ?? err).split("\n")[0] };
-    }
-  }
-  return out;
-}
-
 const startedAt = new Date();
 const site = await startProbeSite();
 const chrome = findChrome(values.chrome);

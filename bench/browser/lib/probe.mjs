@@ -8,6 +8,7 @@
 // it measured.
 
 import { createServer } from "node:http";
+import { refOf } from "./tasks.mjs";
 
 const NONCE = "turno-probe";
 
@@ -55,12 +56,16 @@ const PROBE_SCRIPT = String.raw`
 
   const t = (e) => Math.round(e.timeStamp * 10) / 10;
   const box = (el) => { const r = rectOf.call(el); return { x: r.x, y: r.y, w: r.width, h: r.height }; };
-  const types = ['pointermove', 'pointerdown', 'pointerup', 'pointerover', 'mousemove', 'mousedown', 'mouseup', 'click', 'keydown', 'keyup', 'input', 'focusin', 'wheel'];
+  // pointerrawupdate fires for raw pointer input (secure contexts only, like this page on
+  // 127.0.0.1); focus, blur and visibilitychange say whether the page had the window's focus.
+  const types = ['pointermove', 'pointerrawupdate', 'pointerdown', 'pointerup', 'pointerover', 'mousemove', 'mousedown', 'mouseup', 'click', 'keydown', 'keyup', 'input', 'focusin', 'wheel', 'focus', 'blur', 'visibilitychange'];
   for (const type of types) {
-    window.addEventListener(type, (e) => {
+    (type === 'visibilitychange' ? document : window).addEventListener(type, (e) => {
       if (report.events.length >= 5000) return;
+      if ((type === 'focus' || type === 'blur') && e.target !== window) return;
       const target = e.target && e.target.id ? e.target.id : (e.target && e.target.tagName ? e.target.tagName.toLowerCase() : '');
       const ev = { type, t: t(e), trusted: e.isTrusted, target };
+      if (type === 'click' || type === 'pointerdown' || type === 'keydown' || type === 'visibilitychange') Object.assign(ev, { focused: document.hasFocus(), visibility: document.visibilityState });
       if ('clientX' in e) Object.assign(ev, { x: e.clientX, y: e.clientY, sx: e.screenX, sy: e.screenY });
       if (type.startsWith('pointer')) {
         ev.pointerType = e.pointerType;
@@ -131,9 +136,12 @@ const PROBE_SCRIPT = String.raw`
       globals,
       visibility: document.visibilityState,
       focused: document.hasFocus(),
+      pointerRawUpdate: 'onpointerrawupdate' in window,
     };
     flush();
   }
+  // A person doing the steps by hand (the bench's --human reference) sees them listed.
+  if (new URLSearchParams(location.search).get('human')) document.addEventListener('DOMContentLoaded', () => document.body.classList.add('human'));
   collect();
   try { new Worker('/probe-worker.js?run=' + encodeURIComponent(run)); } catch (e) { /* no workers */ }
 })();
@@ -162,6 +170,8 @@ const PROBE_HTML = `<!doctype html><html lang="en"><head><meta charset="utf-8"><
   #hover-target { position: absolute; left: 60px; top: 160px; width: 160px; height: 48px }
   #fields { position: absolute; left: 60px; top: 260px }
   #far-button { position: absolute; left: 120px; top: 2300px; width: 160px; height: 48px }
+  #steps { display: none; position: absolute; left: 600px; top: 120px; width: 300px; border: 1px solid #888; padding: 8px 16px }
+  .human #steps { display: block }
 </style>
 <script nonce="${NONCE}">${PROBE_SCRIPT}</script>
 </head><body>
@@ -173,6 +183,8 @@ const PROBE_HTML = `<!doctype html><html lang="en"><head><meta charset="utf-8"><
 </div>
 <button id="click-target">Click target</button>
 <button id="far-button">Far button</button>
+<ol id="steps"><li>Click "Click target"</li><li>Move onto "Hover target"</li><li>Type hello world in "Type here"</li>
+<li>Type hello world in "Type slowly"</li><li>Scroll down and click "Far button"</li></ol>
 </body></html>`;
 
 /**
@@ -271,4 +283,17 @@ export async function startProbeSite() {
         server.close(() => r());
       }),
   };
+}
+
+const TEXT = "hello world";
+
+/** The fixed steps on the probe page. The first click comes before any other pointer action. */
+export async function probeSteps(agent, url) {
+  await agent.must("browser_navigate", { url });
+  const snap = await agent.must("browser_snapshot");
+  await agent.must("browser_click", { target: refOf(snap, "button", "Click target") });
+  await agent.must("browser_hover", { target: refOf(snap, "button", "Hover target") });
+  await agent.must("browser_type", { target: refOf(snap, "textbox", "Type here"), text: TEXT });
+  await agent.must("browser_type", { target: refOf(snap, "textbox", "Type slowly"), text: TEXT, slowly: true });
+  await agent.must("browser_click", { target: refOf(snap, "button", "Far button") });
 }

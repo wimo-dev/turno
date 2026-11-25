@@ -6,7 +6,7 @@
 // fixture site received, never what the script believes.
 
 import { isDeepStrictEqual } from "node:util";
-import { PRODUCTS, REPORTS, productPrice, reportValue } from "./fixtures.mjs";
+import { CLICKS, PRODUCTS, REPORTS, productPrice, reportValue } from "./fixtures.mjs";
 
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -66,9 +66,17 @@ function expectBody(actual, expected) {
  * @property {unknown} [answer] what a read-only task found
  */
 
+/**
+ * A task: `start` (a path on the fixture site) and `goal` (the request in words) are what a
+ * model-driven run gets (see --driver in eval.mjs); `run` is the scripted run, and `check` reads
+ * what the site received, the same way for both.
+ */
+
 export const TASKS = [
   {
     id: "form",
+    start: "/form",
+    goal: "Create an account for Alice Example, alice@example.com, on the Pro plan, to be contacted by phone, accepting the terms.",
     title: "Fill a sign-up form (text, email, select, radio, checkbox) and submit it",
     smoke: true,
     async run({ agent, site }) {
@@ -98,6 +106,8 @@ export const TASKS = [
   },
   {
     id: "popup",
+    start: "/popup",
+    goal: "Connect the calendar: approve the authorization window, then confirm the page says the calendar is connected.",
     title: "Approve an authorization popup and come back to the page that opened it",
     async run({ agent, site }) {
       await agent.must("browser_navigate", { url: `${site.url}/popup` });
@@ -115,6 +125,8 @@ export const TASKS = [
   },
   {
     id: "overlay",
+    start: "/overlay",
+    goal: "Download the quarterly report.",
     title: "Click a button that a cookie banner covers: read the error, dismiss the banner, retry",
     smoke: true,
     async run({ agent, site }) {
@@ -133,6 +145,8 @@ export const TASKS = [
   },
   {
     id: "slow",
+    start: "/slow",
+    goal: "Wait for the order total, then confirm the order.",
     title: "Wait for a slow page and its late data, then confirm the order",
     async run({ agent, site }) {
       await agent.must("browser_navigate", { url: `${site.url}/slow` });
@@ -147,6 +161,8 @@ export const TASKS = [
   },
   {
     id: "tabs",
+    start: "/tabs",
+    goal: "Open every monthly report, add up their values, and submit the total.",
     title: `Open ${REPORTS} reports in new tabs, read a value from each, submit the sum`,
     async run({ agent, site }) {
       await agent.must("browser_navigate", { url: `${site.url}/tabs` });
@@ -174,6 +190,8 @@ export const TASKS = [
   },
   {
     id: "shadow",
+    start: "/shadow",
+    goal: "Apply the promo code SPRING25 to the cart.",
     title: "Type a promo code into a field two shadow roots deep and apply it",
     smoke: true,
     async run({ agent, site }) {
@@ -189,6 +207,8 @@ export const TASKS = [
   },
   {
     id: "frames",
+    start: "/frames",
+    goal: "Save Alice Example as the name on the card, then pay.",
     title: "Fill a form in a same-origin iframe and press a button in a cross-origin iframe",
     smoke: true,
     async run({ agent, site }) {
@@ -206,6 +226,8 @@ export const TASKS = [
   },
   {
     id: "dialog",
+    start: "/dialog",
+    goal: "Delete the draft, confirming when asked.",
     title: "Delete a draft behind a confirm() dialog",
     async run({ agent, site }) {
       await agent.must("browser_navigate", { url: `${site.url}/dialog` });
@@ -220,6 +242,8 @@ export const TASKS = [
   },
   {
     id: "find",
+    start: "/catalog",
+    goal: "What is the price of Product 287? Answer with the number only, like 12.34.",
     title: `Read one price from a ${PRODUCTS}-row catalog without reading the whole page`,
     async run(ctx) {
       const { agent, site } = ctx;
@@ -238,6 +262,27 @@ export const TASKS = [
       return ctx.answer === expected
         ? { ok: true }
         : { ok: false, detail: `answered ${ctx.answer ?? "nothing"}, expected ${expected}` };
+    },
+  },
+  {
+    id: "clicks",
+    start: "/clicks",
+    goal: `Press every Toggle button, then every Save button.`,
+    title: `Press ${CLICKS.toggles} buttons that change the page and ${CLICKS.saves} that also send a request`,
+    async run({ agent, site }) {
+      await agent.must("browser_navigate", { url: `${site.url}/clicks` });
+      const snap = await agent.must("browser_snapshot");
+      for (let i = 1; i <= CLICKS.toggles; i++)
+        await agent.must("browser_click", { target: refOf(snap, "button", `Toggle ${i}`) });
+      for (let i = 1; i <= CLICKS.saves; i++)
+        await agent.must("browser_click", { target: refOf(snap, "button", `Save ${i}`) });
+    },
+    async check({ site }) {
+      for (let i = 1; i <= CLICKS.saves; i++) {
+        const got = await received(site, `clicks-${i}`);
+        if (!got?.saved) return { ok: false, detail: `the site received no save ${i}` };
+      }
+      return { ok: true };
     },
   },
 ];

@@ -1,12 +1,57 @@
 // The local pages the evaluation tasks run on, served on 127.0.0.1 (and on localhost, a second
 // origin for cross-origin frames). Pages report what the user did by POSTing to /submit/<task>,
 // so a task's check reads what the site received instead of trusting what the agent says.
+//
+// Every page also records which element each input event landed on (pointerdown, click, input,
+// change, keydown) and POSTs it to /actions, and the site logs when each request arrived. The
+// suite matches both with the time of each tool call: an action that landed on another element
+// than the one the agent named, and how a click's time splits around its input events.
 
 import { createServer } from "node:http";
+
+// Runs in every fixture page and frame. The names it reports are the ones an accessibility
+// snapshot shows for the element: its aria-label, its label's own text, its text, its
+// placeholder or its value.
+const RECORDER = String.raw`(() => {
+  const post = window.fetch.bind(window);
+  const queue = [];
+  let timer = 0;
+  const flush = () => {
+    timer = 0;
+    if (!queue.length) return;
+    post('/actions', { method: 'POST', body: JSON.stringify(queue.splice(0)), keepalive: true }).catch(() => {});
+  };
+  const clean = (s) => String(s || '').replace(/\s+/g, ' ').trim();
+  const labelText = (label) => {
+    const copy = label.cloneNode(true);
+    for (const c of copy.querySelectorAll('input, select, textarea, button')) c.remove();
+    return clean(copy.textContent);
+  };
+  const names = (el) => {
+    const out = [el.getAttribute('aria-label')];
+    if (el.labels) for (const l of el.labels) out.push(labelText(l));
+    if (/^(BUTTON|A|OPTION|SUMMARY)$/.test(el.tagName)) out.push(el.textContent);
+    out.push(el.getAttribute('placeholder'), el.getAttribute('title'));
+    if (el.tagName === 'INPUT' && /^(button|submit|reset)$/.test(el.type)) out.push(el.value);
+    return [...new Set(out.map(clean).filter(Boolean))];
+  };
+  const ACTIONABLE = 'button, a[href], input, select, textarea, summary, [role=button], [role=link], [role=checkbox], [role=radio], [role=textbox]';
+  for (const type of ['pointerdown', 'click', 'input', 'change', 'keydown']) {
+    window.addEventListener(type, (e) => {
+      const path = e.composedPath();
+      const el = path.find((n) => n instanceof Element && n.matches(ACTIONABLE)) || path[0];
+      if (!(el instanceof Element)) return;
+      queue.push({ type, t: Date.now(), ts: e.timeStamp, trusted: e.isTrusted, tag: el.tagName.toLowerCase(), names: names(el), page: location.host + location.pathname });
+      if (!timer) timer = setTimeout(flush, 25);
+    }, { capture: true, passive: true });
+  }
+  window.addEventListener('pagehide', flush);
+})();`;
 
 const page = (title, body, script = "") =>
   `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${title}</title>
 <style>body{font:16px system-ui,sans-serif;margin:24px;max-width:720px} label{display:block;margin:8px 0}</style>
+<script>${RECORDER}</script>
 </head><body>${body}${script ? `<script>${script}</script>` : ""}</body></html>`;
 
 const submit = (task, expr) => `fetch('/submit/${task}', { method: 'POST', body: JSON.stringify(${expr}) })`;
@@ -197,6 +242,20 @@ f.onsubmit = async (e) => {
     ),
 };
 
+/** Buttons on the clicks page: the first ones change the page only, the last ones also save. */
+export const CLICKS = { toggles: 8, saves: 4 };
+
+PAGES["/clicks"] = () =>
+  page(
+    "Settings",
+    `<h1>Settings</h1><p id="count" role="status">0 changes</p>
+${Array.from({ length: CLICKS.toggles }, (_, i) => `<button class="toggle">Toggle ${i + 1}</button>`).join(" ")}
+<p>${Array.from({ length: CLICKS.saves }, (_, i) => `<button class="save" data-n="${i + 1}">Save ${i + 1}</button>`).join(" ")}</p>`,
+    `let n = 0;
+for (const b of document.querySelectorAll('.toggle')) b.onclick = () => { document.getElementById('count').textContent = ++n + ' changes'; };
+for (const b of document.querySelectorAll('.save')) b.onclick = () => ${submit("clicks-' + b.dataset.n + '", "{ saved: true }")};`,
+  );
+
 function reportPage(i) {
   return page(`Report ${i}`, `<h1>Report ${i}</h1><p>Value: ${reportValue(i)}</p>`);
 }
@@ -207,9 +266,29 @@ function reportPage(i) {
  */
 export async function startSite() {
   const submissions = {};
-  const site = { url: "", altUrl: "", submissions };
+  // Input events the pages recorded, and when each request other than those reports arrived
+  // (epoch ms), for matching with the tool calls.
+  const actions = [];
+  const requests = [];
+  const site = { url: "", altUrl: "", submissions, actions, requests };
   const server = createServer((req, res) => {
     const path = new URL(req.url ?? "/", "http://x").pathname;
+    if (req.method === "POST" && path === "/actions") {
+      let body = "";
+      req.on("data", (d) => {
+        if (body.length < 1024 * 1024) body += d;
+      });
+      req.on("end", () => {
+        try {
+          actions.push(...JSON.parse(body));
+        } catch {
+          /* a truncated batch */
+        }
+        res.end("ok");
+      });
+      return;
+    }
+    requests.push({ t: Date.now(), path });
     if (req.method === "POST" && path.startsWith("/submit/")) {
       let body = "";
       req.on("data", (d) => {

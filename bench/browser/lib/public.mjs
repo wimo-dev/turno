@@ -127,3 +127,31 @@ export function compareDetector(id, result, reference) {
     ? { status: "warn", note: `fails where plain Chrome passes: ${extra.join(", ")}` }
     : { status: "pass" };
 }
+
+/** The value a browser_evaluate result carries (upstream prints it as JSON under "### Result"). */
+function evaluateValue(text) {
+  const body = /### Result\n([\s\S]*?)(?:\n### |$)/.exec(text)?.[1]?.trim() ?? "";
+  try {
+    return JSON.parse(body);
+  } catch {
+    return body;
+  }
+}
+
+/** Visits each public detector page through the server and reads its result from the page HTML. */
+export async function visitDetectors(agent, list) {
+  const out = {};
+  for (const d of list) {
+    try {
+      await agent.must("browser_navigate", { url: d.url });
+      await agent.must("browser_wait_for", { time: Math.ceil(d.settleMs / 1000) });
+      const html = evaluateValue(
+        await agent.must("browser_evaluate", { function: "() => document.documentElement.outerHTML" }),
+      );
+      out[d.id] = d.read(typeof html === "string" ? html : "");
+    } catch (err) {
+      out[d.id] = { ok: false, error: String(err?.message ?? err).split("\n")[0] };
+    }
+  }
+  return out;
+}
