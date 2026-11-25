@@ -19,6 +19,9 @@ import {
 } from "./browsers.js";
 import { profileHasCookies, readLoginRecord } from "./login.js";
 import { readHealth } from "./health.js";
+import { readDetectedHealth } from "./health-detect.js";
+import { defaultLines } from "./defaults.js";
+import { effectiveSettings } from "./effective.js";
 import { identityDir, isValidIdentityId } from "./ids.js";
 import { defaultChromeUserDataDir, parseAttachTarget, readAttachEndpoint } from "./engine-attach.js";
 import {
@@ -313,12 +316,24 @@ function settingsFix(id: string, problem: string): string | undefined {
  */
 function servingRows(id: string, settings: IdentitySettings | undefined, servers: readonly ServedIdentity[]) {
   const out: Omit<DoctorCheck, "area">[] = [];
+  // "tabs" by default; attach mode is the user's own Chrome, served one session at a time.
+  const byDefault = settings?.attach !== undefined ? "session" : "tabs";
   for (const server of servers) {
-    if (server.identity !== id || server.exclusive || server.scope === "session") continue;
-    if ((server.sharing ?? settings?.sharing ?? "session") !== "session") continue;
+    if (server.identity !== id || server.scope === "session") continue;
+    const sharing = server.sharing ?? settings?.sharing ?? byDefault;
+    if (server.exclusive) {
+      // A block written before tabs became the default: it works, one session at a time.
+      if (sharing === "tabs" && server.sharing === undefined && settings?.sharing === undefined)
+        out.push({
+          level: "info",
+          text: `[server.${server.name}] in mcp.toml lets one session in at a time (exclusive = true); this identity now gives each session its own tabs by default, so set exclusive = false there (and drop lease), then run turno mcp sync, to let every session in at once`,
+        });
+      continue;
+    }
+    if (sharing !== "session") continue;
     out.push({
       level: "warn",
-      text: `[server.${server.name}] in mcp.toml lets several sessions in (exclusive = false), but this identity serves one at a time ("sharing": "session"), so those sessions share one current tab`,
+      text: `[server.${server.name}] in mcp.toml lets several sessions in (exclusive = false), but this identity serves one at a time ("sharing": "session"${settings?.sharing === undefined ? ", the default in attach mode" : ""}), so those sessions share one current tab`,
       fix: `turno browser set ${id} --sharing tabs`,
     });
   }
@@ -355,6 +370,11 @@ function identityChecks(
     });
   } else {
     add({ level: "ok", text: `identity.json: ${describeSettings(settings)}` });
+  }
+  // What a key left out of identity.json gets, and why: decided again at every launch.
+  if (!problems.length) {
+    const defaults = defaultLines(effectiveSettings(id, { env }));
+    if (defaults.length) add({ level: "info", text: `defaults: ${defaults.join("; ")}` });
   }
 
   if (settings) for (const c of engineRows(id, settings, env)) add(c);
@@ -416,9 +436,14 @@ function identityChecks(
     });
   }
 
-  const check = settings?.health;
+  const own = settings?.health;
+  // The check `login` found when the person set none; health: false turns that off too.
+  const detected = own === undefined ? readDetectedHealth(id, env) : undefined;
+  const check = own || detected;
   const health = readHealth(id, env);
-  if (!check) {
+  if (own === false) {
+    add({ level: "info", text: "session health check off (identity.json health: false)" });
+  } else if (!check) {
     add({
       level: "info",
       text: "no session health check: a signed-out session shows up only when a page asks to sign in",
@@ -430,7 +455,8 @@ function identityChecks(
     add({ level: "ok", text: `signed in at ${health.url} (checked ${health.checkedAt})` });
   } else if (health.status === "needs_auth") {
     add({
-      level: "fail",
+      // A check turno found by itself is a guess: it warns, where the person's own fails.
+      level: detected ? "warn" : "fail",
       text: `NEEDS_AUTH: not signed in at ${health.url}: ${health.detail ?? "the check failed"} (checked ${health.checkedAt})`,
       fix: `turno browser login ${id}`,
     });
@@ -570,7 +596,9 @@ function engineChecks(opts: DoctorOptions, env: NodeJS.ProcessEnv, ids: string[]
     out.push({
       area,
       level: "ok",
-      text: `Lightpanda${lightpanda.version ? ` ${lightpanda.version}` : ""} at ${lightpanda.path} (read mode)`,
+      text: `Lightpanda${lightpanda.version ? ` ${lightpanda.version}` : ""} at ${lightpanda.path} (read mode)${
+        users.length ? "" : `; no identity uses it yet: turno browser set <id> --engine lightpanda for read-only work`
+      }`,
     });
   else if (users.length)
     out.push({

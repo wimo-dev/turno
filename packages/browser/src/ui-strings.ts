@@ -228,8 +228,12 @@ export const UI_STRINGS: Record<UiLocale, UiStrings> = {
 };
 
 /** The language of what the person sees, from the identity's `locale`, else its first language. */
-export function uiLocale(settings: Pick<IdentitySettings, "locale" | "languages"> | undefined): UiLocale {
-  const tag = settings?.locale ?? settings?.languages?.[0];
+export function uiLocale(
+  settings: Pick<IdentitySettings, "locale" | "languages"> | undefined,
+  /** The locale the defaults resolved (the system's), for an identity.json without one. */
+  fallback?: string,
+): UiLocale {
+  const tag = (settings?.locale || undefined) ?? settings?.languages?.[0] ?? fallback;
   return tag?.split("-")[0]?.toLowerCase() === "es" ? "es" : "en";
 }
 

@@ -50,15 +50,55 @@ browser:school
   settings      ~/.local/share/turno/browser/identities/school.json
   time zone     Europe/Madrid
   languages     es-ES, es, en
-  health check  off (to turn on: turno-browser set school --health-url <url> --health-text <text>)
+  health check  the one login finds, if any (to set one: turno-browser set school --health-url <url> --health-text <text>)
   agent cursor  shown when the browser can be seen: a window, or the live view (auto)
   created       2026-11-20 08:41
   updated       2026-11-20 08:43
   last sign-in  never by hand (turno-browser login school)
   state         not in use
+defaults (not in identity.json; decided at every launch):
+  live: on (default)
+  resources: auto (auto: the low-resource preset while memory is short)
+  humanize: auto (default)
+  sharing: tabs (default)
+  ...
 ```
 
-The [agent cursor](/docs/browser/agent-cursor) row is the `cursor` setting. They are applied at every Chrome start: languages go to Chrome's own `--accept-lang`, the locale to `--lang`, and the time zone is emulated only when it differs from the machine's. An identity without the file uses Chrome's defaults.
+The [agent cursor](/docs/browser/agent-cursor) row is the `cursor` setting. They are applied at every Chrome start: languages go to Chrome's own `--accept-lang`, the locale to `--lang`, and the time zone is emulated only when it differs from the machine's. Without a locale or languages, Chrome gets the system's locale (`LANG` and the other locale variables, or the macOS region setting); `--locale off` leaves Chrome's own.
+
+## Defaults
+
+Every feature has a default that turno works out when Chrome starts, from what it knows then: headless or with a window, the live view, memory pressure, the engine and the policy. The defaults are never written into `identity.json`: the file holds only what you chose, so a key you leave out follows the default of the turno-browser you run. `show`, `status` and `doctor` list each value with where it came from, for example `resources: low (auto: memory pressure)`.
+
+| Feature | Default | When |
+|---|---|---|
+| [Live view](/docs/browser/live-view) | on | every server with an identity; it opens only when you ask |
+| [Flows](/docs/browser/flows) | recorded | always |
+| [Screenshots](/docs/browser/flows#recordings-and-traces) | after each action, under a disk cap | never of a page that shows a vault value; not in attach or read mode |
+| [Traces](/docs/browser/flows#recordings-and-traces) | kept when a step failed, under a disk cap | not in attach or read mode |
+| `vision`, `pdf`, `devtools`, `network` tools | listed | `devtools` not with `record.traces: true`; `network` not when the policy turns it off |
+| [Vault submit](/docs/browser/vault) | `auto` | `confirm` when you chose it, or when the policy says `autoSubmit: false` |
+| [Low-resource preset](/docs/browser/tabs#low-resource-mode) | `auto` | on while the system reports memory pressure |
+| Background throttling | on | headless without the live view |
+| [Human-like input](/docs/browser/actions#human-like-input) | `auto` | off on localhost and for reading, light to act, full on sign-in, payment and support pages and challenged sites |
+| [Tab sharing](/docs/browser/sharing) | `tabs` | `session` in attach mode |
+| [Coherent user agent](/docs/browser/network#a-coherent-user-agent) | on | headless Chrome only |
+| Locale | the system's | when `identity.json` has no locale or languages |
+| Cookie key | the system keychain | new identities created at a terminal on macOS with Google Chrome |
+| [Health check](#session-health) | the one `login` finds | when `identity.json` has none |
+
+To keep a default from applying, set the key: a value, or for a key with no off value of its own, `off` (format 14 of `identity.json`):
+
+```sh
+turno-browser set school --live false --record-flows false --sharing session
+turno-browser set school --user-agent off --locale off --health off
+# back to the default
+turno-browser set school --live "" --user-agent ""
+```
+
+`"auto"` (for `live.enabled`, `resources`, `humanize.level` and `userAgent`) says the same as leaving the key out. A file with an `auto` or `false` value is written as format 14, which an older turno-browser refuses with "update turno-browser" instead of guessing.
+
+Some features stay one step away: resource blocking and the own HTTP cache (`--block-*`, `--cache`), `--allow-http-identity`, and the [engines](/docs/browser/engines) other than Chrome. `turno-browser add` offers Camoufox and Lightpanda when they are installed, and attach mode, but never switches an identity on its own. Natural language actions, captcha solving, `storage` and the proxy stay off until you set them.
 
 The locale also picks the language of what a person sees in the browser: the [live view](/docs/browser/live-view) page, the banner and Done button of a person step (`browser_request_human`), the [agent cursor](/docs/browser/agent-cursor)'s badge and the page `turno-browser login` opens. A Spanish locale (`es`, `es-MX`, `es-419`) shows them in Spanish; any other locale, or none, in English. Without a locale, the first entry of `languages` decides. Tool results, tool descriptions and CLI output stay in English, since agents and developers read them.
 
@@ -145,13 +185,15 @@ While a server drives an identity's Chrome it holds a runtime lock. A second ses
 
 ## Session health
 
-An optional health check names a page and what it shows only when signed in:
+A health check names a page and what it shows only when signed in:
 
 ```sh
 turno-browser set school --health-url https://mail.example.com/ --health-text Inbox
 ```
 
 When Chrome starts (at most every 30 minutes while it passes) turno checks it. If the proof is missing, the identity is `NEEDS_AUTH`: tool calls fail with a message that asks you to run `turno-browser login <id>`.
+
+Without a check of yours, `turno-browser login` finds one: the last page you opened that showed a sign-out link becomes the check, kept in the identity's state folder and not in `identity.json`. Since it is a guess, a failed found check is reported (the server's stderr, `show`, `doctor`) but does not stop tool calls. `--health off` turns off both.
 
 ## Reputation log
 

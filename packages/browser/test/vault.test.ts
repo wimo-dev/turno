@@ -155,10 +155,20 @@ describe("the credential vault", () => {
     expect(fake.services()).toEqual([]);
   });
 
-  it("records the submit policy per identity", async () => {
-    expect(vaultSetSubmit("work", "auto", { env: sb.env })).toBe("auto");
+  it("submits by default, and keeps confirm only when the person chose it", async () => {
     await vaultAdd("work", "github", { urls: ["https://github.com"], username: "alice", password: PASSWORD }, opts());
     expect(vaultSite("work", "github", sb.env)?.submit).toBe("auto");
+    // An index from before the default changed: its "confirm" was nobody's choice.
+    const file = ".local/share/turno/browser/identities/work.vault.json";
+    const index = JSON.parse(readFileSync(vaultPath("work", sb.env), "utf8"));
+    sb.write(file, JSON.stringify({ ...index, submit: "confirm" }));
+    expect(vaultSite("work", "github", sb.env)?.submit).toBe("auto");
+    expect(vaultSetSubmit("work", "confirm", { env: sb.env })).toBe("confirm");
+    expect(vaultSite("work", "github", sb.env)?.submit).toBe("confirm");
+    expect(JSON.parse(readFileSync(vaultPath("work", sb.env), "utf8"))).toMatchObject({
+      submit: "confirm",
+      submitChosen: true,
+    });
     expect(() => vaultSetSubmit("work", "always" as never, { env: sb.env })).toThrow(/confirm/);
   });
 

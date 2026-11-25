@@ -256,12 +256,12 @@ describe("turno identity add/show/set for browser identities", () => {
     await bad(["--no-cache", "--cache"], /--no-cache does not go with --cache or --cache-max-size/);
     await bad(
       ["--sharing", "all"],
-      /^--sharing must be "session" \(the default, one agent session at a time\) or "tabs"$/,
+      /^--sharing must be "tabs" \(the default, each agent session in its own tabs\) or "session" \(one at a time\)$/,
     );
     expect(readFileSync(settingsFile("school"), "utf8")).toBe(before);
   });
 
-  it("turns tab sharing on and off with --sharing, and says what mcp.toml needs", async () => {
+  it("sets tab sharing with --sharing, and says what mcp.toml needs", async () => {
     prev = setBrowserDeps(deps(real));
     const add = fakeIo(sb.env);
     expect(await identity.run(["add", "browser:team", "--sharing", "tabs"], add)).toBe(0);
@@ -279,9 +279,9 @@ describe("turno identity add/show/set for browser identities", () => {
     expect(on.lines.join("\n")).toContain("set exclusive = false for [server.browser-team] (and drop lease)");
 
     const off = fakeIo(sb.env);
-    expect(await identity.run(["set", "browser:team", "--sharing", ""], off)).toBe(0);
+    expect(await identity.run(["set", "browser:team", "--sharing", "session"], off)).toBe(0);
     expect(off.lines.join("\n")).toContain("set exclusive = true for [server.browser-team]");
-    expect(JSON.parse(readFileSync(settingsFile("team"), "utf8")).sharing).toBeUndefined();
+    expect(JSON.parse(readFileSync(settingsFile("team"), "utf8")).sharing).toBe("session");
   });
 
   it("sets the tab lock wait and idle release, names the flag in an error, and removes one with an empty value", async () => {

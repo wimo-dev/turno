@@ -68,8 +68,8 @@ example two subagents each in its own tab; `session` shows which one a command w
 
 | The identity | What a CLI session does |
 |---|---|
-| `"sharing": "session"` (default) | it holds the identity's lease like an agent session: while it is open (until `end`, or after 5 minutes without a command on the background server, 10 through mcpd), an agent's call is refused with a message that names it, and the other way round |
-| `"sharing": "tabs"` | it gets its own tabs next to the agents' and holds them with the same locks; `tabs` marks the others' tabs in use |
+| `"sharing": "session"` (the default in attach mode) | it holds the identity's lease like an agent session: while it is open (until `end`, or after 5 minutes without a command on the background server, 10 through mcpd), an agent's call is refused with a message that names it, and the other way round |
+| `"sharing": "tabs"` (default) | it gets its own tabs next to the agents' and holds them with the same locks; `tabs` marks the others' tabs in use |
 | attach mode | one session at a time, as above (attach does not go with tab sharing); it works in turno's own tab of your Chrome, and `close` closes only the tabs turno opened, never your browser. The first command may wait for Chrome's consent dialog (`--timeout`, default 120 seconds) |
 | read mode (Lightpanda) | every action works but `screenshot` and `login`: the server refuses those before anything runs, with the reason (Lightpanda lays out no page; read mode keeps no vault sign-ins) |
 | humanize | `click`, `type`, `hover`, `select` and `press` move and type like a person, with the latency of the level |
@@ -135,14 +135,19 @@ loop (open, snapshot, act by ref, read, end). It tells the agent to read `turno 
 
 ## Human-like input
 
-By default the browser tools use Playwright's own input: the pointer jumps to the exact center of
-the target in one move, the button goes down and up at once, and `browser_type` inserts the whole
-text without key events. A site that watches how the page is used can tell that apart from a
-person. `humanize` in `identity.json` changes how the same tools move and type, per identity; it is
-off until you turn it on:
+Playwright's own input moves the pointer to the exact center of the target in one move, presses
+and releases the button at once, and has `browser_type` insert the whole text without key events.
+A site that watches how the page is used can tell that apart from a person. `humanize` in
+`identity.json` changes how the same tools move and type, per identity. By default it is `auto`,
+which picks the level per page:
+
+- `off` on localhost and for read-only steps (hover, scroll, a pointer move);
+- `full` on sign-in, account, payment, checkout and support pages (from the URL), and on a site
+  where the identity met a challenge page;
+- `light` for every other action.
 
 ```sh
-# or full, adaptive; --humanize "" turns it off
+# or off, full, adaptive; --humanize "" goes back to auto
 turno-browser set school --humanize light
 # the server's flag wins over identity.json
 turno-browser-mcp --identity school --humanize full
@@ -150,7 +155,8 @@ turno-browser-mcp --identity school --humanize full
 
 | Level | What changes |
 |---|---|
-| `off` (default) | Nothing: Playwright's input. |
+| `auto` (default) | `off`, `light` or `full` per page and step, as above. Read mode (Lightpanda) is always `off`. |
+| `off` | Nothing: Playwright's input. |
 | `light` | The pointer travels a curve from where it last was on that page to a point inside the target (one arc, some 4 to 8% longer than the straight line), with small timing jitter; the button stays down for 40 to 90 ms; text up to 80 characters is typed key by key with per-key delays. |
 | `full` | `light`, plus a move time that follows the distance and the target's size, a slow-fast-slow speed, overshoot and correction on long moves, a short pause the first time a page is acted on, longer gaps between words, and an element out of view scrolled to in wheel notches. `browser_mouse_wheel` scrolls in notches too. |
 | `adaptive` | `light`, and `full` on a site where the identity met a captcha, "verify it's you" or block page (in the [reputation log](/docs/browser/identities#reputation-log) of the last 30 days, or in this session). |

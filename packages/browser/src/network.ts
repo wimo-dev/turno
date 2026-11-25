@@ -73,12 +73,17 @@ function serverProblems(server: unknown): string[] {
 
 /** Problems with the format 11 keys alone (combinations with the engine keys: `networkEngineClash`). */
 export function networkProblems(v: Record<string, unknown>, out: string[]): void {
-  if (v.userAgent !== undefined && !(USER_AGENT_MODES as readonly unknown[]).includes(v.userAgent)) {
+  if (
+    v.userAgent !== undefined &&
+    v.userAgent !== "auto" &&
+    v.userAgent !== false &&
+    !(USER_AGENT_MODES as readonly unknown[]).includes(v.userAgent)
+  ) {
     out.push(
-      'userAgent must be "coherent": turno builds the user agent from the installed Chrome and never takes a typed one, which would contradict the client hints, WebGL, fonts and TLS',
+      'userAgent must be "coherent", "auto" (the default: coherent in a headless Chrome) or false: turno builds the user agent from the installed Chrome and never takes a typed one, which would contradict the client hints, WebGL, fonts and TLS',
     );
   }
-  if (v.proxy === undefined) return;
+  if (v.proxy === undefined || v.proxy === false) return;
   const p = v.proxy;
   if (!isObject(p)) {
     out.push('proxy must be an object like { "server": "http://proxy.example.com:8080" }');
@@ -123,7 +128,9 @@ export function networkEngineClash(
   engine: string,
   settings: { userAgent?: unknown; proxy?: unknown },
 ): string | undefined {
-  const asked = [settings.userAgent !== undefined && "userAgent", settings.proxy !== undefined && "proxy"].filter(
+  // `"auto"` and `false` ask for nothing: the default resolves to off on these engines.
+  const userAgent = settings.userAgent === "coherent";
+  const asked = [userAgent && "userAgent", settings.proxy !== undefined && settings.proxy !== false && "proxy"].filter(
     Boolean,
   ) as string[];
   if (!asked.length) return undefined;
@@ -131,7 +138,7 @@ export function networkEngineClash(
     return `${asked.join(" and ")} ${asked.length > 1 ? "do" : "does"} not go with attach mode: that is your own Chrome, and turno does not change its user agent or network. Drop ${asked.length > 1 ? "them" : "it"}, or drop attach`;
   if (engine === "lightpanda")
     return `${asked.join(" and ")} ${asked.length > 1 ? "do" : "does"} not go with engine "lightpanda": read mode presents Lightpanda's own user agent and was not checked with a proxy. Use engine "chrome"`;
-  if (engine === "camoufox" && settings.userAgent !== undefined)
+  if (engine === "camoufox" && userAgent)
     return 'userAgent does not go with engine "camoufox": Camoufox is Firefox, which sends no client hints, and it presents its own values. Drop userAgent (proxy works with Camoufox)';
   return undefined;
 }

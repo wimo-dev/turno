@@ -50,6 +50,7 @@ describe("browser_login's recording guard", () => {
     expect(recordingReason({ saveSession: true })).toMatch(/--save-session/);
     expect(recordingReason({ saveVideo: { width: 800, height: 600 } })).toMatch(/video/);
     expect(recordingReason({ browser: { contextOptions: { recordHar: { path: "x.har" } } } })).toMatch(/HAR/);
-    expect(recordingReason({ capabilities: ["devtools"] })).toMatch(/devtools/);
+    // The capability records nothing until the agent starts a trace or a video: checked per call.
+    expect(recordingReason({ capabilities: ["devtools"] })).toBeUndefined();
   });
 });

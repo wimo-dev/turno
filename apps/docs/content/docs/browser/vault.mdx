@@ -10,7 +10,7 @@ turno-browser vault add school mail --url https://mail.example.com/login --usern
 turno-browser vault list school
 ```
 
-The password and the TOTP secret are asked with hidden prompts (or read from stdin). An agent then calls `browser_login` with the site name on that sign-in page: the tool fills the username, the password and the current one-time code without the agent seeing them, only on the origins given with `--url`, and hides the values from every later result. It does not submit the form unless you run `turno-browser vault submit school auto`. See the threat model in [SECURITY.md](https://github.com/wimo-dev/turno/blob/main/SECURITY.md#the-credential-vault).
+The password and the TOTP secret are asked with hidden prompts (or read from stdin). An agent then calls `browser_login` with the site name on that sign-in page: the tool fills the username, the password and the current one-time code without the agent seeing them, only on the origins given with `--url`, and hides the values from every later result. It then submits the form by default, and the result says so without the values. `turno-browser vault submit school confirm` makes it stop after filling, so the agent clicks sign in itself; an identity policy with `"autoSubmit": false` does the same and wins. A vault created before submitting became the default reads as `auto` too, even though its index says `confirm`: that was the old default, not a choice, so run `vault submit <id> confirm` again to keep it. See the threat model in [SECURITY.md](https://github.com/wimo-dev/turno/blob/main/SECURITY.md#the-credential-vault).
 
 ## Password fields and credentials
 

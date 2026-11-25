@@ -18,6 +18,10 @@ import { readIdentitySettings } from "./settings.js";
  * - An index next to identity.json (`<data>/browser/identities/<id>.vault.json`, mode 600) lists
  *   the sites with their origins and whether they have a TOTP secret, plus the identity's submit
  *   policy. It holds no username, password or secret, so `vault list` never reads the store.
+ * - `browser_login` submits the form itself by default (`auto`). The index always carried a
+ *   `submit` value, `confirm` when nobody chose, so a choice is marked apart (`submitChosen`):
+ *   only a `vault submit` the person ran keeps `confirm`. An older turno-browser ignores the mark
+ *   and reads `submit` as before.
  * - A site's origins bind its credentials: `browser_login` fills them only into frames of those
  *   origins, never into whatever page the model happens to be on.
  */
@@ -29,7 +33,7 @@ export class VaultError extends IdentityError {
   }
 }
 
-/** `confirm` (the default): browser_login fills and the model clicks sign in itself. `auto`: it also submits. */
+/** `auto` (the default): browser_login fills and submits. `confirm`: the model clicks sign in itself. */
 export type SubmitPolicy = "confirm" | "auto";
 
 export interface VaultSite {
@@ -44,7 +48,10 @@ export interface VaultSite {
 
 interface VaultIndex {
   version: 1;
+  /** What an older turno-browser reads; this one reads it only with `submitChosen`. */
   submit: SubmitPolicy;
+  /** The person chose `submit` with `vault submit`; without it the default (`auto`) applies. */
+  submitChosen?: boolean;
   sites: Record<string, Omit<VaultSite, "site">>;
 }
 
@@ -104,6 +111,7 @@ const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "obj
 function isIndex(v: unknown): v is VaultIndex {
   if (!isObject(v) || v.version !== 1 || (v.submit !== "confirm" && v.submit !== "auto") || !isObject(v.sites))
     return false;
+  if (v.submitChosen !== undefined && typeof v.submitChosen !== "boolean") return false;
   return Object.entries(v.sites).every(
     ([k, s]) =>
       SITE.test(k) &&
@@ -140,6 +148,11 @@ function readIndex(id: string, env: NodeJS.ProcessEnv): VaultIndex {
   return v;
 }
 
+/** The submit policy browser_login follows: the person's choice, else `auto`. */
+function submitOf(index: VaultIndex): SubmitPolicy {
+  return index.submitChosen === true ? index.submit : "auto";
+}
+
 function writeIndex(id: string, index: VaultIndex, env: NodeJS.ProcessEnv): void {
   const file = vaultPath(id, env);
   const sites = Object.fromEntries(
@@ -148,7 +161,8 @@ function writeIndex(id: string, index: VaultIndex, env: NodeJS.ProcessEnv): void
       .map((k) => [k, index.sites[k]!]),
   );
   const tmp = `${file}.${process.pid}.tmp`;
-  writePrivateFile(tmp, `${JSON.stringify({ version: 1, submit: index.submit, sites }, null, 2)}\n`, env);
+  const chosen = index.submitChosen ? { submitChosen: true } : {};
+  writePrivateFile(tmp, `${JSON.stringify({ version: 1, submit: index.submit, ...chosen, sites }, null, 2)}\n`, env);
   replaceFileSync(tmp, file);
 }
 
@@ -173,6 +187,8 @@ async function guarded<T>(what: string, run: () => Promise<T>): Promise<T> {
 export interface VaultInfo {
   identity: string;
   submit: SubmitPolicy;
+  /** The person chose `submit`; false: it is the default. */
+  chosen: boolean;
   sites: (VaultSite & { stored: boolean })[];
 }
 
@@ -187,7 +203,7 @@ export async function vaultList(id: string, options: VaultOptions = {}): Promise
     const stored = await guarded(`checking ${site}`, () => store!.has(vaultItem(id, site)));
     sites.push({ site, ...s, stored });
   }
-  return { identity: id, submit: index.submit, sites };
+  return { identity: id, submit: submitOf(index), chosen: index.submitChosen === true, sites };
 }
 
 export interface VaultAddInput {
@@ -288,6 +304,7 @@ export function vaultSetSubmit(
     );
   const index = readIndex(id, env);
   index.submit = submit;
+  index.submitChosen = true;
   writeIndex(id, index, env);
   return submit;
 }
@@ -301,7 +318,7 @@ export function vaultSite(
   assertSiteKey(site);
   const index = readIndex(id, env);
   const s = index.sites[site];
-  return s ? { site: { site, ...s }, submit: index.submit } : undefined;
+  return s ? { site: { site, ...s }, submit: submitOf(index) } : undefined;
 }
 
 function isCredential(v: unknown): v is Credential & { v: 1 } {
@@ -367,10 +384,10 @@ function existsDir(dir: string): boolean {
 export function vaultSummary(
   id: string,
   env: NodeJS.ProcessEnv = process.env,
-): { sites: string[]; submit: SubmitPolicy } | undefined {
+): { sites: string[]; submit: SubmitPolicy; chosen: boolean } | undefined {
   try {
     const index = readIndex(id, env);
-    return { sites: Object.keys(index.sites).sort(), submit: index.submit };
+    return { sites: Object.keys(index.sites).sort(), submit: submitOf(index), chosen: index.submitChosen === true };
   } catch {
     return undefined;
   }

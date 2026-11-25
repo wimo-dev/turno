@@ -18,8 +18,8 @@ describe("resolveTuning", () => {
       tabs: { max: 8, popups: "close", parkMs: 300_000, closeMs: 900_000 },
       backgroundThrottling: false,
       resources: {},
-      humanize: { level: "off" },
-      sharing: "session",
+      humanize: { level: "auto" },
+      sharing: "tabs",
       tabLocks: {},
       cursor: "auto",
     });
@@ -32,8 +32,8 @@ describe("resolveTuning", () => {
       tabs: { max: 4, popups: "close", parkMs: 120_000, closeMs: 0 },
       backgroundThrottling: true,
       resources: {},
-      humanize: { level: "off" },
-      sharing: "session",
+      humanize: { level: "auto" },
+      sharing: "tabs",
       tabLocks: {},
       cursor: "auto",
     });
@@ -43,14 +43,14 @@ describe("resolveTuning", () => {
       tabs: { max: 0, popups: "keep", parkMs: 120_000, closeMs: 60_000 },
       backgroundThrottling: false,
       resources: {},
-      humanize: { level: "off" },
-      sharing: "session",
+      humanize: { level: "auto" },
+      sharing: "tabs",
       tabLocks: {},
       cursor: "auto",
     });
   });
 
-  it("keeps human-like input off unless --humanize or identity.json turns it on; the flag wins and the seed stays", () => {
+  it("takes --humanize over identity.json humanize, and keeps the seed", () => {
     expect(resolveTuning({ ...base, version: 4, humanize: { level: "full", seed: 7 } }).humanize).toEqual({
       level: "full",
       seed: 7,
@@ -71,7 +71,7 @@ describe("resolveTuning", () => {
     });
   });
 
-  it("serves one session at a time unless identity.json or --sharing asks for tabs, the flag winning", () => {
+  it("takes --sharing over identity.json sharing", () => {
     expect(resolveTuning({ ...base, version: 5, sharing: "tabs" }).sharing).toBe("tabs");
     expect(resolveTuning({ ...base, version: 5, sharing: "tabs" }, { sharing: "session" }).sharing).toBe("session");
     expect(resolveTuning(undefined, { sharing: "tabs" }).sharing).toBe("tabs");
@@ -207,7 +207,7 @@ describe("extractTuning", () => {
     );
     expect(() => extractTuning(["--background-throttling=yes"])).toThrow("--background-throttling takes no value");
     expect(() => extractTuning(["--humanize", "max"])).toThrow(
-      '--humanize must be off, light, full, adaptive, not "max"',
+      '--humanize must be off, light, full, adaptive, auto, not "max"',
     );
   });
 

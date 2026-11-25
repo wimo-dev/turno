@@ -17,6 +17,10 @@ import {
 } from "turno-core/cli";
 import { tildify } from "turno-core/paths";
 import type { BrowserFunctions } from "../api.js";
+import { type EffectiveSettings, defaultLines, describeOrigin, effectiveEntries, fromDefault } from "../defaults.js";
+import { effectiveSettings } from "../effective.js";
+import { findCamoufox } from "../engine-camoufox.js";
+import { findLightpanda } from "../engine-lightpanda.js";
 import type { CliNames, Ctx } from "./context.js";
 
 /** `show --json` (`turno identity show browser:<id> --json` in turno). */
@@ -30,6 +34,7 @@ export const SHOW_JSON = jsonOutput([
   "holder",
   "health",
   "login",
+  "effective",
 ]);
 /** `set --json`: what changed, or would. */
 export const SET_JSON = jsonOutput(["id", "settingsFile", "dryRun", "changes", "settings"]);
@@ -43,17 +48,17 @@ export const REPUTATION_JSON = jsonOutput(["id", "file", "total", "sites"]);
  * `reputation`. The functions come through `Ctx.api`, so tests can pass fakes.
  */
 type IdentitySettings = NonNullable<ReturnType<BrowserFunctions["checkIdentitySettings"]>["settings"]>;
-type HealthCheck = NonNullable<IdentitySettings["health"]>;
+type HealthCheck = Exclude<IdentitySettings["health"], false | undefined>;
 type TabSettings = NonNullable<IdentitySettings["tabs"]>;
 type BlockSettings = NonNullable<IdentitySettings["block"]>;
-type CacheSettings = NonNullable<IdentitySettings["cache"]>;
+type CacheSettings = Exclude<IdentitySettings["cache"], false | undefined>;
 type HumanizeSettings = NonNullable<IdentitySettings["humanize"]>;
 type RecordSettings = NonNullable<IdentitySettings["record"]>;
-type ActSettings = NonNullable<IdentitySettings["act"]>;
-type CaptchaSettings = NonNullable<IdentitySettings["captcha"]>;
+type ActSettings = Exclude<IdentitySettings["act"], false | undefined>;
+type CaptchaSettings = Exclude<IdentitySettings["captcha"], false | undefined>;
 type TabLockSettings = NonNullable<IdentitySettings["tabLocks"]>;
 type LiveSettings = NonNullable<IdentitySettings["live"]>;
-type ProxySettings = NonNullable<IdentitySettings["proxy"]>;
+type ProxySettings = Exclude<IdentitySettings["proxy"], false | undefined>;
 type PolicySettings = NonNullable<IdentitySettings["policy"]>;
 type SettingsPatch = Parameters<BrowserFunctions["writeIdentitySettings"]>[1];
 type DoctorCheck = Awaited<ReturnType<BrowserFunctions["runDoctor"]>>["checks"][number];
@@ -68,6 +73,8 @@ export const SETTINGS_FLAGS: FlagSpec = {
   "health-text": { type: "string" },
   "health-selector": { type: "string" },
   "no-health": { type: "boolean" },
+  // off: no health check, not even the one `login` finds (format 14).
+  health: { type: "string" },
   // How the host runs this identity's Chrome (format 2 of identity.json): the tab governor,
   // background throttling, settle, resource blocking and cache.
   "tabs-max": { type: "string" },
@@ -201,6 +208,9 @@ function flagMessage(message: string): string {
   return told.every((t) => t !== undefined) ? told.join("; ") : message;
 }
 
+/** `off` or `false`: the format 14 off value of a key that has no other. */
+const isOff = (v: string | null) => v !== null && ["off", "false"].includes(v.toLowerCase());
+
 /** A true or false flag value; also on/off and yes/no. */
 function booleanValue(flag: string, v: string): boolean {
   const word = v.toLowerCase();
@@ -238,10 +248,13 @@ export function settingsPatch(p: Parsed, current?: IdentitySettings): SettingsPa
     const v = str(p, name);
     return v === undefined ? undefined : v.trim() === "" ? null : v.trim();
   };
-  for (const key of ["timezone", "locale", "region"] as const) {
+  for (const key of ["timezone", "region"] as const) {
     const v = value(key);
     if (v !== undefined) patch[key] = v;
   }
+  // off: Chrome's own language instead of the system's (format 14).
+  const locale = value("locale");
+  if (locale !== undefined) patch.locale = isOff(locale) ? false : locale;
   const langs = value("languages");
   if (langs !== undefined)
     patch.languages =
@@ -254,12 +267,15 @@ export function settingsPatch(p: Parsed, current?: IdentitySettings): SettingsPa
   const url = value("health-url");
   const text = value("health-text");
   const selector = value("health-selector");
-  if (bool(p, "no-health")) {
+  const healthWord = value("health");
+  if (healthWord !== undefined && healthWord !== null && !isOff(healthWord))
+    fail("--health takes off (no health check at all); --health-url sets one, --no-health goes back to the default");
+  if (bool(p, "no-health") || healthWord !== undefined) {
     if (url !== undefined || text !== undefined || selector !== undefined)
-      fail("--no-health does not go with the other --health flags");
-    patch.health = null;
+      fail("--no-health and --health off do not go with the other --health flags");
+    patch.health = healthWord ? false : null;
   } else if (url !== undefined || text !== undefined || selector !== undefined) {
-    const base = current?.health;
+    const base = current?.health || undefined;
     const health: HealthCheck = { url: url ?? base?.url ?? "" };
     const t = text === undefined ? base?.text : (text ?? undefined);
     const s = selector === undefined ? base?.selector : (selector ?? undefined);
@@ -362,8 +378,10 @@ function networkPatch(
   patch: SettingsPatch,
   current?: IdentitySettings,
 ): void {
+  // Checked by the package; off pins the browser's own user agent even in headless (format 14).
   const userAgent = value("user-agent");
-  if (userAgent !== undefined) patch.userAgent = userAgent as IdentitySettings["userAgent"] | null;
+  if (userAgent !== undefined)
+    patch.userAgent = isOff(userAgent) ? false : (userAgent as IdentitySettings["userAgent"] | null);
   const parts = {
     server: value("proxy-server"),
     username: value("proxy-username"),
@@ -374,7 +392,7 @@ function networkPatch(
     if (given) fail("--no-proxy does not go with the other --proxy flags");
     patch.proxy = null;
   } else if (given) {
-    patch.proxy = mergeGroup<ProxySettings>(current?.proxy, parts);
+    patch.proxy = mergeGroup<ProxySettings>(current?.proxy || undefined, parts);
   }
 }
 
@@ -430,7 +448,7 @@ function tuningPatch(
     patch.cache = null;
   } else if (bool(p, "cache") || maxSize !== undefined) {
     // The cache stays on when its size is removed: {} is on with the default size.
-    patch.cache = mergeGroup<CacheSettings>(current?.cache, { maxSize }) ?? {};
+    patch.cache = mergeGroup<CacheSettings>(current?.cache || undefined, { maxSize }) ?? {};
   }
 
   // An empty value removes the whole group (the seed with it); a level keeps a seed set by hand.
@@ -481,7 +499,7 @@ function actPatch(
     if (given || bool(p, "act")) fail("--no-act does not go with the other --act flags");
     patch.act = null;
   } else if (given || bool(p, "act")) {
-    patch.act = mergeGroup<ActSettings>(current?.act, parts) ?? {};
+    patch.act = mergeGroup<ActSettings>(current?.act || undefined, parts) ?? {};
   }
 }
 
@@ -503,7 +521,7 @@ function captchaPatch(
     if (given) fail("--no-captcha does not go with the other --captcha flags");
     patch.captcha = null;
   } else if (given) {
-    patch.captcha = mergeGroup<CaptchaSettings>(current?.captcha, parts);
+    patch.captcha = mergeGroup<CaptchaSettings>(current?.captcha || undefined, parts);
   }
 }
 
@@ -534,7 +552,7 @@ function livePatch(
     patch.live = null;
   } else if (enabled !== undefined || wait !== undefined) {
     patch.live = mergeGroup<LiveSettings>(current?.live, {
-      enabled: typeof enabled === "string" ? booleanValue("--live", enabled) : enabled,
+      enabled: enabled === "auto" ? "auto" : typeof enabled === "string" ? booleanValue("--live", enabled) : enabled,
       wait,
     });
   }
@@ -614,6 +632,7 @@ const HUMANIZE_TEXT: Readonly<Record<string, string>> = {
   light: "human-like pointer and typing (light)",
   full: "human-like pointer, typing and scrolling (full)",
   adaptive: "light, full on sites that showed a challenge (adaptive)",
+  auto: "by page: off on localhost and for reading, light to act, full on sign-in and payment pages (auto)",
 };
 
 /** An ISO time as this machine's local time, to the minute: 2026-11-19 23:46. Anything else as it is. */
@@ -632,6 +651,14 @@ const CURSOR_TEXT: Readonly<Record<string, string>> = {
   off: "never shown: pages stay as they are (off)",
 };
 
+/** Each effective value with where it came from, for `--json`: `{ value, origin, default }`. */
+function effectiveJson(e: EffectiveSettings): Record<string, { value: unknown; origin: string; default: boolean }> {
+  const out: Record<string, { value: unknown; origin: string; default: boolean }> = {};
+  for (const [key, v] of effectiveEntries(e))
+    out[key] = { value: v.value ?? null, origin: describeOrigin(v.origin), default: fromDefault(v.origin) };
+  return out;
+}
+
 export function show(c: Ctx, id: string, args: string[], io: Io): number {
   const m = c.api;
   const p = parseFlags(args, JSON_FLAG, 1);
@@ -640,6 +667,7 @@ export function show(c: Ctx, id: string, args: string[], io: Io): number {
   const holder = m.inUseBy(id, io.env);
   const health = m.readHealth(id, io.env);
   const login = m.readLoginRecord(id, io.env);
+  const effective = effectiveSettings(id, { env: io.env });
   if (bool(p, "json")) {
     emit(io, p, SHOW_JSON, {
       id: `browser:${id}`,
@@ -651,6 +679,7 @@ export function show(c: Ctx, id: string, args: string[], io: Io): number {
       holder: holder ?? null,
       health: health ?? null,
       login: login ?? null,
+      effective: effectiveJson(effective),
     });
     return Exit.ok;
   }
@@ -674,10 +703,15 @@ export function show(c: Ctx, id: string, args: string[], io: Io): number {
       "health check",
       settings.health
         ? describeHealth(settings.health)
-        : s.muted(`off (to turn on: ${c.names.browser} set ${id} --health-url <url> --health-text <text>)`),
+        : settings.health === false
+          ? "off, not even the check login finds (--health off)"
+          : s.muted(
+              `the one login finds, if any (to set one: ${c.names.browser} set ${id} --health-url <url> --health-text <text>)`,
+            ),
     ]);
     if (settings.resources === "low")
       rows.push(["resources", "low: at most 2 tabs, idle tabs parked after 2m, Chrome closed after 5m idle"]);
+    if (settings.resources === "auto") rows.push(["resources", "low while memory is short at launch (auto)"]);
     if (settings.tabs) rows.push(["tabs", `${describeTabs(settings.tabs)}${s.muted(" (the rest as default)")}`]);
     if (settings.backgroundThrottling !== undefined)
       rows.push([
@@ -710,6 +744,9 @@ export function show(c: Ctx, id: string, args: string[], io: Io): number {
     if (settings.engine === "camoufox") rows.push(["engine", "Camoufox (its own Firefox profile)"]);
     if (settings.userAgent === "coherent")
       rows.push(["user agent", "the installed Chrome's own, checked at every launch (coherent)"]);
+    if (settings.userAgent === "auto") rows.push(["user agent", "coherent in a headless Chrome (auto)"]);
+    if (settings.userAgent === false) rows.push(["user agent", "Chrome's own, never pinned (off)"]);
+    if (settings.locale === false) rows.push(["locale", "Chrome's own (off)"]);
     if (settings.proxy) rows.push(["proxy", describeProxy(settings.proxy)]);
     if (settings.attach !== undefined) rows.push(["engine", `attach to your Chrome (${settings.attach})`]);
     const recorded = describeRecord(settings.record);
@@ -718,6 +755,7 @@ export function show(c: Ctx, id: string, args: string[], io: Io): number {
     if (act) rows.push(["act", act]);
     if (settings.captcha) rows.push(["captcha", `on: ${settings.captcha.provider} at ${settings.captcha.endpoint}`]);
     if (settings.policy) rows.push(["policy", describePolicy(settings.policy)]);
+    if (settings.live?.enabled === false) rows.push(["live view", "off"]);
     if (settings.live?.enabled)
       rows.push([
         "live view",
@@ -753,6 +791,8 @@ export function show(c: Ctx, id: string, args: string[], io: Io): number {
   io.out(s.bold(`browser:${id}`));
   const width = Math.max(...rows.map(([k]) => k.length));
   for (const [k, v] of rows) io.out(s.kv(k, v, width));
+  io.out(s.muted("defaults (not in identity.json; decided at every launch):"));
+  for (const line of defaultLines(effective)) io.out(`  ${line}`);
   for (const problem of problems) io.out(s.note("err", `identity.json ${problem}`));
   if (health?.status === "needs_auth") io.out(s.note("info", `sign in again: ${c.names.browser} login ${id}`));
   return Exit.ok;
@@ -767,13 +807,13 @@ const SET_FLAGS: FlagSpec = {
 
 /** The arguments of `set` after the identity, for the usage line. */
 export const SET_SYNOPSIS =
-  "[--timezone <zone>] [--locale <tag>] [--languages <tag,...>] [--region <CC>] [--health-url <url>] [--health-text <text>] [--health-selector <css>] [--no-health] " +
-  "[--tabs-max <n>] [--tabs-popups close|keep] [--tabs-park <duration>] [--tabs-close <duration>] [--no-tabs] [--background-throttling true|false] [--settle <duration>] [--resources normal|low] " +
-  "[--block-trackers true|false] [--block-types image,media,font] [--block-patterns <host|glob>,...] [--no-block] [--cache] [--cache-max-size <size>] [--no-cache] [--humanize off|light|full|adaptive] [--cursor auto|on|off] [--sharing session|tabs] [--tab-lock-wait <duration>] [--tab-lock-release <duration>] " +
+  "[--timezone <zone>] [--locale <tag>] [--languages <tag,...>] [--region <CC>] [--health-url <url>] [--health-text <text>] [--health-selector <css>] [--health off] [--no-health] " +
+  "[--tabs-max <n>] [--tabs-popups close|keep] [--tabs-park <duration>] [--tabs-close <duration>] [--no-tabs] [--background-throttling true|false] [--settle <duration>] [--resources normal|low|auto] " +
+  "[--block-trackers true|false] [--block-types image,media,font] [--block-patterns <host|glob>,...] [--no-block] [--cache] [--cache-max-size <size>] [--no-cache] [--humanize auto|off|light|full|adaptive] [--cursor auto|on|off] [--sharing session|tabs] [--tab-lock-wait <duration>] [--tab-lock-release <duration>] " +
   "[--engine chrome|lightpanda] [--attach auto|<dir>|<url>] [--record-flows true|false] [--record-traces true|false] [--record-screenshots true|false] [--record-max-size <size>] [--no-record] " +
   "[--act] [--act-sampling true|false] [--act-provider chat-completions] [--act-endpoint <url>] [--act-model <name>] [--act-key keychain:<item>] [--act-max-steps <n>] [--act-max-tokens <n>] [--act-timeout <duration>] [--no-act] " +
-  "[--captcha-provider task-api] [--captcha-endpoint <url>] [--captcha-key keychain:<item>] [--captcha-timeout <duration>] [--no-captcha] [--live true|false] [--live-wait <duration>] [--no-live] " +
-  "[--user-agent coherent] [--proxy-server <url>] [--proxy-username <name|keychain:item>] [--proxy-password keychain:<item>] [--no-proxy] " +
+  "[--captcha-provider task-api] [--captcha-endpoint <url>] [--captcha-key keychain:<item>] [--captcha-timeout <duration>] [--no-captcha] [--live true|false|auto] [--live-wait <duration>] [--no-live] " +
+  "[--user-agent coherent|auto|off] [--proxy-server <url>] [--proxy-username <name|keychain:item>] [--proxy-password keychain:<item>] [--no-proxy] " +
   "[--policy-file <file>] [--allowed-domains <host,...>] [--disable <feature,...>] [--auto-submit true|false] [--no-policy] [--browser chrome|edge|brave|chromium|chrome-for-testing|<path>] [--force] [--dry-run] [--json]";
 
 /** More help for `set`: what each tuning flag writes to identity.json, with the host's command names. */
@@ -781,27 +821,32 @@ export function setDetails(n: CliNames): string {
   const b = n.browser;
   return `Each flag writes one key of identity.json; an empty value (--settle "") removes it, and
 --no-health, --no-tabs, --no-block and --no-cache remove a whole group. A flag of a group
-changes only its part: the rest of that group stays.
+changes only its part: the rest of that group stays. A key that is not in identity.json takes
+its default at every launch (${b} show <id> lists each value and where it comes from);
+off pins a key off for good: --health off, --locale off, --user-agent off.
 
 How the host runs this identity's Chrome (read at every Chrome start):
-  --resources normal|low          low: the preset for a machine short of memory (at most 2
+  --resources normal|low|auto     low: the preset for a machine short of memory (at most 2
                                   tabs, idle tabs parked after 2m, Chrome closed after 5m
                                   without a call, a note in tool results when memory runs
-                                  low); the flags below still win over it
+                                  low); the flags below still win over it. auto (default):
+                                  low while the system reports memory pressure at launch
   --tabs-max <n>                  most tabs open at once, 0 for no cap (default 8)
   --tabs-popups close|keep        close popups the agent did not open (default close)
   --tabs-park <duration>          park an unused tab on about:blank, "0" never (default 5m)
   --tabs-close <duration>         close an unused tab, "0" never (default 15m)
-  --background-throttling <bool>  let Chrome slow tabs that are not in front (default false)
+  --background-throttling <bool>  let Chrome slow tabs that are not in front (default: true
+                                  in a headless Chrome without the live view, else false)
   --settle <duration>             wait after each action for the work it started, "0" to "10s"
   --block-trackers <bool>         block a built-in list of ad and analytics hosts
   --block-types <list>            block image, media and font requests (never the page itself)
   --block-patterns <list>         block host names (and subdomains) or URL globs with *
   --cache                         keep images, fonts, styles and scripts on disk (100MB)
   --cache-max-size <size>         the cache's size, "1MB" to "10GB"; turns the cache on
-  --sharing session|tabs          "tabs": every agent session at once, each in its own locked
-                                  tabs (default "session": one at a time); mcp.toml then needs
-                                  exclusive = false for the identity's server
+  --sharing session|tabs          "tabs" (default): every agent session at once, each in its
+                                  own locked tabs; mcp.toml then needs exclusive = false for the
+                                  identity's server. "session": one at a time (the default with
+                                  --attach)
   --tab-lock-wait <duration>      with tabs: how long a call waits for a tab another session
                                   holds, "0" (fail at once) to "10m" (default 10s)
   --tab-lock-release <duration>   with tabs: a session without calls lets go of its tabs after
@@ -810,10 +855,13 @@ How the host runs this identity's Chrome (read at every Chrome start):
 Blocking without the cache turns Chrome's own HTTP cache off: use them together.
 
 Input:
-  --humanize <level>              off (default), light (the pointer travels a curve to a point
-                                  inside the target, keys typed with human delays), full (plus
-                                  overshoot, reading pauses, wheel scrolling) or adaptive
-                                  (light, full on a site after a challenge page there)
+  --humanize <level>              auto (default): off on localhost and for read-only steps,
+                                  light for other actions, full on sign-in, payment and support
+                                  pages and on a site after a challenge page there; off, light
+                                  (the pointer travels a curve to a point inside the target,
+                                  keys typed with human delays), full (plus overshoot, reading
+                                  pauses, wheel scrolling) or adaptive (light, full after a
+                                  challenge page)
   --cursor auto|on|off            the agent cursor: an arrow with the agent's name that glides to
                                   what it acts on, a ring, click ripples, and a frame with a badge
                                   while it works. auto (default): when the browser can be seen (a
@@ -831,10 +879,13 @@ Which engine runs this identity (all off by default):
                                   chrome://inspect/#remote-debugging; Chrome asks you to allow
                                   each connection, and the agent then sees all its windows
 
-What turno-browser records for this identity (all off by default; ${b} record):
-  --record-flows <bool>           keep every session's actions as a flow (auto-<time>, newest 20)
-  --record-traces <bool>          a Playwright trace of each browser session (${b} traces)
-  --record-screenshots <bool>     a screenshot after each action
+What turno-browser records for this identity (${b} record):
+  --record-flows <bool>           keep every session's actions as a flow (auto-<time>, newest
+                                  20; on by default)
+  --record-traces <bool>          a Playwright trace of each browser session (${b} traces);
+                                  by default only the traces with a failed step are kept
+  --record-screenshots <bool>     a screenshot after each action (on by default, never of a
+                                  page that shows a vault value; not with attach or Lightpanda)
   --record-max-size <size>        cap of the traces and screenshots, "10MB" to "10GB" (default 200MB)
 Vault sign-ins and passwords never reach a flow, a trace or a screenshot.
 
@@ -856,15 +907,18 @@ party you pick, and many sites' terms forbid them; the server lists their tools 
   --captcha-timeout <duration>    longest wait for a solution (default 3m)
   --no-act, --no-captcha          turn them off
 
-The live view and take-over (off by default; ${b} live, pause, resume):
+The live view and take-over (${b} live, pause, resume):
   --live <bool>                   serve a view of the agent's tab on 127.0.0.1 and let you pause
-                                  the agent to take the controls (from the next server start)
+                                  the agent to take the controls (from the next server start);
+                                  on by default, and the view opens only with ${b} live <id>
   --live-wait <duration>          how long a paused call waits for you, "5s" to "30m" (default 2m)
 
-Network and user agent (all off by default; for your own accounts and sites you may automate):
-  --user-agent coherent           the installed Chrome's own user agent and client hints, with
-                                  this identity's languages and time zone, checked at every
-                                  launch (a headless Chrome stops saying HeadlessChrome); turno
+Network and user agent (for your own accounts and sites you may automate):
+  --user-agent coherent|auto|off  coherent: the installed Chrome's own user agent and client
+                                  hints, with this identity's languages and time zone, checked
+                                  at every launch (a headless Chrome stops saying
+                                  HeadlessChrome). auto (default): coherent in a headless Chrome
+                                  only, dropped when the check fails. off: Chrome's own. turno
                                   never takes a typed user agent
   --proxy-server <url>            send this identity's traffic through a proxy: http://,
                                   https://, socks4:// or socks5://host:port; its operator sees
@@ -974,6 +1028,26 @@ export function defaultBrowser(
   return {
     note: `no Chromium-based browser found (Google Chrome, Edge, Brave, Chromium): run ${c.names.browser} install-browser (no admin password), then ${c.names.browser} set ${id} --browser chrome-for-testing`,
   };
+}
+
+/**
+ * What `add` offers a person for a new identity, and never turns on by itself: the cookie key
+ * in the system keychain (already written, said here), Camoufox and Lightpanda when installed,
+ * and the user's own Chrome instead of a new profile.
+ */
+export function addOffers(c: Ctx, id: string, settings: SettingsPatch, env: NodeJS.ProcessEnv): string[] {
+  const set = (flags: string) => `${c.names.browser} set ${id} ${flags}`;
+  const offers: string[] = [];
+  if (settings.keychain === "system")
+    offers.push(
+      `the cookie key is in the macOS keychain, as your own Chrome keeps it; to keep the fixed test key instead, remove "keychain" from identity.json before the first sign-in`,
+    );
+  if (settings.engine || settings.attach !== undefined) return offers;
+  if (findCamoufox(env)) offers.push(`Camoufox is installed: ${set("--engine camoufox")} runs this identity on it`);
+  if (findLightpanda(env))
+    offers.push(`Lightpanda is installed: ${set("--engine lightpanda")} reads pages with it (read mode, no clicks)`);
+  offers.push(`to work in the Chrome you have open instead of a new profile: ${set("--attach auto")}`);
+  return offers;
 }
 
 /** What turning on natural language actions or captcha solving costs, said once at `set`. */

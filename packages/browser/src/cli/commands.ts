@@ -147,6 +147,11 @@ function add(c: Ctx, args: string[], io: Io): number {
   const settings = ident.settingsPatch(p);
   const pick = settings.browser === undefined && !settings.engine ? ident.defaultBrowser(c, id, io.env) : undefined;
   if (pick?.browser) settings.browser = pick.browser;
+  // A person at a terminal gets the choices that are theirs to make: never on an existing identity.
+  const person = c.deps.interactive(io);
+  const chrome = settings.browser === undefined && !settings.engine && settings.attach === undefined && !pick;
+  if (person && chrome && settings.keychain === undefined && process.platform === "darwin")
+    settings.keychain = "system";
   if (bool(p, "dry-run")) {
     io.out(`(dry run) would create browser identity "${id}"`);
     if (pick) io.out(pick.note);
@@ -156,6 +161,7 @@ function add(c: Ctx, args: string[], io: Io): number {
   io.out(`identity "${id}" ready at ${tildify(info.dir, io.env)}`);
   io.out(`settings (time zone, languages, health check) in ${tildify(c.api.identitySettingsPath(id, io.env), io.env)}`);
   if (pick) io.out(style(io).note(pick.browser ? "ok" : "warn", pick.note));
+  if (person) for (const offer of ident.addOffers(c, id, settings, io.env)) io.out(style(io).note("info", offer));
   c.host.connect(id, settings, io);
   return 0;
 }

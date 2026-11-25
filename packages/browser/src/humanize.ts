@@ -4,7 +4,7 @@
  * source, so a test with a seed gets the same plan every run; `human-input.ts` plays a plan on a
  * page.
  *
- * Levels (identity.json `humanize.level`, off by default):
+ * Levels (identity.json `humanize.level`, `auto` by default):
  *
  * - `off`: Playwright's own input, as before: one `mousemove` to the exact center of the target,
  *   button down and up at once, text inserted in one go.
@@ -17,6 +17,11 @@
  *   scrolling to an element out of view in wheel notches instead of one jump.
  * - `adaptive`: `light`, and `full` on a site after the identity met a challenge page there (the
  *   reputation log, or this session).
+ * - `auto` (the default since format 14): decided per action (`autoLevel`): `off` on this
+ *   machine's own pages (localhost) and for steps that only look (hover, pointer moves, scrolls),
+ *   `full` on sign-in, payment and support pages and on sites that showed a challenge, `light`
+ *   for every other interaction. Humanizing costs time (0.4 to 2 s an action at `light`), so it
+ *   goes where a site watches the input and stays out of the way elsewhere.
  *
  * The numbers come from published measurements: a mouse move to a 20 px target 630 px away takes
  * a person about 750-850 ms; the average typist types 52 words a minute (about 230 ms a
@@ -25,12 +30,47 @@
  * instead (`MAX_TYPED`), like a person pasting it.
  */
 
-export type HumanizeLevel = "off" | "light" | "full" | "adaptive";
+export type HumanizeLevel = "off" | "light" | "full" | "adaptive" | "auto";
 
 /** The levels a single action runs at, once `adaptive` is resolved. */
 export type ActionLevel = "off" | "light" | "full";
 
-export const HUMANIZE_LEVELS: readonly HumanizeLevel[] = ["off", "light", "full", "adaptive"];
+export const HUMANIZE_LEVELS: readonly HumanizeLevel[] = ["off", "light", "full", "adaptive", "auto"];
+
+/** Host names of this machine: humanizing input for one's own dev server buys nothing. */
+function isLocalHost(host: string): boolean {
+  return (
+    host === "localhost" ||
+    host.endsWith(".localhost") ||
+    host === "[::1]" ||
+    host === "::1" ||
+    /^127(\.\d{1,3}){3}$/.test(host)
+  );
+}
+
+/**
+ * Pages where a site watches the input most: signing in, paying, and asking support, by the
+ * words their URLs carry (`/login`, `accounts.example.com/signin`, `/checkout`, `/support`).
+ */
+const WATCHED_PAGE =
+  /(^|[./_-])(log-?in|sign-?in|signon|auth|oauth|sso|accounts?|checkout|payments?|pay|billing|cart|support|help|contact)([./_-]|$)/i;
+
+/**
+ * The level `auto` gives one action: `off` on localhost, `full` on sign-in, payment and support
+ * pages and on sites that showed a challenge, else `off` for a step that only looks (`readOnly`)
+ * and `light` for one that acts.
+ */
+export function autoLevel(url: string, challenged: ReadonlySet<string>, readOnly: boolean): ActionLevel {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return readOnly ? "off" : "light";
+  }
+  if (isLocalHost(parsed.hostname)) return "off";
+  if (challenged.has(parsed.hostname) || WATCHED_PAGE.test(`${parsed.hostname}${parsed.pathname}`)) return "full";
+  return readOnly ? "off" : "light";
+}
 
 /** identity.json `humanize`. */
 export interface HumanizeSettings {

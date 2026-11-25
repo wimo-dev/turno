@@ -3,12 +3,12 @@ title: "Live view and take-over"
 description: "Watch what the agent does in an identity's browser, pause it and take the controls."
 ---
 
-Off by default. Watch what the agent does in an identity's browser, and take the controls when it
-needs you (a captcha, a confirmation, a page it does not understand):
+On by default for every server with an identity. Watch what the agent does in an identity's
+browser, and take the controls when it needs you (a captcha, a confirmation, a page it does not
+understand). The view listens on 127.0.0.1 behind a cookie of its own, and nothing opens until you
+ask for it:
 
 ```sh
-# from the next turno-browser-mcp for the identity
-turno-browser set school --live true
 # status, and opens the view in your default browser
 turno-browser live school
 # the agent's next call waits for you
@@ -17,9 +17,9 @@ turno-browser pause school
 turno-browser resume school
 ```
 
-`turno-browser-mcp --identity school --live` turns it on for one server, and `--live-wait 5m`
-changes how long a paused call waits (identity.json `"live": { "enabled": true, "wait": "2m" }`;
-from `"5s"` to `"30m"`, 2 minutes by default).
+`turno-browser set school --live false` turns it off from the next server start, and `--live-wait 5m`
+changes how long a paused call waits (identity.json `"live": { "enabled": false, "wait": "2m" }`;
+from `"5s"` to `"30m"`, 2 minutes by default). `"enabled": "auto"` says the same as leaving it out.
 
 The view is a page with the agent's tab as a picture (a screencast over CDP, sent only while a view
 is open), a list of tabs with "Follow the agent" (the tab of the latest call) as the default, and

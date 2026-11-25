@@ -137,10 +137,11 @@ async function store(id: string, url: string, withTotp = false): Promise<void> {
 describe.skipIf(reason !== undefined)(
   reason ? `browser_login on real Chrome (skipped: ${reason})` : "browser_login on real Chrome",
   () => {
-    it("fills without submitting, and no result shows a value: snapshot, network, errors", async () => {
+    it("fills without submitting with submit confirm, and no result shows a value: snapshot, network, errors", async () => {
       const web = await site();
       onTestFinished(() => web.close());
       await store("login", web.url);
+      vaultSetSubmit("login", "confirm", { env: sb.env });
       const client = await start("login");
       await call(client, "browser_navigate", { url: `${web.url}/login` });
       const filled = await call(client, "browser_login", { site: "local" });
@@ -184,6 +185,26 @@ describe.skipIf(reason !== undefined)(
       const after = await call(client, "browser_evaluate", { function: "() => document.title" });
       expect(after.error, after.text).toBe(false);
       expect(after.text).toContain("Welcome");
+    }, 120_000);
+
+    it("submits by default, and neither the result nor the page after it shows a value", async () => {
+      const web = await site();
+      onTestFinished(() => web.close());
+      await store("auto", web.url);
+      const client = await start("auto");
+      await call(client, "browser_navigate", { url: `${web.url}/login` });
+      const signedIn = await call(client, "browser_login", { site: "local" });
+      expect(signedIn.error, signedIn.text).toBe(false);
+      expect(signedIn.text).toMatch(/Submitted the form/);
+      assertClean(signedIn.text);
+      expect(web.posted).toHaveLength(1);
+      expect(new URLSearchParams(web.posted[0]).get("password") === PASSWORD).toBe(true);
+      for (const t of [
+        (await call(client, "browser_snapshot")).text,
+        (await call(client, "browser_network_requests", { static: true })).text,
+        (await call(client, "browser_console_messages")).text,
+      ])
+        assertClean(t);
     }, 120_000);
 
     it("refuses another origin, and browser_run_code_unsafe for an identity with a vault", async () => {

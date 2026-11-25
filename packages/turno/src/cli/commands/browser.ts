@@ -147,7 +147,9 @@ export function turnoHost(mod: BrowserApi, doDeps: DoDeps = defaultDoDeps): Brow
     addSummary: "create an identity (pinned to this time zone) and print its mcp.toml block",
     connect(id, settings, io) {
       io.out(`\nAdd this to ${mcpFile(io.env)}, then run \`turno mcp sync\`:\n`);
-      io.out(settings.sharing === "tabs" ? mod.manifestSnippet(id, { sharing: "tabs" }) : mod.manifestSnippet(id));
+      // Every session in its own tabs by default; attach mode serves one session at a time.
+      const sharing = settings.sharing ?? (typeof settings.attach === "string" ? "session" : "tabs");
+      io.out(mod.manifestSnippet(id, { sharing }));
       io.out(`Sign in to your sites once with \`turno identity login browser:${id}\`.`);
     },
     removed(id, io) {
@@ -155,7 +157,7 @@ export function turnoHost(mod: BrowserApi, doDeps: DoDeps = defaultDoDeps): Brow
     },
     // mcpd decides how many sessions reach the server, so `sharing` needs mcp.toml to follow.
     sharingNote: (id, sharing) =>
-      sharing === "tabs"
+      sharing !== "session"
         ? `In mcp.toml, set exclusive = false for [server.browser-${id}] (and drop lease), then run \`turno mcp sync\`: mcpd then lets every session in, and each gets its own tabs.`
         : `In mcp.toml, set exclusive = true for [server.browser-${id}], then run \`turno mcp sync\`: one agent session at a time.`,
     busy: { holder: "probably an MCP session through mcpd", end: "its lease to end" },

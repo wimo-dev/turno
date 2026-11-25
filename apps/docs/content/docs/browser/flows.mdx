@@ -40,7 +40,7 @@ is typed at a hidden prompt, never a value on the command line.
 
 ## Recordings and traces
 
-Off by default. Per identity:
+On by default, under the disk cap below. Per identity:
 
 ```sh
 # what to record, from the next Chrome start
@@ -49,9 +49,13 @@ turno-browser record school --off
 turno-browser set school --record-traces false --record-max-size 500MB
 ```
 
-- `flows` saves every session's actions as a flow named `auto-<time>`; the newest 20 are kept.
-- `traces` records a Playwright trace (DOM snapshots, network, a screencast) of each browser session.
-- `screenshots` takes a JPEG after each action.
+- `flows` saves every session's actions as a flow named `auto-<time>`; the newest 20 are kept. On
+  by default.
+- `traces` records a Playwright trace (DOM snapshots, network, a screencast) of each browser
+  session. By default a trace is kept only when one of its steps failed: the trace of a task that
+  worked is deleted when it is saved. `--record-traces true` keeps every one, `false` records none.
+- `screenshots` takes a JPEG after each action. On by default, except in attach mode (your own
+  tabs) and read mode (nothing is rendered).
 
 Traces and screenshots go to `~/.local/state/turno/browser/identities/<id>/recordings/`, one
 folder per browser session, together at most `record.maxSize` (200MB by default; the oldest go
@@ -68,6 +72,11 @@ neither the filled form nor the request that sends it is traced, and no screensh
 that page. Each saved trace is then searched for those values and deleted if it holds one. There
 is no video recording, because a video cannot leave a sign-in out. A trace still holds what the
 pages showed and their cookies: treat the folder like the profile itself.
+
+The agent's own devtools tools (`browser_start_tracing`, `browser_start_video`) are listed by
+default too. While the agent records with them, turno's trace steps aside (both use the same
+tracer) and `browser_login` is refused until the agent stops its recording. With
+`--record-traces true` the devtools capability is left out, as before.
 
 With the other settings:
 

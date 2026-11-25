@@ -30,8 +30,9 @@ Which browser: the identity's identity.json browser (chrome, edge, brave, chromi
 chrome-for-testing or a path; turno-browser set <id> --browser), else Google Chrome. The
 Playwright MCP flags --browser and --executable-path win over identity.json for this server.
 
-  --identity <id>          use the identity's saved profile (served one session at a time by
-                           mcpd, unless the identity's "sharing" is "tabs")
+  --identity <id>          use the identity's saved profile (every agent session at once, each
+                           in its own tabs, unless the identity's "sharing" is "session" or it
+                           attaches to your Chrome)
   --allow-http-identity    allow --port or --host together with --identity; the server then
                            binds to 127.0.0.1 only. Any local process can use that browser.
 
@@ -46,22 +47,28 @@ Tabs (these flags win over the identity's identity.json):
   --park-after <duration>  park a page unused this long on about:blank; it loads again on its
                            next use (default 5m; 0: never)
   --close-after <duration> close a page unused this long (default 15m; 0: never)
-  --background-throttling  let Chrome slow down tabs that are not in front (default off); the
-                           agent's tab is brought to the front before each call
-  --sharing <session|tabs> "tabs": several agent sessions use the browser at once, each in
-                           its own tabs, which it locks (default "session", one at a time;
-                           mcp.toml then needs exclusive = false for this server)
-  --resources <normal|low> low: the preset for a machine short of memory: at most 2 tabs,
+  --background-throttling  let Chrome slow down tabs that are not in front (default: on in a
+                           headless Chrome without the live view, off otherwise); the agent's
+                           tab is brought to the front before each call
+  --sharing <session|tabs> "tabs" (default): several agent sessions use the browser at once,
+                           each in its own tabs, which it locks (mcp.toml then needs
+                           exclusive = false for this server); "session": one at a time (the
+                           default with --attach)
+  --resources <normal|low|auto>
+                           auto (default): low while the system reports memory pressure at
+                           launch. low: the preset for a machine short of memory: at most 2 tabs,
                            pages parked after 2m, Chrome closed after 5m without a call (unless
                            TURNO_BROWSER_IDLE says otherwise), the background server gone after
                            5m, and a note in tool results while memory is low. The flags
                            above still win over it
 
 Input (wins over the identity's identity.json):
-  --humanize <level>       off (default), light, full or adaptive: the pointer travels a curve
-                           to a point inside the target, keys are typed with human delays;
+  --humanize <level>       auto (default), off, light, full or adaptive: the pointer travels a
+                           curve to a point inside the target, keys are typed with human delays;
                            full adds overshoot, reading pauses and wheel scrolling; adaptive is
-                           light, and full on a site that showed a challenge page
+                           light, and full on a site that showed a challenge page; auto is off
+                           on localhost and for reading, light to act, and full on sign-in,
+                           payment and support pages and on challenged sites
   --cursor <auto|on|off>   the agent cursor: a named arrow that glides to what the agent acts
                            on, a ring, click ripples and a frame with a badge while it works.
                            auto (default): when the browser can be seen (a window, or the live
@@ -82,7 +89,7 @@ Engines (these flags win over the identity's identity.json; all off by default):
                            data dir, or a loopback endpoint. The agent sees every window of
                            that profile; turno closes only the tabs it opened
 
-Live view (wins over the identity's identity.json; off by default):
+Live view (on by default with an identity; identity.json "live": {"enabled": false} turns it off):
   --live                   serve a view of the agent's tab on 127.0.0.1 (turno-browser live
                            <id> opens it) and let you pause the agent to take the controls
   --live-wait <duration>   how long a call waits while you have the agent paused (default 2m,
@@ -195,7 +202,11 @@ await runHost(built.args, {
                 background.idleSet ? background.idleMs : undefined,
                 background.idleMs,
               ),
-              sharing: sharingOf(built.tuning?.sharing, () => readIdentitySettings(identity.id, identity.env)?.sharing),
+              sharing: sharingOf(built.tuning?.sharing, () => {
+                const s = readIdentitySettings(identity.id, identity.env);
+                const attach = built.engineFlags?.attach ?? s?.attach;
+                return s?.sharing ?? (attach !== undefined && attach !== "" ? "session" : "tabs");
+              }),
             });
           } catch (err) {
             process.stderr.write(`turno-browser-mcp: ${(err as Error).message}\n`);

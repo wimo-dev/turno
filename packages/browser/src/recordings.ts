@@ -8,15 +8,19 @@ import type { BrowserContext, Page } from "patchright-core";
 import type { IdentityRef } from "./engine.js";
 import { identityStateDir } from "./ids.js";
 import type { Redactor, VaultGuard } from "./redact.js";
-import type { RecordSettings } from "./settings.js";
 import { parseSize } from "./units.js";
 
 /**
- * Recordings of an identity's browser sessions, opt-in in identity.json (`record.traces`,
- * `record.screenshots`): a Playwright trace (DOM snapshots, network, a screencast) and a
- * screenshot after each action, in one folder per browser session under
- * `<state>/browser/identities/<id>/recordings/`. The folders together stay under
+ * Recordings of an identity's browser sessions (identity.json `record.traces`,
+ * `record.screenshots`, on by default as `defaults.ts` resolves them): a Playwright trace (DOM
+ * snapshots, network, a screencast) and a screenshot after each action, in one folder per browser
+ * session under `<state>/browser/identities/<id>/recordings/`. The folders together stay under
  * `record.maxSize` (200MB by default): the oldest go first.
+ *
+ * By default a trace is kept only when a step in it failed (`traces: "failed"`): the trace of a
+ * task that worked is deleted when it is saved, so the disk holds the ones worth opening.
+ * While the agent records a trace or a video of its own (the devtools capability), turno's trace
+ * steps aside: both would use the same Playwright tracer.
  *
  * A trace keeps what the page held, so a vault sign-in is never in one:
  *
@@ -258,9 +262,17 @@ function plainUrl(url: string): string | undefined {
   }
 }
 
+/** What one browser session records, after the defaults (`defaults.ts`). */
+export interface RecordPlan {
+  screenshots: boolean;
+  /** `"failed"`: traced, and each trace kept only when one of its steps failed. */
+  traces: boolean | "failed";
+  maxSize?: string;
+}
+
 export interface RecordingOptions {
   identity: IdentityRef;
-  settings: RecordSettings;
+  settings: RecordPlan;
   context: BrowserContext;
   redactor: Redactor;
   guard: VaultGuard;
@@ -268,8 +280,6 @@ export interface RecordingOptions {
   title: string;
   /** The browser's idle limit: the trace is saved shortly before it, while Chrome still runs. */
   idleMs?: number;
-  /** Why traces cannot be recorded in this session (another trace owner); screenshots still are. */
-  noTraces?: string;
   /**
    * Runs before a trace is saved: the host reads the sensitive fields of every page, so a value
    * the person typed since the last tool call joins the redactor and the search below finds it.
@@ -291,6 +301,8 @@ export class Recording {
   private bytes = 0;
   private capNoted = false;
   private closed = false;
+  /** The devtools recordings the agent runs now: turno's trace waits for them to stop. */
+  private readonly devtools = new Set<string>();
 
   private constructor(private readonly o: RecordingOptions) {
     const now = (o.now ?? (() => new Date()))();
@@ -306,7 +318,7 @@ export class Recording {
       started: now.toISOString(),
       steps: [],
       traces: [],
-      notes: o.noTraces && o.settings.traces ? [`no trace: ${o.noTraces}`] : [],
+      notes: [],
     };
   }
 
@@ -318,7 +330,7 @@ export class Recording {
     rmSync(tracesTmpDir(o.identity.id, o.identity.env), { recursive: true, force: true });
     r.rotate(r.cap / 2);
     r.write();
-    if (o.settings.traces && !o.noTraces) await r.startTrace();
+    if (o.settings.traces) await r.startTrace();
     return r;
   }
 
@@ -401,6 +413,12 @@ export class Recording {
     } finally {
       rmSync(tracesTmpDir(this.o.identity.id, this.o.identity.env), { recursive: true, force: true });
     }
+    // A trace of steps that all worked is not kept by default: nothing in it needs looking at.
+    const failed = this.index.steps.slice(Math.max(0, entry.from - 1), entry.to).some((s) => !s.ok);
+    if (!entry.discarded && this.o.settings.traces === "failed" && !failed && existsSync(file)) {
+      rmSync(file, { force: true });
+      entry.discarded = "deleted: no step failed (traces are kept for failed steps only)";
+    }
     if (!entry.discarded && existsSync(file)) {
       const leaks = this.o.redactor.active ? traceLeaks(file, this.o.redactor) : [];
       const size = statSync(file).size;
@@ -428,7 +446,7 @@ export class Recording {
     if (this.timer) clearTimeout(this.timer);
     this.timer = undefined;
     await this.flushing;
-    if (this.closed || this.trace !== "paused" || this.capNoted) return;
+    if (this.closed || this.trace !== "paused" || this.capNoted || this.devtools.size) return;
     const held = this.o.context.pages().some((p) => this.o.guard.holds(p));
     if (!held) await this.startTrace();
   }
@@ -469,6 +487,23 @@ export class Recording {
     this.timer = undefined;
     await this.flushing;
     await this.stopTrace("when the user took over");
+  }
+
+  /**
+   * The agent starts a trace, a video or an action recording of its own (the devtools
+   * capability): turno's trace is saved first and waits until the agent stops it.
+   */
+  async yieldToDevtools(kind: string): Promise<void> {
+    this.devtools.add(kind);
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = undefined;
+    await this.flushing;
+    await this.stopTrace("when the agent started a devtools recording");
+  }
+
+  /** The agent stopped its own recording: turno's trace starts again at the next call. */
+  devtoolsDone(kind: string): void {
+    this.devtools.delete(kind);
   }
 
   /** After an action: one line in the index and, when asked, a screenshot. */

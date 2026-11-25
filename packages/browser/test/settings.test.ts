@@ -256,7 +256,7 @@ describe("reading and checking", () => {
     });
     expect(readIdentitySettings("team", sb.env)?.sharing).toBe("tabs");
     expect(() => writeIdentitySettings("team", { sharing: "all" as "tabs" }, sb.env)).toThrow(
-      'sharing must be "session" (the default, one agent session at a time) or "tabs"',
+      'sharing must be "tabs" (the default, each agent session in its own tabs) or "session" (one at a time)',
     );
     expect(writeIdentitySettings("team", { sharing: null }, sb.env, T1).version).toBe(2);
   });
@@ -305,7 +305,7 @@ describe("resources and policy (format 13)", () => {
     expect(writeIdentitySettings("school", { resources: "low" }, sb.env).version).toBe(13);
     expect(readIdentitySettings("school", sb.env)?.resources).toBe("low");
     expect(() => writeIdentitySettings("school", { resources: "tiny" as "low" }, sb.env)).toThrow(
-      'resources must be "normal" (the default) or "low" (the low-resource preset)',
+      'resources must be "auto" (the default: the low-resource preset while memory is short), "normal" or "low"',
     );
     expect(writeIdentitySettings("school", { resources: null, tabs: { max: 2 } }, sb.env).version).toBe(2);
     expect(writeIdentitySettings("fox", { engine: "camoufox" }, sb.env).version).toBe(11);
@@ -316,6 +316,36 @@ describe("resources and policy (format 13)", () => {
     expect(writeIdentitySettings("shop", { resources: "low" }, sb.env).version).toBe(13);
     expect(writeIdentitySettings("shop", { policy: null }, sb.env).version).toBe(13);
     expect(writeIdentitySettings("shop", { resources: null }, sb.env).version).toBe(1);
+  });
+});
+
+describe("auto and off values (format 14)", () => {
+  it("round-trips every format 14 value, and goes back to the lower format without them", () => {
+    const values = {
+      live: { enabled: "auto" as const },
+      resources: "auto" as const,
+      humanize: { level: "auto" as const },
+      userAgent: false as const,
+      locale: false as const,
+      health: false as const,
+      cache: false as const,
+      act: false as const,
+      captcha: false as const,
+      proxy: false as const,
+    };
+    expect(writeIdentitySettings("school", values, sb.env).version).toBe(14);
+    const file = JSON.parse(readFileSync(identitySettingsPath("school", sb.env), "utf8"));
+    expect(file).toMatchObject({ version: 14, ...values });
+    expect(checkIdentitySettings("school", sb.env)).toMatchObject({ settings: values, problems: [] });
+    expect(writeIdentitySettings("school", { userAgent: "auto" }, sb.env).version).toBe(14);
+    const cleared = Object.fromEntries([...Object.keys(values), "userAgent"].map((k) => [k, null]));
+    expect(writeIdentitySettings("school", cleared, sb.env).version).toBe(1);
+  });
+
+  it("writes format 14 for one auto or off value alone, so an older turno-browser refuses the file", () => {
+    const patches = [{ resources: "auto" as const }, { act: false as const }, { health: false as const }];
+    patches.forEach((patch, i) => expect(writeIdentitySettings(`one-${i}`, patch, sb.env).version).toBe(14));
+    expect(writeIdentitySettings("low", { resources: "low" }, sb.env).version).toBe(13);
   });
 });
 
