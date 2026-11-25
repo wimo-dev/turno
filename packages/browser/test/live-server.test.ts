@@ -228,10 +228,13 @@ describe("the live view in the host", () => {
     return h;
   }
 
-  it("is off by default, and on with identity.json live.enabled or --live, in the identity's language", async () => {
+  it("is on by default, off with identity.json live.enabled false, and in the identity's language", async () => {
     addIdentity("plain", sb.env);
-    expect((await host("plain")).live).toBeUndefined();
-    expect((await host("plain", { live: true })).live).toBeDefined();
+    expect((await host("plain")).live).toBeDefined();
+    addIdentity("off", sb.env);
+    writeIdentitySettings("off", { live: { enabled: false } }, sb.env);
+    expect((await host("off")).live).toBeUndefined();
+    expect((await host("off", { live: true })).live).toBeDefined();
     addIdentity("on", sb.env);
     writeIdentitySettings("on", { locale: "es-MX", live: { enabled: true, wait: "10s" } }, sb.env);
     const h = await host("on");

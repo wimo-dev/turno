@@ -233,7 +233,8 @@ export function policyProblems(p: unknown, engine: string, settings: Record<stri
           continue;
         }
         const setting = (POLICY_FEATURES[f as PolicyFeature] as { setting?: string }).setting;
-        if (setting && settings[setting] !== undefined)
+        // `false` says the feature is off, which the policy agrees with.
+        if (setting && settings[setting] !== undefined && settings[setting] !== false)
           out.push(`${setting} is set while policy.disabled has "${f}": remove ${setting}`);
       }
   }

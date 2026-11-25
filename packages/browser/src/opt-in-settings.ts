@@ -120,7 +120,7 @@ function endpointProblem(key: string, v: unknown, out: string[]): void {
 
 /** Problems with `act`, in key order. */
 export function actProblems(a: unknown, out: string[]): void {
-  if (a === undefined) return;
+  if (a === undefined || a === false) return;
   if (!isObject(a)) {
     out.push('act must be an object, like {} (MCP sampling) or { "provider": "chat-completions", ... }');
     return;
@@ -159,7 +159,7 @@ export function actProblems(a: unknown, out: string[]): void {
 
 /** Problems with `captcha`, alone and with the engine keys. */
 export function captchaProblems(c: unknown, settings: Record<string, unknown>, out: string[]): void {
-  if (c === undefined) return;
+  if (c === undefined || c === false) return;
   if (!isObject(c)) {
     out.push('captcha must be an object with provider, endpoint and key, like { "provider": "task-api", ... }');
     return;

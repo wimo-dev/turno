@@ -145,10 +145,10 @@ export const TUNING_FLAGS = {
   "--park-after": "<duration>",
   "--close-after": "<duration>",
   "--background-throttling": "",
-  "--humanize": "<off|light|full|adaptive>",
+  "--humanize": "<auto|off|light|full|adaptive>",
   "--sharing": "<session|tabs>",
   "--cursor": "<auto|on|off>",
-  "--resources": "<normal|low>",
+  "--resources": "<normal|low|auto>",
 } as const;
 
 function tuningValue(flag: keyof typeof TUNING_FLAGS, value: string, out: TuningFlags): void {
@@ -173,7 +173,9 @@ function tuningValue(flag: keyof typeof TUNING_FLAGS, value: string, out: Tuning
     out.cursor = value as CursorMode;
   } else if (flag === "--resources") {
     if (!(RESOURCE_MODES as readonly string[]).includes(value))
-      throw new Error(`--resources must be "normal" or "low" (the low-resource preset), not "${value}"`);
+      throw new Error(
+        `--resources must be "normal", "low" (the low-resource preset) or "auto" (low under memory pressure), not "${value}"`,
+      );
     out.resources = value as ResourceMode;
   } else {
     const ms = parseDuration(value);

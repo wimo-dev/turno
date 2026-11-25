@@ -10,7 +10,7 @@ This page is for when `turno browser doctor` reports the finding below: what it 
 ## What you see
 
 ```text
-  !  [server.<name>] in mcp.toml lets several sessions in (exclusive = false), but this identity serves one at a time ("sharing": "session"), so those sessions share one current tab
+  !  [server.<name>] in mcp.toml lets several sessions in (exclusive = false), but this identity serves one at a time ("sharing": "session"<, the default in attach mode>), so those sessions share one current tab
      fix: turno browser set <id> --sharing tabs
 ```
 

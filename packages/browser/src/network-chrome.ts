@@ -84,19 +84,44 @@ const READ_METADATA = `(async () => {
  * The client hints metadata this Chrome reports with nothing overriding it: read by a short
  * headless launch (no switch, throwaway profile, a routed page) and kept per Chrome version.
  */
-async function realMetadata(config: McpConfig, env: NodeJS.ProcessEnv, version: string): Promise<UserAgentMetadata> {
-  const file = join(
+function metadataFile(env: NodeJS.ProcessEnv, version: string): string {
+  return join(
     paths(env).state,
     "browser",
     "chrome-ua",
     `${version.replace(/[^\w.-]/g, "_")}-${process.platform}-${process.arch}.json`,
   );
+}
+
+/** The metadata already read for this Chrome version; undefined when it was not read yet. */
+function cachedMetadata(env: NodeJS.ProcessEnv, version: string): UserAgentMetadata | undefined {
   try {
-    const cached = JSON.parse(readFileSync(file, "utf8")) as UserAgentMetadata;
+    const cached = JSON.parse(readFileSync(metadataFile(env, version), "utf8")) as UserAgentMetadata;
     if (cached.fullVersionList?.length && cached.architecture) return cached;
   } catch {
     /* not read yet */
   }
+  return undefined;
+}
+
+/**
+ * Reads and keeps this Chrome's client hints metadata, so the default coherent user agent applies
+ * from the next headless launch (`turno-browser login` calls it once the person is done).
+ * Best effort: false when Chrome could not be read.
+ */
+export async function readChromeMetadata(config: McpConfig, env: NodeJS.ProcessEnv): Promise<boolean> {
+  const version = chromeVersion(config, env);
+  if (version === undefined) return false;
+  return realMetadata(config, env, version).then(
+    () => true,
+    () => false,
+  );
+}
+
+async function realMetadata(config: McpConfig, env: NodeJS.ProcessEnv, version: string): Promise<UserAgentMetadata> {
+  const file = metadataFile(env, version);
+  const cached = cachedMetadata(env, version);
+  if (cached) return cached;
   const lo = config.browser.launchOptions;
   const { chromium } = await import("patchright-core");
   const browser = await chromium.launch({
@@ -143,6 +168,11 @@ export async function chromeNetwork(
   config: McpConfig,
   env: NodeJS.ProcessEnv,
   secret: (value: string, label: string) => void,
+  /**
+   * The coherent user agent comes from the defaults, not identity.json: it applies only when
+   * this Chrome's metadata was read before (no extra launch now), and is left out otherwise.
+   */
+  byDefault = false,
 ): Promise<ChromeNetwork> {
   const out: ChromeNetwork = { args: [] };
   const userArgs = (config.browser.launchOptions.args as string[] | undefined) ?? [];
@@ -154,7 +184,12 @@ export async function chromeNetwork(
     out.proxy = await resolveProxy(settings.proxy, env, secret);
     out.args.push(...CHROME_PROXY_ARGS.filter((a) => !hasArg(userArgs, a.split("=")[0]!)));
   }
-  if (settings.userAgent === "coherent") {
+  const defaultVersion = byDefault ? chromeVersion(config, env) : undefined;
+  const ready =
+    !byDefault ||
+    !config.browser.launchOptions.headless ||
+    (defaultVersion !== undefined && cachedMetadata(env, defaultVersion));
+  if (settings.userAgent === "coherent" && ready) {
     if (config.browser.contextOptions?.userAgent !== undefined || hasArg(userArgs, "--user-agent"))
       throw new Error(
         'identity.json userAgent "coherent" and a user agent of the server\'s own (--user-agent, --device, or the config) are both set: keep one',

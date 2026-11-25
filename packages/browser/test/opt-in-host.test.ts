@@ -44,7 +44,8 @@ async function connect(options: {
   engine?: Engine;
   sampling?: (text: string, meta: unknown) => string;
 }): Promise<Client> {
-  const cfg = await config();
+  // No default capabilities: these tests count upstream's core tools and the opt-in ones.
+  const cfg = { ...(await config()), capabilities: [] };
   const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
   await serve(
     createHost({

@@ -278,6 +278,8 @@ describe.skipIf(reason)("identity.json proxy with a real Chrome and a local prox
       {
         proxy: { server: proxy.server, username: "alice", password: "keychain:proxy-pass" },
         record: { flows: true, screenshots: true },
+        // browser_close ends the recording only when it closes the whole browser.
+        sharing: "session",
       },
       sb.env,
     );

@@ -218,7 +218,7 @@ describe("turno identity add/show/set for browser identities", () => {
       /input +light, full on sites that showed a challenge \(adaptive\) \(seed 9\)/,
     );
     await expect(identity.run(["set", "browser:school", "--humanize", "max"], fakeIo(sb.env))).rejects.toThrow(
-      /^--humanize must be "off", "light", "full", "adaptive"$/,
+      /^--humanize must be "off", "light", "full", "adaptive", "auto"$/,
     );
     expect(await identity.run(["set", "browser:school", "--humanize", ""], fakeIo(sb.env))).toBe(0);
     expect(file().humanize).toBeUndefined();
@@ -256,12 +256,12 @@ describe("turno identity add/show/set for browser identities", () => {
     await bad(["--no-cache", "--cache"], /--no-cache does not go with --cache or --cache-max-size/);
     await bad(
       ["--sharing", "all"],
-      /^--sharing must be "session" \(the default, one agent session at a time\) or "tabs"$/,
+      /^--sharing must be "tabs" \(the default, each agent session in its own tabs\) or "session" \(one at a time\)$/,
     );
     expect(readFileSync(settingsFile("school"), "utf8")).toBe(before);
   });
 
-  it("turns tab sharing on and off with --sharing, and says what mcp.toml needs", async () => {
+  it("sets tab sharing with --sharing, and says what mcp.toml needs", async () => {
     prev = setBrowserDeps(deps(real));
     const add = fakeIo(sb.env);
     expect(await identity.run(["add", "browser:team", "--sharing", "tabs"], add)).toBe(0);
@@ -279,9 +279,9 @@ describe("turno identity add/show/set for browser identities", () => {
     expect(on.lines.join("\n")).toContain("set exclusive = false for [server.browser-team] (and drop lease)");
 
     const off = fakeIo(sb.env);
-    expect(await identity.run(["set", "browser:team", "--sharing", ""], off)).toBe(0);
+    expect(await identity.run(["set", "browser:team", "--sharing", "session"], off)).toBe(0);
     expect(off.lines.join("\n")).toContain("set exclusive = true for [server.browser-team]");
-    expect(JSON.parse(readFileSync(settingsFile("team"), "utf8")).sharing).toBeUndefined();
+    expect(JSON.parse(readFileSync(settingsFile("team"), "utf8")).sharing).toBe("session");
   });
 
   it("sets the tab lock wait and idle release, names the flag in an error, and removes one with an empty value", async () => {
@@ -464,7 +464,7 @@ describe("turno browser doctor and mcp.toml", () => {
 
   it("warns, through the real package, when sessions of a one-session identity would share a tab", async () => {
     const mod = await real();
-    mod.addIdentity("school", sb.env);
+    mod.addIdentity("school", sb.env, { sharing: "session" });
     sb.write(
       ".config/turno/mcp.toml",
       '[server.browser-school]\ncommand = "turno-browser-mcp"\nargs = ["--identity", "school"]\nexclusive = false\n',

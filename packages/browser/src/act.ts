@@ -237,7 +237,7 @@ async function prepare(
   const { identity, redactor } = vault;
   let settings: ActSettings | undefined;
   try {
-    settings = readIdentitySettings(identity.id, identity.env)?.act;
+    settings = readIdentitySettings(identity.id, identity.env)?.act || undefined;
   } catch (error) {
     return { error: (error as Error).message };
   }

@@ -8,6 +8,8 @@ import { cookieHosts } from "../cookie-hosts.js";
 import { readLastUsed } from "../last-used.js";
 import { vaultSummary } from "../vault.js";
 import type { Ctx } from "./context.js";
+import { type Effective, type EffectiveSettings, defaultLines } from "../defaults.js";
+import { effectiveSettings } from "../effective.js";
 import { describePolicy, localTime } from "./identity.js";
 
 /**
@@ -26,27 +28,31 @@ const VERSION = (
 
 type Settings = NonNullable<ReturnType<Ctx["api"]["checkIdentitySettings"]>["settings"]>;
 
-/** What identity.json sets, with the defaults filled in, for `status`. */
-function settingsSummary(s: Settings | undefined) {
+/** What identity.json sets, with the defaults filled in (`defaults.ts`), for `status`. */
+function settingsSummary(s: Settings | undefined, e: EffectiveSettings) {
+  const on = (v: Effective<unknown>) => v.value !== undefined && v.value !== false && v.value !== "off";
   return {
     timezone: s?.timezone ?? null,
     languages: s?.languages ?? null,
     engine: s?.attach !== undefined ? "attach" : (s?.engine ?? "chrome"),
-    sharing: s?.sharing ?? "session",
-    humanize: s?.humanize?.level ?? "off",
+    sharing: e.sharing.value ?? "tabs",
+    humanize: e.humanize.value ?? "auto",
     cursor: s?.cursor ?? "auto",
-    resources: s?.resources ?? "normal",
-    keychain: s?.keychain ?? "mock",
-    live: Boolean(s?.live?.enabled),
+    /** "auto" until a launch reads the memory pressure. */
+    resources: e.resources.value ?? "auto",
+    keychain: e.keychain.value ?? "mock",
+    live: e.live.value === true,
     record: {
-      flows: Boolean(s?.record?.flows),
-      traces: Boolean(s?.record?.traces),
-      screenshots: Boolean(s?.record?.screenshots),
+      flows: on(e.record.flows),
+      traces: e.record.traces.value ?? false,
+      screenshots: on(e.record.screenshots),
     },
-    act: s?.act !== undefined,
-    captcha: s?.captcha !== undefined,
-    proxy: s?.proxy?.server ?? null,
-    health: s?.health?.url ?? null,
+    act: on(e.act),
+    captcha: on(e.captcha),
+    proxy: (s?.proxy || undefined)?.server ?? null,
+    health: (e.health.value || undefined)?.url ?? null,
+    /** The values identity.json leaves to their defaults, with where each comes from. */
+    defaults: defaultLines(e),
     /** identity.json `policy` as written: allowed hosts, disabled features, auto submit. */
     policy: s?.policy ?? null,
   };
@@ -59,13 +65,17 @@ function settingsLine(s: ReturnType<typeof settingsSummary>): string {
     s.languages ? `languages ${s.languages.join(", ")}` : "",
     s.engine === "chrome" ? "" : `engine ${s.engine}`,
     s.sharing === "tabs" ? "every session at once, in its own tabs" : "one session at a time",
-    s.resources === "low" ? "low-resource preset" : "",
+    s.resources === "low"
+      ? "low-resource preset"
+      : s.resources === "auto"
+        ? "low-resource preset under memory pressure"
+        : "",
     s.humanize === "off" ? "" : `humanize ${s.humanize}`,
     s.keychain === "system" ? "cookie key in the system keychain" : "",
     s.live ? "live view on" : "",
     Object.entries(s.record)
       .filter(([, on]) => on)
-      .map(([k]) => `records ${k}`)
+      .map(([k, v]) => (v === "failed" ? `records ${k} (kept when a step fails)` : `records ${k}`))
       .join(", "),
     s.act ? "act on" : "",
     s.captcha ? "captcha solving on" : "",
@@ -110,7 +120,7 @@ export async function status(c: Ctx, args: string[], io: Io): Promise<number> {
       id,
       profile: tildify(m.identityDir(id, env), env),
       settingsFile: tildify(path, env),
-      settings: settingsSummary(settings),
+      settings: settingsSummary(settings, effectiveSettings(id, { env })),
       problems,
       inUse,
       holder: holder ?? null,
@@ -147,6 +157,14 @@ export async function status(c: Ctx, args: string[], io: Io): Promise<number> {
         settingsLine(i.settings) + (i.problems.length ? s.err(` (identity.json: ${i.problems.join("; ")})`) : ""),
       ],
     ];
+    rows.push([
+      "defaults",
+      only === undefined
+        ? s.muted(
+            `${i.settings.defaults.length} values not in identity.json (${c.names.browser} status ${i.id} lists them)`,
+          )
+        : i.settings.defaults.join("; "),
+    ]);
     if (i.background)
       rows.push(["background", `server pid ${i.background.pid} since ${localTime(i.background.startedAt)}`]);
     rows.push([

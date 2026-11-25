@@ -70,8 +70,13 @@ import { parseDuration, parseSize } from "./units.js";
  * - `browser` (format 13): which Chromium-based browser opens the profile (`browsers.ts`):
  *   `"chrome"` (the default), `"edge"`, `"brave"`, `"chromium"`, `"chrome-for-testing"`, or the
  *   absolute path of another one. A server's `--browser` or `--executable-path` wins over it.
+ * - Format 14 adds values, not keys: `"auto"` for `live.enabled`, `resources`, `humanize.level`
+ *   and `userAgent` (the default, said out loud), and an explicit `false` for the keys that had no
+ *   off value: `act`, `cache`, `captcha`, `proxy`, `health`, `userAgent` and `locale`.
  *
- * A missing file means Chrome's own defaults, as before identity.json existed.
+ * A key that is not in the file takes the default the code resolves at launch (`defaults.ts`),
+ * from the context: headless or windowed, the live view, memory pressure, the engine, the policy.
+ * Those defaults are never written here, so a file keeps saying only what the person chose.
  */
 
 /**
@@ -81,7 +86,7 @@ import { parseDuration, parseSize } from "./units.js";
  * only when it uses one of them, so an older turno-browser keeps reading every other file and
  * refuses one it would misread with "update turno-browser".
  */
-export const IDENTITY_FORMAT_VERSION = 13;
+export const IDENTITY_FORMAT_VERSION = 14;
 
 /** The keys format 2 added. */
 const FORMAT_2_KEYS = ["tabs", "backgroundThrottling", "settle", "block", "cache"] as const;
@@ -121,10 +126,10 @@ export interface TabLockSettings {
 /** The keys format 10 added. */
 const FORMAT_10_KEYS = ["live"] as const;
 
-/** The live view and take-over (`live.ts`); off by default. */
+/** The live view and take-over (`live.ts`); on by default for a server with an identity. */
 export interface LiveSettings {
-  /** Serve the live view and let the user pause the agent. */
-  enabled?: boolean;
+  /** Serve the live view and let the user pause the agent; `"auto"` (format 14) is the default. */
+  enabled?: boolean | "auto";
   /** How long a paused call waits for the user, like `"2m"` (from `"5s"` to `"30m"`). */
   wait?: string;
 }
@@ -142,8 +147,11 @@ const FORMAT_12_KEYS = ["cursor"] as const;
 /** The keys format 13 added. */
 const FORMAT_13_KEYS = ["resources", "policy", "browser"] as const;
 
-/** The values of `resources`: the defaults, or the low-resource preset (`tuning.ts`). */
-export const RESOURCE_MODES = ["normal", "low"] as const;
+/**
+ * The values of `resources`: the defaults, the low-resource preset (`tuning.ts`), or `"auto"`
+ * (format 14, the default): the preset while the system reports memory pressure.
+ */
+export const RESOURCE_MODES = ["normal", "low", "auto"] as const;
 export type ResourceMode = (typeof RESOURCE_MODES)[number];
 
 /** The values of `cursor` (the agent cursor, `agent-cursor.ts`). */
@@ -153,7 +161,7 @@ export type CursorMode = (typeof CURSOR_MODES)[number];
 /** The values of `engine`: `"chrome"` (the default), read mode, and Camoufox (format 11). */
 const ENGINE_VALUES = ["chrome", "lightpanda", "camoufox"] as const;
 
-/** What turno-browser records for an identity (`recorder.ts`, `recordings.ts`); all off by default. */
+/** What turno-browser records for an identity (`recorder.ts`, `recordings.ts`); defaults in `defaults.ts`. */
 export interface RecordSettings {
   /** Record every session's actions as a flow (`auto-<time>`), the newest few kept. */
   flows?: boolean;
@@ -226,17 +234,20 @@ export interface IdentitySettings {
   /** Format version (`IDENTITY_FORMAT_VERSION`); a file without it is format 1. */
   version?: number;
   timezone?: string;
-  locale?: string;
+  /** A language tag; `false` (format 14) keeps Chrome's own instead of the system's. */
+  locale?: string | false;
   languages?: string[];
   region?: string;
-  health?: HealthCheck;
+  /** `false` (format 14): no health check, not even one detected after a sign-in. */
+  health?: HealthCheck | false;
   tabs?: TabSettings;
   /** True: let Chrome throttle tabs that are not in front (see `tuning.ts`). */
   backgroundThrottling?: boolean;
   /** Wait after each action for the work it started, like `"250ms"` (Playwright's `timeouts.settle`). */
   settle?: string;
   block?: BlockSettings;
-  cache?: CacheSettings;
+  /** The own resource cache; `false` (format 14) says off out loud. */
+  cache?: CacheSettings | false;
   /** `"system"`: Chrome encrypts cookies with the OS store's key; default `"mock"`. */
   keychain?: KeychainMode;
   /** Human-like input: `level` (off, light, full, adaptive) and an optional `seed`. */
@@ -248,21 +259,24 @@ export interface IdentitySettings {
   /** Connect to a Chrome the user has open: `"auto"`, a user data dir, or a loopback endpoint. */
   attach?: string;
   record?: RecordSettings;
-  /** Natural language actions (`browser_act`, `browser_extract`, `browser_observe`); off by default. */
-  act?: ActSettings;
-  /** A captcha solver for `browser_solve_captcha`; off by default. */
-  captcha?: CaptchaSettings;
+  /** Natural language actions (`browser_act`, `browser_extract`, `browser_observe`); `false` turns them off. */
+  act?: ActSettings | false;
+  /** A captcha solver for `browser_solve_captcha`; `false` turns solving off. */
+  captcha?: CaptchaSettings | false;
   /** With `"sharing": "tabs"`: how long a call waits for a held tab, and when an idle session lets go. */
   tabLocks?: TabLockSettings;
   /** The live view and take-over: `enabled` and `wait`; off by default. */
   live?: LiveSettings;
-  /** `"coherent"`: the installed Chrome's own user agent and client hints, checked at launch. */
-  userAgent?: UserAgentMode;
-  /** A proxy for the identity's traffic; credentials only as `keychain:` references. */
-  proxy?: ProxySettings;
+  /**
+   * `"coherent"`: the installed Chrome's own user agent and client hints, checked at launch;
+   * `"auto"` (the default): coherent in a headless Chrome; `false`: never.
+   */
+  userAgent?: UserAgentMode | "auto" | false;
+  /** A proxy for the identity's traffic; credentials only as `keychain:` references. `false`: none. */
+  proxy?: ProxySettings | false;
   /** The agent cursor: `"auto"` (the default, when the browser can be seen), `"on"` or `"off"`. */
   cursor?: CursorMode;
-  /** `"low"`: the low-resource preset (fewer tabs, Chrome closed sooner); default `"normal"`. */
+  /** `"low"`: the low-resource preset (fewer tabs, Chrome closed sooner); default `"auto"`. */
   resources?: ResourceMode;
   /** What the identity may do: allowed hosts, disabled features, auto submit (`policy.ts`). */
   policy?: IdentityPolicy;
@@ -400,11 +414,13 @@ function browserProblems(v: Record<string, unknown>, out: string[]): void {
     out.push('keychain must be "mock" (the default) or "system"');
   humanizeProblems(v.humanize, out);
   if (v.sharing !== undefined && v.sharing !== "session" && v.sharing !== "tabs")
-    out.push('sharing must be "session" (the default, one agent session at a time) or "tabs"');
+    out.push('sharing must be "tabs" (the default, each agent session in its own tabs) or "session" (one at a time)');
   if (v.cursor !== undefined && !(CURSOR_MODES as readonly unknown[]).includes(v.cursor))
     out.push('cursor must be "auto" (the default, when the browser can be seen), "on" or "off"');
   if (v.resources !== undefined && !(RESOURCE_MODES as readonly unknown[]).includes(v.resources))
-    out.push('resources must be "normal" (the default) or "low" (the low-resource preset)');
+    out.push(
+      'resources must be "auto" (the default: the low-resource preset while memory is short), "normal" or "low"',
+    );
   engineProblems(v, out);
   if (v.browser !== undefined) {
     const problem = browserProblem(v.browser);
@@ -423,9 +439,9 @@ function browserProblems(v: Record<string, unknown>, out: string[]): void {
   const networkClash = networkEngineClash(engineOf(v), v);
   if (networkClash) out.push(networkClash);
   policyProblems(v.policy, engineOf(v), v, out);
-  if (v.cache !== undefined) {
+  if (v.cache !== undefined && v.cache !== false) {
     const c = v.cache;
-    if (!isObject(c)) out.push('cache must be an object, like {} or { "maxSize": "100MB" }');
+    if (!isObject(c)) out.push('cache must be an object, like {} or { "maxSize": "100MB" }, or false');
     else {
       if (c.maxSize !== undefined) {
         const bytes = typeof c.maxSize === "string" ? parseSize(c.maxSize) : undefined;
@@ -492,7 +508,7 @@ function engineProblems(v: Record<string, unknown>, out: string[]): void {
     else if (v.sharing === "tabs") out.push('attach does not go with sharing "tabs": pick one');
   }
   const level = isObject(v.humanize) ? v.humanize.level : undefined;
-  if (v.engine === "lightpanda" && level !== undefined && level !== "off")
+  if (v.engine === "lightpanda" && level !== undefined && level !== "off" && level !== "auto")
     out.push('humanize does not go with engine "lightpanda": read mode lays out no page to move a pointer over');
 }
 
@@ -523,7 +539,8 @@ function liveProblems(l: unknown, out: string[]): void {
     out.push('live must be an object, like { "enabled": true }');
     return;
   }
-  if (l.enabled !== undefined && typeof l.enabled !== "boolean") out.push("live.enabled must be true or false");
+  if (l.enabled !== undefined && typeof l.enabled !== "boolean" && l.enabled !== "auto")
+    out.push('live.enabled must be true, false or "auto" (the default)');
   if (l.wait !== undefined) {
     const ms = typeof l.wait === "string" ? parseDuration(l.wait) : undefined;
     if (ms === undefined || ms < MIN_LIVE_WAIT_MS || ms > MAX_LIVE_WAIT_MS)
@@ -570,6 +587,27 @@ function validTimezone(tz: string): boolean {
   }
 }
 
+/**
+ * True when the file uses a value format 14 added: `"auto"` for `live.enabled`, `resources`,
+ * `humanize.level` or `userAgent`, or `false` for a key that had no off value. Only then is the
+ * file written as format 14, so a turno-browser that predates these values refuses it instead
+ * of misreading it, and every other file keeps its format.
+ */
+function usesFormat14(v: Record<string, unknown>): boolean {
+  const level = isObject(v.humanize) ? v.humanize.level : undefined;
+  const live = isObject(v.live) ? v.live.enabled : undefined;
+  return (
+    live === "auto" ||
+    v.resources === "auto" ||
+    level === "auto" ||
+    v.userAgent === "auto" ||
+    FALSE_KEYS.some((k) => v[k] === false)
+  );
+}
+
+/** The keys format 14 lets be `false`: each had no off value before. */
+const FALSE_KEYS = ["act", "cache", "captcha", "proxy", "health", "userAgent", "locale"] as const;
+
 /** The canonical form of a BCP 47 tag ("es-mx" is "es-MX"), or undefined when it is not one. */
 function canonicalLocale(tag: string): string | undefined {
   try {
@@ -599,7 +637,7 @@ function problemsOf(raw: unknown): string[] {
     else if (!validTimezone(v.timezone))
       out.push(`timezone "${v.timezone}" is not an IANA time zone (for example "Europe/Madrid")`);
   }
-  if (v.locale !== undefined) {
+  if (v.locale !== undefined && v.locale !== false) {
     if (typeof v.locale !== "string" || !canonicalLocale(v.locale))
       out.push(`locale "${String(v.locale)}" is not a language tag (for example "es-MX")`);
   }
@@ -611,10 +649,10 @@ function problemsOf(raw: unknown): string[] {
   if (v.region !== undefined && (typeof v.region !== "string" || !/^[A-Z]{2}$/.test(v.region))) {
     out.push(`region "${String(v.region)}" must be a two-letter country code (for example "MX")`);
   }
-  if (v.health !== undefined) {
+  if (v.health !== undefined && v.health !== false) {
     const h = v.health as Record<string, unknown> | null;
     if (typeof h !== "object" || h === null || Array.isArray(h))
-      out.push("health must be an object with url and text or selector");
+      out.push("health must be an object with url and text or selector, or false");
     else {
       if (typeof h.url !== "string" || !/^https?:\/\//.test(h.url))
         out.push("health.url must start with http:// or https://");
@@ -709,7 +747,7 @@ export function writeIdentitySettings(
   const found = formats.findIndex((keys) => keys.some((k) => next[k] !== undefined));
   const camoufox = formats.indexOf(FORMAT_11_KEYS);
   const newest = next.engine === "camoufox" && (found < 0 || found > camoufox) ? camoufox : found;
-  next.version = newest < 0 ? 1 : IDENTITY_FORMAT_VERSION - newest;
+  next.version = usesFormat14(next) ? 14 : newest < 0 ? 1 : 13 - newest;
   if (typeof next.locale === "string") next.locale = canonicalLocale(next.locale) ?? next.locale;
   if (Array.isArray(next.languages)) next.languages = (next.languages as string[]).map((l) => canonicalLocale(l) ?? l);
   if (typeof next.region === "string" && /^[a-z]{2}$/i.test(next.region)) next.region = next.region.toUpperCase();
@@ -727,7 +765,7 @@ export function writeIdentitySettings(
 }
 
 /** The Accept-Language order: `languages`, else the locale and its base language. */
-export function acceptLanguages(settings: IdentitySettings): string[] | undefined {
+export function acceptLanguages(settings: Pick<IdentitySettings, "languages" | "locale">): string[] | undefined {
   if (settings.languages?.length) return settings.languages;
   if (!settings.locale) return undefined;
   const base = settings.locale.split("-")[0]!;
@@ -752,14 +790,16 @@ export function launchSettings(
   userArgs: readonly string[],
   systemTz: string,
   userContext: Record<string, unknown> = {},
+  /** The locale `defaults.ts` resolved: the file's, else the system's; undefined keeps Chrome's. */
+  locale: string | undefined = settings?.locale || undefined,
 ): LaunchSettings {
   const out: LaunchSettings = { args: [] };
-  if (!settings) return out;
-  if (settings.locale && !hasArg(userArgs, "--lang")) out.args.push(`--lang=${settings.locale}`);
-  const languages = acceptLanguages(settings);
+  if (!settings && locale === undefined) return out;
+  if (locale && !hasArg(userArgs, "--lang")) out.args.push(`--lang=${locale}`);
+  const languages = acceptLanguages({ languages: settings?.languages, locale });
   if (languages && !hasArg(userArgs, "--accept-lang") && userContext.locale === undefined)
     out.args.push(`--accept-lang=${languages.join(",")}`);
-  if (settings.timezone && settings.timezone !== systemTz && userContext.timezoneId === undefined)
+  if (settings?.timezone && settings.timezone !== systemTz && userContext.timezoneId === undefined)
     out.timezoneId = settings.timezone;
   return out;
 }

@@ -5,6 +5,7 @@ import type { BrowserContext, Page } from "patchright-core";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Redactor, VaultGuard } from "../src/redact.js";
 import {
+  type RecordPlan,
   Recording,
   listRecordings,
   recordingsDir,
@@ -13,7 +14,6 @@ import {
   tracesTmpDir,
   zipTexts,
 } from "../src/recordings.js";
-import type { RecordSettings } from "../src/settings.js";
 import { type Sandbox, sandbox } from "./helpers/sandbox.js";
 
 /** Recordings: folders, the size cap, the trace pause around secrets and the leak check. */
@@ -105,14 +105,14 @@ function fakeContext(pages: Page[], content: () => string) {
 }
 
 async function open(
-  settings: RecordSettings,
+  settings: Partial<RecordPlan>,
   context: BrowserContext,
   redactor = new Redactor(),
   guard = new VaultGuard(),
 ) {
   const r = await Recording.open({
     identity: { id: "work", env: sb.env },
-    settings,
+    settings: { screenshots: false, traces: false, ...settings },
     context,
     redactor,
     guard,
@@ -193,6 +193,25 @@ describe("a recording", () => {
     expect(existsSync(join(rec!.dir, "trace-2.zip"))).toBe(false);
     expect(rec!.traces.map((t) => t.file)).toEqual([join(rec!.dir, "trace-1.zip")]);
     expect(existsSync(tracesTmpDir("work", sb.env))).toBe(false);
+  });
+
+  it('keeps only the traces with a failed step by default ("failed")', async () => {
+    const page = fakePage();
+    const { context } = fakeContext([page], () => "");
+    const { r } = await open({ traces: "failed" }, context);
+    await r.afterStep({ tool: "browser_click", ok: true, page, screenshot: false });
+    await r.pauseForSecret(page); // ends segment 1, whose only step worked
+    page.navigate();
+    await r.beforeCall();
+    await r.afterStep({ tool: "browser_click", ok: false, page, screenshot: false });
+    await r.close();
+    const [rec] = listRecordings("work", sb.env);
+    const index = JSON.parse(readFileSync(join(rec!.dir, "index.json"), "utf8"));
+    expect(index.traces.map((t: { file: string; discarded?: string }) => [t.file, t.discarded ?? "kept"])).toEqual([
+      ["trace-1.zip", "deleted: no step failed (traces are kept for failed steps only)"],
+      ["trace-2.zip", "kept"],
+    ]);
+    expect(rec!.traces.map((t) => t.file)).toEqual([join(rec!.dir, "trace-2.zip")]);
   });
 
   it("keeps the recordings under the size cap, the oldest going first", async () => {

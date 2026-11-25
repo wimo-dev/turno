@@ -3,11 +3,13 @@ title: "Several agents, one browser"
 description: "Several agent sessions use one identity's Chrome at once, each in its own tabs."
 ---
 
-With `"sharing": "tabs"` several agent sessions use one identity's Chrome at once, each in its own tabs. It is off by default; turn it on per identity:
+With `"sharing": "tabs"` several agent sessions use one identity's Chrome at once, each in its own tabs. It is on by default, except for an identity in [attach mode](/docs/browser/engines), which serves one session at a time because the tabs are your own Chrome's. Choose per identity:
 
 ```sh
-# or the server's --sharing tabs
-turno-browser set school --sharing tabs
+# one session at a time (or the server's --sharing session)
+turno-browser set school --sharing session
+# back to the default
+turno-browser set school --sharing ""
 ```
 
 Each session shows on the page with its own color and its own [agent cursor](/docs/browser/agent-cursor), so you can tell them apart.
@@ -23,9 +25,11 @@ exclusive = false  # every agent session at once, each in its own tabs
 idle = "30m"
 ```
 
-Then run `turno mcp sync`. `turno identity add browser:school --sharing tabs` prints that block.
-`turno-browser doctor` warns about the opposite mistake: a server with `exclusive = false` for an
-identity that serves one session at a time, whose sessions would share one current tab.
+Then run `turno mcp sync`. `turno identity add browser:school` prints that block. A block written
+before tabs became the default says `exclusive = true` and `lease = "10m"`: it still works, one
+session at a time, and `turno-browser doctor` says how to let every session in. It warns about the
+opposite mistake: a server with `exclusive = false` for an identity that serves one session at a
+time, whose sessions would share one current tab.
 
 mcpd marks each call with the session it comes from, and turno-browser gives every session its own backend and current tab:
 

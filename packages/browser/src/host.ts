@@ -6,6 +6,7 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import type { Page } from "patchright-core";
+import { type PressureLevel, type PressureProbe, memoryPressureProbe } from "turno-core/memory";
 import type { SecretStore } from "turno-core/secrets";
 import { CallToolRequestSchema, type CallToolResult, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import type { Sampler } from "./act-model.js";
@@ -92,7 +93,16 @@ import {
 } from "./session.js";
 import { type SessionView, TabSharing, viewConfig } from "./sharing.js";
 import { DEFAULT_TAB_LOCKS, DIRECT_SESSION, type TabLockPolicy } from "./tab-locks.js";
-import { type IdentitySettings, type RecordSettings, readIdentitySettings } from "./settings.js";
+import { type IdentitySettings, readIdentitySettings } from "./settings.js";
+import {
+  DEFAULT_CAPS,
+  type DefaultsContext,
+  type EffectiveSettings,
+  resolveDefaults,
+  systemLocale,
+} from "./defaults.js";
+import { readDetectedHealth } from "./health-detect.js";
+import type { RecordPlan } from "./recordings.js";
 import {
   type Providers,
   type StockAccess,
@@ -193,6 +203,8 @@ export interface HostOptions {
   providers?: Providers;
   /** `--live` and `--live-wait`; they win over identity.json `live`. */
   live?: LiveFlags;
+  /** Reads the memory pressure for `resources: "auto"` (tests inject one); default: turno-core's. */
+  memory?: PressureProbe;
 }
 
 export interface Host {
@@ -411,7 +423,21 @@ interface Running {
   guard?: NavigationGuard;
   /** The passkey prompts of this browser's pages (`passkey.ts`). */
   passkeys?: PasskeyWatch;
+  /** The devtools recordings the agent runs in this browser now ("a trace", "a video"). */
+  devtools: Set<string>;
 }
+
+/** The devtools capability's tools that start and stop a recording, and what each records. */
+const DEVTOOLS_START: ReadonlyMap<string, string> = new Map([
+  ["browser_start_tracing", "a trace"],
+  ["browser_start_video", "a video"],
+  ["browser_start_recording", "an action recording"],
+]);
+const DEVTOOLS_STOP: ReadonlyMap<string, string> = new Map([
+  ["browser_stop_tracing", "a trace"],
+  ["browser_stop_video", "a video"],
+  ["browser_stop_recording", "an action recording"],
+]);
 
 class SessionBackend extends EventEmitter implements ServerBackend {
   private clientInfo: ClientInfo | undefined;
@@ -420,8 +446,8 @@ class SessionBackend extends EventEmitter implements ServerBackend {
   private live: BrowserBackendInstance | undefined;
   private launched: LaunchedBrowser | undefined;
   private disposed = false;
-  /** identity.json `record` as of the last launch. */
-  private recordSettings: RecordSettings | undefined;
+  /** What the last launch records, identity.json `record` and its defaults together. */
+  private recordSettings: { flows: boolean } | undefined;
   /** Each client session's flow recorder: a recording belongs to the session that started it. */
   private readonly recorders = new Map<string, FlowRecorder>();
   /** The agent name each client session's calls came with (mcpd, a shared host), for the cursor. */
@@ -455,6 +481,12 @@ class SessionBackend extends EventEmitter implements ServerBackend {
       live?: LiveServer;
       /** identity.json `policy` as the server started (`policy.ts`). */
       policy?: IdentityPolicy;
+      /** `--engine` and `--attach`, for the engine the defaults resolve against. */
+      engineFlags: EngineFlags;
+      /** The memory pressure now, for `resources: "auto"`. */
+      pressure: () => Promise<PressureLevel>;
+      /** The server's own `--caps`, when given: then it is the whole list. */
+      caps?: readonly string[];
     },
     private readonly title: (clientInfo: ClientInfo) => string,
   ) {
@@ -510,18 +542,22 @@ class SessionBackend extends EventEmitter implements ServerBackend {
         refuseWhileNeedsAuth(identity);
       }
       const settings = identity ? readIdentitySettings(identity.id, identity.env) : undefined;
-      const tuning = resolveTuning(settings, this.host.tuning);
+      const effective = await this.defaults(settings, hostConfig);
+      const tuning = resolveTuning(settings, this.host.tuning, effective);
       const locale = uiLocale(settings);
       // The low-resource preset's idle limit, unless the user set one (`resolveTuning`).
       const config =
         tuning.browserIdleMs === undefined
           ? hostConfig
           : { ...hostConfig, timeouts: { ...hostConfig.timeouts, idle: tuning.browserIdleMs } };
-      this.recordSettings = settings?.record;
-      const noTraces = config.capabilities?.includes("devtools")
-        ? "the devtools capability records traces of its own"
-        : undefined;
-      const traces = identity && settings?.record?.traces && !noTraces;
+      const plan: RecordPlan & { flows: boolean } = {
+        flows: effective.record.flows.value === true,
+        screenshots: effective.record.screenshots.value === true,
+        traces: effective.record.traces.value ?? false,
+        ...(settings?.record?.maxSize ? { maxSize: settings.record.maxSize } : {}),
+      };
+      this.recordSettings = plan;
+      const traces = identity && plan.traces;
       const title = this.title(clientInfo);
       const launched = await engine.launch({
         // Playwright writes a trace's raw files to tracesDir as it records: an identity's
@@ -549,7 +585,7 @@ class SessionBackend extends EventEmitter implements ServerBackend {
         await launched.close().catch(() => {});
         throw new Error(clash);
       }
-      // Human-like input (off by default): the input tools of this browser run on humanized tabs.
+      // Human-like input (`auto` by default): the input tools of this browser run on humanized tabs.
       const input =
         tuning.humanize.level === "off"
           ? undefined
@@ -639,15 +675,14 @@ class SessionBackend extends EventEmitter implements ServerBackend {
         if (patterns) guard = await NavigationGuard.install(launched.context, patterns);
         // Never in read or attach mode: the engine refuses traces and screenshots there first.
         const idleLimit = idleMs(sessionConfig);
-        if (identity && profile && settings?.record)
+        if (identity && profile)
           recording = await Recording.open({
             identity,
-            settings: settings.record,
+            settings: plan,
             context: launched.context,
             redactor: this.host.redactor,
             guard: this.host.guard,
             title,
-            ...(noTraces ? { noTraces } : {}),
             ...(idleLimit ? { idleMs: idleLimit } : {}),
             beforeSave: async () => {
               await Promise.all(launched.context.pages().map((page) => this.readFields(page)));
@@ -754,6 +789,7 @@ class SessionBackend extends EventEmitter implements ServerBackend {
         locale,
         ...(guard ? { guard } : {}),
         ...(passkeys ? { passkeys } : {}),
+        devtools: new Set<string>(),
       };
     })();
     promise.catch(() => {
@@ -761,6 +797,42 @@ class SessionBackend extends EventEmitter implements ServerBackend {
     });
     this.current = promise;
     return promise;
+  }
+
+  /**
+   * The defaults of this launch (`defaults.ts`): what the context says about the browser about
+   * to start, resolved against identity.json and the server's flags.
+   */
+  private async defaults(settings: IdentitySettings | undefined, config: McpConfig): Promise<EffectiveSettings> {
+    const { identity, engineFlags, tuning, live } = this.host;
+    let choice = "default";
+    try {
+      choice = engineChoice(engineFlags, settings).kind;
+    } catch {
+      /* the engine's launch reports a setting that does not resolve */
+    }
+    const userArgs = (config.browser.launchOptions.args as string[] | undefined) ?? [];
+    const ctx: DefaultsContext = {
+      identity: identity !== undefined,
+      headless: config.browser.launchOptions.headless === true,
+      engine: choice === "default" ? "chrome" : choice,
+      pressure: await this.host.pressure().catch(() => "normal" as const),
+      ...(this.host.policy ? { policy: this.host.policy } : {}),
+      serverUserAgent:
+        config.browser.contextOptions?.userAgent !== undefined ||
+        config.browser.launchOptions.proxy !== undefined ||
+        userArgs.some((a) => a.startsWith("--user-agent") || a.startsWith("--proxy-server")),
+      ...(identity ? { systemLocale: cachedSystemLocale() } : {}),
+      ...(identity ? optional("detectedHealth", readDetectedHealth(identity.id, identity.env)) : {}),
+      ...(this.host.caps ? { caps: this.host.caps } : {}),
+    };
+    return resolveDefaults(settings, ctx, {
+      ...(live ? { live: true } : { live: false }),
+      ...(tuning.resources ? { resources: tuning.resources } : {}),
+      ...(tuning.humanize ? { humanize: tuning.humanize } : {}),
+      ...(tuning.sharing ? { sharing: tuning.sharing } : {}),
+      ...(tuning.backgroundThrottling !== undefined ? { backgroundThrottling: tuning.backgroundThrottling } : {}),
+    });
   }
 
   /**
@@ -1065,8 +1137,10 @@ class SessionBackend extends EventEmitter implements ServerBackend {
     let engine: string | undefined;
     let input: HumanInput | undefined;
     let human: ((params: Record<string, unknown>) => Promise<ToolResult>) | undefined;
+    let devtools: (() => string | undefined) | undefined;
     if (tool.browser !== false) {
       const running = await this.browser();
+      devtools = () => [...running.devtools][0];
       engine = running.launched.engine;
       input = running.input;
       endCall = running.idle?.begin();
@@ -1125,6 +1199,7 @@ class SessionBackend extends EventEmitter implements ServerBackend {
                 ...(secretHook ? { beforeFill: (page: Page) => secretHook(page) } : {}),
                 ...(input ? { input } : {}),
                 ...(this.host.policy ? { policy: this.host.policy } : {}),
+                ...(devtools ? { devtools } : {}),
               },
             }
           : {}),
@@ -1337,6 +1412,9 @@ class SessionBackend extends EventEmitter implements ServerBackend {
     page: Page | undefined,
   ): Promise<PendingStep | undefined> {
     const { recording } = running;
+    // The agent's own trace or video and turno's trace use the same Playwright tracer.
+    const starts = DEVTOOLS_START.get(name);
+    if (starts) await recording?.yieldToDevtools(starts);
     await recording?.beforeCall();
     // While a trace records, a value the person typed since the last call is known before it is traced.
     if (recording && page) await this.readFields(page);
@@ -1382,6 +1460,14 @@ class SessionBackend extends EventEmitter implements ServerBackend {
     page: Page | undefined,
   ): Promise<void> {
     if (pending && !result.isError) this.recorderFor(session)?.commit(pending);
+    const starts = DEVTOOLS_START.get(name);
+    const stops = DEVTOOLS_STOP.get(name);
+    if (starts && !result.isError) running.devtools.add(starts);
+    if (starts && result.isError) running.recording?.devtoolsDone(starts);
+    if (stops && !result.isError) {
+      running.devtools.delete(stops);
+      running.recording?.devtoolsDone(stops);
+    }
     const type = this.host.stockTypes.get(name);
     if (running.recording && type !== "readOnly" && type !== "assertion")
       await running.recording.afterStep({
@@ -1656,13 +1742,16 @@ async function afterIdentityLaunch(
     },
     onCheck ? { onCheck: (page, found) => onCheck(page as unknown as Page, found) } : {},
   );
-  const check = readIdentitySettings(id, env)?.health;
+  const own = readIdentitySettings(id, env)?.health;
+  // The check `login` found is a guess: it is run and reported, but it never refuses the launch.
+  const detected = own === undefined ? readDetectedHealth(id, env) : undefined;
+  const check = own || detected;
   if (!check || !healthDue(readHealth(id, env), check)) return;
   const record = await runHealthCheck(launched.context as unknown as HealthContext, check);
   writeHealth(id, env, record);
   if (record.status === "needs_auth") {
     process.stderr.write(`turno-browser-mcp: ${id} needs a new sign-in (${record.detail} at ${record.url})\n`);
-    throw new Error(needsAuthMessage(id, record));
+    if (!detected) throw new Error(needsAuthMessage(id, record));
   }
 }
 
@@ -1702,15 +1791,53 @@ function refuseCaps(
   }
 }
 
+/** The system locale, read once per process (on macOS it runs `defaults`). */
+let systemLocaleRead: { value: string | undefined } | undefined;
+function cachedSystemLocale(): string | undefined {
+  systemLocaleRead ??= { value: systemLocale() };
+  return systemLocaleRead.value;
+}
+
+/** `{ [key]: value }`, or nothing when the value is undefined. */
+function optional<K extends string, V>(key: K, value: V | undefined): { [P in K]?: V } {
+  return (value === undefined ? {} : { [key]: value }) as { [P in K]?: V };
+}
+
+/**
+ * The capabilities the server lists: the server's own `--caps` (or its config's) when given,
+ * else the defaults (`defaults.ts`): vision, pdf, devtools (not with record.traces, which uses the
+ * same tracer) and network (not when the policy turns it off).
+ */
+function defaultCaps(config: McpConfig, settings: IdentitySettings | undefined, options: HostOptions): McpConfig {
+  if (config.capabilities) return config;
+  let engine = "chrome";
+  try {
+    const kind = engineChoice(options.engineFlags ?? options.engine?.flags ?? {}, settings).kind;
+    engine = kind === "default" ? "chrome" : kind;
+  } catch {
+    /* the first launch reports a bad engine setting */
+  }
+  const policy = options.identity ? settings?.policy : undefined;
+  const effective = resolveDefaults(settings, {
+    identity: options.identity !== undefined,
+    engine,
+    ...(policy ? { policy } : {}),
+  });
+  return { ...config, capabilities: DEFAULT_CAPS.filter((cap) => effective.caps[cap].value === true) };
+}
+
 /** Builds the host for a resolved config: tool list, engine and session factory. */
 export function createHost(options: HostOptions): Host {
   const { tools } = upstream();
-  const { config, cliOptions } = options;
+  const { cliOptions } = options;
   const atStart = startSettings(options.identity);
+  const given = options.config.capabilities;
+  const config = defaultCaps(options.config, atStart, options);
   const policy = options.identity ? atStart?.policy : undefined;
   // The tools a policy turns off are not listed, and the session's browser does not know them.
   const disabled = disabledTools(policy);
-  refuseCaps(config, policy, disabled, options.identity);
+  // Only a capability the server was given is refused: a default one the policy turns off is left out.
+  refuseCaps(options.config, policy, disabled, options.identity);
   const stock = tools.filteredTools(config).filter((t) => !disabled.has(t.schema.name));
   const stockSchemas = new Map(stock.map((t) => [t.schema.name, t.schema.inputSchema]));
   const stockTypes = new Map(stock.map((t) => [t.schema.name, t.schema.type]));
@@ -1720,6 +1847,7 @@ export function createHost(options: HostOptions): Host {
   checkTurnoTools(turnoTools, tools.browserTools);
   const turno = new Map(turnoTools.map((t) => [t.schema.name, t]));
   const engine = options.engine ?? createEngine(config, options.engineFlags);
+  const engineFlags = options.engineFlags ?? engine.flags ?? {};
   const schemas = [...stock.map((t) => t.schema), ...turnoTools.map((t) => t.schema)];
   const sessionsByName = new Map<string, number>();
   const title = (clientInfo: ClientInfo) => {
@@ -1742,6 +1870,9 @@ export function createHost(options: HostOptions): Host {
     redactor,
     guard,
     tabLocks: options.tabLocks ?? {},
+    engineFlags,
+    pressure: options.memory ?? memoryPressureProbe(),
+    ...(given ? { caps: given } : {}),
     ...(live ? { live } : {}),
     ...(options.identity ? { identity: options.identity } : {}),
     ...(options.vaultStore ? { vaultStore: options.vaultStore } : {}),
@@ -1793,7 +1924,7 @@ function liveServerFor(
     viewRefusal: (engine) => {
       if (engine) return viewRefusal(engine);
       try {
-        return viewRefusal(engineChoice(options.engineFlags ?? {}, settings()).kind);
+        return viewRefusal(engineChoice(options.engineFlags ?? options.engine?.flags ?? {}, settings()).kind);
       } catch {
         return undefined;
       }

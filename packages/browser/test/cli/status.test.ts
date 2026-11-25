@@ -66,18 +66,25 @@ describe("turno-browser status", () => {
         timezone: "America/Monterrey",
         languages: ["es-MX", "en"],
         humanize: "light",
-        sharing: "session",
+        sharing: "tabs",
         resources: "low",
       },
       inUse: false,
       holder: null,
-      vault: { sites: [], submit: "confirm" },
+      vault: { sites: [], submit: "auto" },
       signedIn: { at: "2026-11-19T15:00:00.000Z", sites: ["canvas.example.edu"] },
       cookieHosts: ["canvas.example.edu"],
       lastUsed: "2026-11-20T18:00:00.000Z",
       agents: [{ agent: "claude-code", server: "browser-school", file: join("~", ".claude.json") }],
     });
-    expect(r.identities[1].settings.resources).toBe("normal");
+    // Without the key, the preset is decided at launch, and the default says where it came from.
+    expect(r.identities[1].settings.resources).toBe("auto");
+    expect(r.identities[1].settings.defaults).toEqual(
+      expect.arrayContaining([
+        "resources: auto (auto: the low-resource preset while memory is short)",
+        "sharing: tabs (default)",
+      ]),
+    );
     expect(r.identities[1]).toMatchObject({ id: "work", signedIn: null, cookieHosts: [], lastUsed: null, agents: [] });
 
     const one = fakeIo(sb.env);

@@ -50,7 +50,7 @@ Every claim about another project comes from its own docs or repository, checked
 
 | | |
 |---|---|
-| **turno-browser** | One session per identity at a time by default. With tab sharing on, several agent sessions work in one Chrome, each in its own tabs, with locks that keep one session out of another's tabs. They share the identity's cookies; one identity per account keeps accounts apart. |
+| **turno-browser** | Several agent sessions work in one identity's Chrome by default, each in its own tabs, with locks that keep one session out of another's tabs (attach mode serves one session at a time). They share the identity's cookies; one identity per account keeps accounts apart. |
 | Playwright MCP | A persistent profile serves one browser at a time; parallel clients need `--isolated` or their own profile. Over HTTP, `--shared-browser-context` shares one context, and a tab can open in its own named isolated context. |
 | chrome-devtools-mcp | When one server is shared by concurrent sessions, page ID routing lets each session work on its own tab; `--isolated` gives each server a temporary profile. |
 | Steel | The MCP server allows 10 live sessions per key by default; self-hosted Steel runs one session at a time. |
@@ -71,7 +71,7 @@ Every claim about another project comes from its own docs or repository, checked
 
 | | |
 |---|---|
-| **turno-browser** | An agent saves what it did as a flow and replays it later; typed text becomes parameters, and sensitive ones are asked again or read from the secret store. Playwright traces and screenshots are off by default. There is no video. |
+| **turno-browser** | An agent saves what it did as a flow and replays it later; typed text becomes parameters, and sensitive ones are asked again or read from the secret store. Screenshots are on by default under a disk cap, and a Playwright trace is kept when a step fails. There is no video. |
 | Playwright MCP | Records what you do by hand as Playwright code, and records traces and video (opt-in tools). |
 | chrome-devtools-mcp | Performance traces with insights, and screencast video. |
 | browser-use | Recordings in Browser Use Cloud. |
@@ -84,7 +84,7 @@ Every claim about another project comes from its own docs or repository, checked
 
 | | |
 |---|---|
-| **turno-browser** | Off by default. A live view on 127.0.0.1 shows the agent's tab; pause holds the agent's next call while you act, and on resume the agent is told what changed. Pages that hold a vault value are not shown. |
+| **turno-browser** | On by default, opened only when you ask. A live view on 127.0.0.1 shows the agent's tab; pause holds the agent's next call while you act, and on resume the agent is told what changed. Pages that hold a vault value are not shown. |
 | chrome-devtools-mcp | With `--autoConnect` you and the agent use the same Chrome, so you can switch between your own work and the agent's. |
 | browser-use | In the cloud, you open the live view, act, then continue the same session. |
 | Steel | The MCP server's handoff gives you the browser for a login or a payment and gives it back to the agent, which reads the page again. |

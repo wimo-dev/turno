@@ -38,11 +38,16 @@ export interface LivePolicy {
   waitMs: number;
 }
 
-/** The live policy of a server: flags, then identity.json, then off. */
+/**
+ * The live policy of a server with an identity: flags, then identity.json, then on. The view
+ * listens on 127.0.0.1 behind a per-process cookie and opens only when the person asks for a
+ * one-time link (`turno-browser live <id>`), so being on costs a socket, not exposure.
+ */
 export function resolveLive(settings: LiveSettings | undefined, flags: LiveFlags = {}): LivePolicy {
   const wait = settings?.wait === undefined ? undefined : parseDuration(settings.wait);
+  const enabled = settings?.enabled;
   return {
-    enabled: flags.live ?? settings?.enabled ?? false,
+    enabled: flags.live ?? (typeof enabled === "boolean" ? enabled : true),
     waitMs: flags.waitMs ?? wait ?? DEFAULT_LIVE_WAIT_MS,
   };
 }

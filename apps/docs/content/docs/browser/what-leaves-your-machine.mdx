@@ -32,10 +32,10 @@ An instruction that contains a value the server hides (a vault value or a sensit
 
 ## What never leaves
 
-- **Recordings**: flows, traces and screenshots stay in the identity's state folder.
+- **Recordings**: flows, traces and screenshots stay in the identity's state folder. Flows and screenshots are on by default, under a disk cap, never of a page that shows a vault value; traces are off unless identity.json turns them on.
 - **The reputation log**: challenges and captcha attempts are written locally, with the host name, never a token or a key.
 - **Session exports**: `turno-browser export` writes an encrypted file on your disk; it goes wherever you copy it, and never holds vault credentials.
-- **The live view** is served on `127.0.0.1` only, on a random port, to a browser that holds a random per-process cookie. The background server listens on a Unix socket in a folder only your user can enter, or on `127.0.0.1` with a per-server token. See [Security and privacy](/docs/security#the-browser-package).
+- **The live view**, on by default for a server with an identity, is served on `127.0.0.1` only, on a random port, to a browser that holds a random per-process cookie. The background server listens on a Unix socket in a folder only your user can enter, or on `127.0.0.1` with a per-server token. See [Security and privacy](/docs/security#the-browser-package).
 
 ## Chrome's own traffic
 

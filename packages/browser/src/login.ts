@@ -3,12 +3,22 @@ import { join } from "node:path";
 import { replaceFileSync } from "turno-core/paths";
 import { identityBrowserLaunch } from "./browsers.js";
 import { clearHealth } from "./health.js";
+import { signedInCheck, writeDetectedHealth } from "./health-detect.js";
 import { identityStateDir } from "./ids.js";
 import { IdentityError, identityDir, inUseBy, isInUse } from "./identities.js";
 import { startedChromePid } from "./lifecycle.js";
 import { CHROME_PROXY_ARGS, resolveProxy } from "./network.js";
+import { readChromeMetadata } from "./network-chrome.js";
+import type { McpConfig } from "./upstream.js";
 import { acquireRuntimeLock } from "./runtime-lock.js";
-import { chromeEnv, keychainArgs, launchSettings, readIdentitySettings, systemTimezone } from "./settings.js";
+import {
+  type HealthCheck,
+  chromeEnv,
+  keychainArgs,
+  launchSettings,
+  readIdentitySettings,
+  systemTimezone,
+} from "./settings.js";
 import { names } from "./names.js";
 import { type UiLocale, fill, uiLocale, uiStrings } from "./ui-strings.js";
 import type { Page } from "patchright-core";
@@ -147,6 +157,10 @@ export async function loginIdentity(id: string, options: LoginOptions = {}): Pro
       env: chromeEnv(env),
     });
     const sites = new Set<string>();
+    // The last page that showed a sign-out link: the health check turno uses when the person
+    // set none (`health-detect.ts`). Not with health: false, or a check of the person's own.
+    let signedIn: Promise<HealthCheck | undefined> = Promise.resolve(undefined);
+    const detect = settings?.health === undefined;
     const pid = startedChromePid(dir);
     if (pid !== undefined) held.update({ chromePid: pid, pgid: pid });
     const closed = new Promise<void>((resolve) => ctx.on("close", () => resolve()));
@@ -158,6 +172,14 @@ export async function loginIdentity(id: string, options: LoginOptions = {}): Pro
         const site = siteOf(frame.url());
         if (site) sites.add(site);
       });
+      if (detect)
+        page.on("load", () => {
+          const before = signedIn;
+          signedIn = signedInCheck(page).then(
+            async (found) => found ?? (await before),
+            () => before,
+          );
+        });
       page.on("close", () => {
         setTimeout(() => {
           if (ctx.pages().length === 0) void ctx.close().catch(() => undefined);
@@ -175,8 +197,23 @@ export async function loginIdentity(id: string, options: LoginOptions = {}): Pro
       else await page.setContent(welcomePage(id, undefined, uiLocale(settings))).catch(() => undefined);
       await closed;
       clearHealth(id, env);
+      const found = await signedIn.catch(() => undefined);
+      if (found) {
+        try {
+          writeDetectedHealth(id, env, found);
+        } catch {
+          /* best effort: the sign-in itself worked */
+        }
+      }
       const result = { sites: [...sites].sort() };
       writeLoginRecord(id, env, { at: new Date().toISOString(), sites: result.sites });
+      // This Chrome's client hints, read once per version, so a headless server of the identity
+      // gets the coherent user agent by default from its next launch (`network-chrome.ts`).
+      if (settings?.userAgent !== false && settings?.engine === undefined)
+        await readChromeMetadata(
+          { browser: { launchOptions: identityBrowserLaunch(settings, env, names().browser) } } as unknown as McpConfig,
+          env,
+        );
       return result;
     } finally {
       process.off("SIGINT", stop);

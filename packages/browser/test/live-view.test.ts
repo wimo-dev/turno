@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, onTestFinished } from "vit
 import { addIdentity } from "../src/identities.js";
 import { liveLink, livePause, liveResume, liveStatus } from "../src/live-client.js";
 import { writeIdentitySettings } from "../src/settings.js";
-import { vaultAdd } from "../src/vault.js";
+import { vaultAdd, vaultSetSubmit } from "../src/vault.js";
 import { chromeUnavailable, stopSandboxProcesses } from "./helpers/chrome.js";
 import { fakeSecretStore } from "./helpers/fake-secret-store.js";
 import { type Sandbox, sandbox } from "./helpers/sandbox.js";
@@ -249,6 +249,8 @@ describe.skipIf(reason)(`live view and take-over with a real Chrome${reason ? ` 
       { urls: [`${web.url}/login`], username: EMAIL, password: PASSWORD },
       { env: sb.env },
     );
+    // The agent presses Sign in itself here, so the page keeps the filled values until then.
+    vaultSetSubmit("vault", "confirm", { env: sb.env });
     const client = await start("vault");
     await call(client, "browser_navigate", { url: `${web.url}/login` });
     const { port, cookie } = await signIn("vault");

@@ -104,6 +104,8 @@ export interface Engine {
    * browser; undefined when it runs it. For the identity's engine, `identity` says which one.
    */
   refuse?(tool: string, identity?: IdentityRef): string | undefined;
+  /** The engine flags `createEngine` got, so the host's defaults know an engine a flag picks. */
+  flags?: EngineFlags;
 }
 
 /** True when the config asks for the browser the `chrome` engine launches. */
@@ -193,9 +195,20 @@ const chromeEngine: Engine = {
     const { tools } = upstream();
     const tracesDir = resolve(tools.outputDir({ config, cwd: clientInfo.cwd }), "traces");
     const settings = identity ? readIdentitySettings(identity.id, identity.env) : undefined;
+    // The user agent the defaults resolved (`defaults.ts`): identity.json's choice, or coherent
+    // in a headless Chrome. A default one that cannot be applied is dropped, never fatal.
+    const userAgent = tuning ? tuning.userAgent : settings?.userAgent === "coherent" ? "coherent" : undefined;
+    const asked = settings ? { ...settings, userAgent } : undefined;
+    const byDefault = tuning?.userAgent === "coherent" && settings?.userAgent !== "coherent";
+    const plain = asked ? { ...asked, userAgent: undefined } : undefined;
     // Proxy credentials and the coherent user agent are settled before the lock: a missing
     // secret or an unknown Chrome version stops here, with nothing to undo.
-    const network = settings ? await chromeNetwork(settings, config, identity!.env, secret ?? (() => {})) : undefined;
+    const networkOf = (s: IdentitySettings | undefined) =>
+      s ? chromeNetwork(s, config, identity!.env, secret ?? (() => {}), byDefault) : Promise.resolve(undefined);
+    let network = await networkOf(asked).catch((error: unknown) => {
+      if (!byDefault) throw error;
+      return networkOf(plain);
+    });
     const held = identity ? acquireRuntimeLock(identity.id, identity.env, { holder: "mcp" }) : undefined;
     let context: BrowserContext;
     let browser: Browser;
@@ -203,7 +216,13 @@ const chromeEngine: Engine = {
       if (await profileLocked5Times(userDataDir)) throw profileInUse(identity, userDataDir);
       const ignore = config.browser.launchOptions.ignoreDefaultArgs;
       const userArgs = (config.browser.launchOptions.args as string[] | undefined) ?? [];
-      const applied = launchSettings(settings, userArgs, systemTimezone(), config.browser.contextOptions);
+      const applied = launchSettings(
+        settings,
+        userArgs,
+        systemTimezone(),
+        config.browser.contextOptions,
+        identity ? tuning?.locale : undefined,
+      );
       const tuned = tuning ? launchTuning(tuning) : { ignoreDefaultArgs: [], contextOptions: {} };
       // Chrome's third-party storage partitioning stays on, as in a person's Chrome (`chrome-features.ts`).
       // The low-resource preset's features go in the same list: Chrome reads only the last one.
@@ -238,15 +257,29 @@ const chromeEngine: Engine = {
                 ...(Array.isArray(ignore) ? ignore : []),
               ],
       };
-      try {
-        context = await playwright()[config.browser.browserName].launchPersistentContext(userDataDir, launchOptions);
-      } catch (err) {
-        throw launchError(err as Error, config, userDataDir, launchOptions.channel as string | undefined);
-      }
+      const open = async (options: typeof launchOptions) => {
+        try {
+          return await playwright()[config.browser.browserName].launchPersistentContext(userDataDir, options);
+        } catch (err) {
+          throw launchError(err as Error, config, userDataDir, options.channel as string | undefined);
+        }
+      };
+      context = await open(launchOptions);
       browser = context.browser() as Browser;
       try {
         const pinned = network?.pin ? pinUserAgent(context, network.pin) : undefined;
         if (network?.verify) await verifyCoherence(context, browser.version(), network.verify, pinned);
+      } catch (err) {
+        await browser.close().catch(() => {});
+        if (!byDefault) throw err;
+        // The default coherent user agent did not check out on this Chrome: launch as it is.
+        process.stderr.write(`turno-browser-mcp: ${(err as Error).message.split("\n")[0]}; launching without it\n`);
+        network = await networkOf(plain);
+        const userAgentArgs = new Set(launchOptions.args.filter((a) => a.startsWith("--user-agent=")));
+        context = await open({ ...launchOptions, args: launchOptions.args.filter((a) => !userAgentArgs.has(a)) });
+        browser = context.browser() as Browser;
+      }
+      try {
         await browser.bind(title, { workspaceDir: clientInfo.cwd });
       } catch (err) {
         await browser.close().catch(() => {});
@@ -441,7 +474,7 @@ export function engineChoice(
 export function tuningClash(engine: string, tuning: Pick<Tuning, "sharing" | "humanize">): string | undefined {
   if (engine === "attach" && tuning.sharing === "tabs")
     return '"sharing": "tabs" does not go with attach mode: in your own Chrome turno keeps one agent\'s tabs apart from yours, not several sessions apart. Turn one off (--sharing session, or --attach "")';
-  if (engine === "lightpanda" && tuning.humanize.level !== "off")
+  if (engine === "lightpanda" && tuning.humanize.level !== "off" && tuning.humanize.level !== "auto")
     return "humanize does not go with read mode: Lightpanda lays out no page, so there is no pointer path or scroll to play. Turn one off (--humanize off, or --engine chrome)";
   return undefined;
 }
@@ -486,6 +519,7 @@ export function createEngine(config: McpConfig, flags: EngineFlags = {}, fallbac
   };
   return {
     id: base.id,
+    flags,
     launch: async (request) => {
       const engine = choose(request.identity);
       const settings = request.identity ? readIdentitySettings(request.identity.id, request.identity.env) : undefined;

@@ -1,3 +1,4 @@
+import type { EffectiveSettings } from "./defaults.js";
 import type { HumanizeLevel, HumanizeSettings } from "./humanize.js";
 import { DEFAULT_CACHE_BYTES, type ResourcePolicy } from "./resources.js";
 import type { CursorMode, IdentitySettings, ResourceMode } from "./settings.js";
@@ -9,7 +10,9 @@ import { parseDuration, parseSize } from "./units.js";
  * How the host runs one session's Chrome: the tab governor, background tab
  * throttling, the wait after each action, and resource blocking and caching. Each value comes from, in order of precedence, a `turno-browser-mcp` flag, the
  * identity's identity.json, the low-resource preset when it is on (`LOW_RESOURCES`), then the
- * defaults below. identity.json is read at every launch, like the rest of it.
+ * defaults below and those `defaults.ts` resolves for the launch (background throttling in a
+ * headless Chrome nobody watches, the preset under memory pressure, humanize and sharing).
+ * identity.json is read at every launch, like the rest of it.
  */
 
 export interface TabPolicy {
@@ -26,7 +29,8 @@ export interface TabPolicy {
 export interface Tuning {
   tabs: TabPolicy;
   /**
-   * False (the default): Chrome runs every tab at full speed, as Playwright launches it. True:
+   * False: Chrome runs every tab at full speed, as Playwright launches it (the default with a
+   * window or the live view; headless without the live view it is true). True:
    * Chrome throttles the tabs that are not in front, and the host brings the agent's tab to the
    * front before each call (see `launchTuning`).
    */
@@ -38,11 +42,12 @@ export interface Tuning {
   settleMs?: number;
   /** Opt-in resource blocking and cache, from identity.json `block` and `cache`. */
   resources: ResourcePolicy;
-  /** Human-like input (`humanize.ts`), from `--humanize` or identity.json `humanize`; off by default. */
+  /** Human-like input (`humanize.ts`), from `--humanize` or identity.json `humanize`; `auto` by default. */
   humanize: HumanizeSettings;
   /**
-   * `"session"` (the default): one backend serves every call, as mcpd's `exclusive = true` lets
-   * one session at a time. `"tabs"`: each agent session gets its own tabs, with locks (`sharing.ts`).
+   * `"session"`: one backend serves every call, as mcpd's `exclusive = true` lets one session at
+   * a time (the default in attach mode). `"tabs"` (the default): each agent session gets its own
+   * tabs, with locks (`sharing.ts`).
    */
   sharing: SharingMode;
   /** With `"sharing": "tabs"`: the lock wait and idle release of identity.json `tabLocks`. */
@@ -58,6 +63,10 @@ export interface Tuning {
   browserIdleMs?: number;
   /** Chrome features the preset turns off, added to the `--disable-features` list turno passes. */
   disabledFeatures?: readonly string[];
+  /** `"coherent"` when identity.json or the default asks for the coherent user agent (`network.ts`). */
+  userAgent?: "coherent";
+  /** The locale Chrome launches with: identity.json's, else the system's (`defaults.ts`). */
+  locale?: string;
 }
 
 /** The defaults, documented on the browser identities page. */
@@ -106,7 +115,7 @@ export interface TuningFlags {
   idleSet?: boolean;
 }
 
-/** True when the low-resource preset is on: the flag, else identity.json. */
+/** True when the low-resource preset is asked for by name (`auto` decides at launch, `defaults.ts`). */
 function lowResources(settings: Pick<IdentitySettings, "resources"> | undefined, flags: TuningFlags = {}): boolean {
   return (flags.resources ?? settings?.resources) === "low";
 }
@@ -121,13 +130,30 @@ export function backgroundIdleMs(
   return user ?? (lowResources(settings, flags ?? {}) ? LOW_RESOURCES.backgroundIdleMs : fallback);
 }
 
-/** The tuning of a session: flags, then identity.json, then the preset, then the defaults. */
-export function resolveTuning(settings: IdentitySettings | undefined, flags: TuningFlags = {}): Tuning {
+/** The defaults of the launch that the tuning reads (`defaults.ts`). */
+export type TuningDefaults = Pick<
+  EffectiveSettings,
+  "resources" | "backgroundThrottling" | "humanize" | "sharing" | "userAgent" | "locale"
+>;
+
+/**
+ * The tuning of a session: flags, then identity.json, then the preset, then the defaults. The
+ * flags and identity.json already went into `defaults`; without them (a caller with no launch
+ * context) only what the flags and the file say counts, and the rest keeps its fixed default.
+ */
+export function resolveTuning(
+  settings: IdentitySettings | undefined,
+  flags: TuningFlags = {},
+  defaults?: TuningDefaults,
+): Tuning {
   const t = settings?.tabs;
   const ms = (v: string | undefined) => (v === undefined ? undefined : parseDuration(v));
   // No flag of turno's: Playwright's --timeout-settle is the flag, and it wins (configForSession).
   const settle = ms(settings?.settle);
-  const low = lowResources(settings, flags) ? LOW_RESOURCES : undefined;
+  const low = (defaults ? defaults.resources.value === "low" : lowResources(settings, flags))
+    ? LOW_RESOURCES
+    : undefined;
+  const level = flags.humanize ?? defaults?.humanize.value ?? settings?.humanize?.level ?? "auto";
   return {
     tabs: {
       max: flags.maxTabs ?? t?.max ?? low?.tabs.max ?? DEFAULT_TABS.max,
@@ -135,14 +161,15 @@ export function resolveTuning(settings: IdentitySettings | undefined, flags: Tun
       parkMs: flags.parkAfterMs ?? ms(t?.park) ?? low?.tabs.parkMs ?? DEFAULT_TABS.parkMs,
       closeMs: flags.closeAfterMs ?? ms(t?.close) ?? DEFAULT_TABS.closeMs,
     },
-    backgroundThrottling: flags.backgroundThrottling ?? settings?.backgroundThrottling ?? false,
+    backgroundThrottling:
+      flags.backgroundThrottling ?? settings?.backgroundThrottling ?? defaults?.backgroundThrottling.value ?? false,
     ...(settle === undefined ? {} : { settleMs: settle }),
     resources: resourcePolicy(settings),
     humanize: {
       ...settings?.humanize,
-      level: flags.humanize ?? settings?.humanize?.level ?? "off",
+      level,
     },
-    sharing: flags.sharing ?? settings?.sharing ?? "session",
+    sharing: flags.sharing ?? settings?.sharing ?? defaults?.sharing.value ?? "tabs",
     cursor: flags.cursor ?? settings?.cursor ?? "auto",
     tabLocks: {
       ...(settings?.tabLocks?.wait === undefined ? {} : { waitMs: ms(settings.tabLocks.wait)! }),
@@ -155,6 +182,8 @@ export function resolveTuning(settings: IdentitySettings | undefined, flags: Tun
           disabledFeatures: low.disabledFeatures,
         }
       : {}),
+    ...(defaults?.userAgent.value === "coherent" ? { userAgent: "coherent" as const } : {}),
+    ...(typeof defaults?.locale.value === "string" ? { locale: defaults.locale.value } : {}),
   };
 }
 

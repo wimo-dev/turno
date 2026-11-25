@@ -8,6 +8,7 @@ import {
   type Persona,
   type Point,
   Rng,
+  autoLevel,
   clickTiming,
   hashSeed,
   keyDelays,
@@ -162,9 +163,10 @@ export class HumanInput {
     this.challenged.add(site);
   }
 
-  /** The level of an action on this page. */
-  levelFor(page: Page): ActionLevel {
+  /** The level of an action on this page; `readOnly` for a step that only looks (`auto`). */
+  levelFor(page: Page, readOnly = false): ActionLevel {
     const { level } = this.settings;
+    if (level === "auto") return autoLevel(page.url(), this.challenged, readOnly);
     if (level !== "adaptive") return level;
     try {
       return this.challenged.has(new URL(page.url()).hostname) ? "full" : "light";
@@ -324,7 +326,7 @@ export class HumanInput {
         await original.dblclick({ ...options, position: HumanInput.position(at), delay: timing.press });
       },
       hover: async (options?: Options) => {
-        const l = level();
+        const l = this.levelFor(page, true);
         const at = l === "off" ? undefined : await this.aim(page, original, l);
         await original.hover(at ? { ...options, position: HumanInput.position(at) } : options);
       },
@@ -399,7 +401,7 @@ export class HumanInput {
     const mouse = page.mouse;
     return overlay(mouse, {
       move: async (x: number, y: number, options?: { steps?: number }) => {
-        const l = this.levelFor(page);
+        const l = this.levelFor(page, true);
         if (l === "off") return await mouse.move(x, y, options);
         await this.travel(page, { x, y }, 40, l);
       },
@@ -412,7 +414,7 @@ export class HumanInput {
         await mouse.click(x, y, { ...options, delay: options?.delay ?? timing.press });
       },
       wheel: async (dx: number, dy: number) => {
-        if (this.levelFor(page) !== "full") return await mouse.wheel(dx, dy);
+        if (this.levelFor(page, true) !== "full") return await mouse.wheel(dx, dy);
         const start = this.now();
         let at = 0;
         for (const step of planWheel(dx, dy, this.rng)) {

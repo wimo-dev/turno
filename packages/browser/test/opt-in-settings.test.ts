@@ -35,16 +35,20 @@ describe("the act and captcha keys", () => {
       sb.env,
     );
     expect(s.act).toMatchObject({ provider: "chat-completions", maxSteps: 5 });
-    expect(actBudget(s.act!)).toEqual({ maxSteps: 5, maxTokens: 20_000, timeoutMs: 90_000 });
+    expect(actBudget(s.act || {})).toEqual({ maxSteps: 5, maxTokens: 20_000, timeoutMs: 90_000 });
     expect(actBudget({})).toEqual({ maxSteps: 10, maxTokens: 50_000, timeoutMs: 120_000 });
-    expect(writeIdentitySettings("a", { act: { sampling: false, ...PROVIDER } }, sb.env).act?.sampling).toBe(false);
+    expect(
+      (writeIdentitySettings("a", { act: { sampling: false, ...PROVIDER } }, sb.env).act || undefined)?.sampling,
+    ).toBe(false);
     // A local model server: plain http, but only on a loopback address.
     expect(
-      writeIdentitySettings(
-        "a",
-        { act: { ...PROVIDER, endpoint: "http://127.0.0.1:11434/v1", key: undefined } },
-        sb.env,
-      ).act?.endpoint,
+      (
+        writeIdentitySettings(
+          "a",
+          { act: { ...PROVIDER, endpoint: "http://127.0.0.1:11434/v1", key: undefined } },
+          sb.env,
+        ).act || undefined
+      )?.endpoint,
     ).toBe("http://127.0.0.1:11434/v1");
   });
 

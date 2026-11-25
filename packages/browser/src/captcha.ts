@@ -310,7 +310,7 @@ export function solveCaptchaTool(): TurnoTool {
       const { identity } = vault;
       let settings: CaptchaSettings | undefined;
       try {
-        settings = readIdentitySettings(identity.id, identity.env)?.captcha;
+        settings = readIdentitySettings(identity.id, identity.env)?.captcha || undefined;
       } catch (error) {
         return fail((error as Error).message);
       }

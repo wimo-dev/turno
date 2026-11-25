@@ -45,22 +45,28 @@ An empty value removes one key (`--tabs-park ""`) and `--no-tabs` the whole grou
 --json` shows the file `set` would write without writing it.
 
 `"0"` turns a stage off and `max: 0` removes the cap. What turno closed or parked is listed at
-the end of the next tool result. Tabs in the background run at full speed, as Playwright launches
-Chrome; `"backgroundThrottling": true` (`turno-browser set school
---background-throttling true`, or the server's `--background-throttling`) lets Chrome slow them down
-and brings the agent's tab to the front before each call. It suits a headless browser or a window
-left in view: a covered headed window stops rendering.
+the end of the next tool result. In a headless Chrome without the live view, background tabs are
+throttled by default: Chrome slows them down, and turno brings the agent's tab to the front before
+each call. With a window or the live view on, they run at full speed, as Playwright launches
+Chrome, because a covered headed window stops rendering and the live view needs frames.
+`"backgroundThrottling": true` or `false` (`turno-browser set school --background-throttling
+false`, or the server's `--background-throttling`) decides it for good.
 
 ## Low-resource mode
 
 On a laptop with little memory, every Chrome an identity opens, and every tab in it, adds up
-until the system starts swapping or restarts. `"resources": "low"` turns on a preset for such a
-machine:
+until the system starts swapping or restarts. By default (`"resources": "auto"`, or no key) the
+preset below turns on by itself when the system reports memory pressure as Chrome starts; it is
+read again at every launch. `"low"` keeps it on and `"normal"` keeps it off:
 
 ```sh
 turno-browser set school --resources low
 turno-browser-mcp --identity school --resources low   # the flag wins over identity.json
+turno-browser set school --resources normal          # never, even under memory pressure
 ```
+
+`turno-browser show school` says which applies and why, for example `resources: low (auto: memory
+pressure)`.
 
 | What | Default | With `"resources": "low"` |
 |---|---|---|
@@ -74,7 +80,7 @@ turno-browser-mcp --identity school --resources low   # the flag wins over ident
 A key set on its own still wins over the preset: `--tabs-max 3` with `--resources low` keeps 3
 tabs, and `TURNO_BROWSER_IDLE`, `--idle-timeout`, `--background-idle` and
 `TURNO_BROWSER_BACKGROUND_IDLE` keep the limits you set. `--resources normal` (or an empty
-value, which removes the key) goes back to the defaults.
+value, which removes the key, back to `auto`) sets the limits back to the defaults.
 
 While the system reports memory pressure (the same reading mcpd uses to stop idle servers
 sooner: the kernel's level on macOS, pressure stall information on Linux), the preset adds a
@@ -104,7 +110,8 @@ What was measured and left out, because it saved little or broke something:
 
 - Background throttling (`backgroundThrottling`) saved about 120 MB with 2 tabs, but a
   minimized or covered window then stops rendering the agent's own tab: its scripts stop and
-  the live view gets no frames. It stays opt-in.
+  the live view gets no frames. It is on by default only in a headless Chrome without the live
+  view.
 - `--enable-low-end-device-mode` and turning off Chrome's spare renderer each saved 10 to 20 MB
   on top of the preset, inside the run-to-run spread.
 - `--renderer-process-limit=2` saved under 5 % and `--process-per-site` about 8 % with 5 tabs

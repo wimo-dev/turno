@@ -45,6 +45,8 @@ export interface VaultAccess {
    * not into a result (the redactor), a trace (`beforeFill` stopped it) or a log.
    */
   input?: HumanInput;
+  /** The devtools recording the agent runs now ("a trace", "a video"), or undefined. */
+  devtools?: () => string | undefined;
   /** The identity's policy as the server started: TOTP off, or never submitting (`policy.ts`). */
   policy?: IdentityPolicy;
 }
@@ -179,6 +181,11 @@ export function loginTool(): TurnoTool {
     async handle(ctx, params) {
       const vault = ctx.vault;
       if (!vault) throw new VaultError("browser_login needs a browser identity: this server runs without --identity");
+      const devtools = vault.devtools?.();
+      if (devtools)
+        throw new VaultError(
+          `browser_login is off while you record ${devtools} with the devtools capability (it would keep the filled values); stop it first`,
+        );
       const recording = recordingReason(ctx.config);
       if (recording)
         throw new VaultError(
@@ -281,18 +288,20 @@ export function loginTool(): TurnoTool {
   };
 }
 
-/** What of the server's config records page content a filled value would end up in. */
+/**
+ * What of the server's config records page content a filled value would end up in. The devtools
+ * capability alone records nothing (a trace or video starts only when the agent asks), so it is
+ * checked per call instead (`VaultAccess.devtools`).
+ */
 export function recordingReason(config: unknown): string | undefined {
   const c = config as {
     saveSession?: boolean;
     saveVideo?: unknown;
-    capabilities?: string[];
     browser?: { contextOptions?: { recordHar?: unknown; recordVideo?: unknown } };
   };
   if (c.saveSession) return "the session (--save-session)";
   if (c.saveVideo || c.browser?.contextOptions?.recordVideo) return "video (--save-video)";
   if (c.browser?.contextOptions?.recordHar) return "a HAR file (recordHar)";
-  if (c.capabilities?.includes("devtools")) return "traces (the devtools capability)";
   return undefined;
 }
 

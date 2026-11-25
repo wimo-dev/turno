@@ -33,10 +33,12 @@ blocking turns Chrome's own cache off.
 
 ## Network and user agent
 
-Two settings change how an identity's browser reaches sites. Both are off by default and set per
-identity in `identity.json` (format 11). The default, your own Chrome on your own connection, is
-already one coherent browser. These settings are for your own accounts and for sites you may
-automate, and the choice is yours. Each one has a cost to weigh:
+Two settings change how an identity's browser reaches sites, set per identity in `identity.json`
+(format 11). The proxy is off by default. The coherent user agent is on by default only in a
+headless Chrome, which otherwise says `HeadlessChrome`, once turno has read that Chrome's client
+hints (`turno-browser login` reads them when you close it, once per Chrome version, so no launch
+pays for an extra Chrome); a Chrome with a window keeps its own, which is already coherent. These settings are for your own accounts and for sites you may automate, and
+the choice is yours. Each one has a cost to weigh:
 
 - a browser whose parts disagree (a user agent from one Chrome, client hints from another, a time
   zone that does not match the address) stands out more than one that changes nothing;
@@ -51,8 +53,10 @@ turno-browser set school --proxy-server http://proxy.example.com:8080 \
   --proxy-username alice --proxy-password keychain:school-proxy
 # the password, typed into the secret store
 turno-browser secret set school-proxy
-# both off again
+# the proxy off, and the user agent back to its default (coherent in headless only)
 turno-browser set school --no-proxy --user-agent ""
+# Chrome's own user agent even in headless (format 14)
+turno-browser set school --user-agent off
 ```
 
 ### A coherent user agent
@@ -67,8 +71,8 @@ carries the real client hints platform.
 
 What it does:
 
-- **Headed** (the default): nothing changes, since a headed Chrome already presents itself as it
-  is. The launch check below still runs.
+- **Headed**: nothing changes, since a headed Chrome already presents itself as it is. The launch
+  check below still runs when you set `coherent`; the default leaves a headed Chrome alone.
 - **Headless**: a headless Chrome says `HeadlessChrome` in its user agent while its client hints say
   `Google Chrome`. turno gives it the user agent a headed Chrome of the same version and OS sends
   (Chrome's `--user-agent` switch, which every request, popup and worker carries), and, since that
@@ -85,7 +89,9 @@ What it does:
   (on Linux Chrome reports an empty platform version, so turno does too), one platform in the user
   agent, the client hints and `navigator.platform`, the request's headers equal to what the page reads, the
   languages and time zone you asked for, and dates formatted in the first language. Any
-  contradiction stops the launch with what disagreed. On macOS Chrome takes the date and number
+  contradiction stops the launch with what disagreed. When the user agent came from the default
+  and not from `identity.json`, a contradiction is reported on the server's stderr and Chrome
+  starts again without it. On macOS Chrome takes the date and number
   format from the system language, not from flags, so languages that start with another language
   are refused there: start them with the system's, or change the macOS language.
 
