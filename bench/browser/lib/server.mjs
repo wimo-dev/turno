@@ -65,15 +65,44 @@ export function buildVersions(bin) {
   return { turnoBrowser: read(join(pkgDir, "package.json")), patchrightCore: patchright };
 }
 
+/** Bytes of the accessibility snapshots a result carries inline (its YAML blocks): what the model observes of the page. */
+function snapshotBytes(text) {
+  let n = 0;
+  for (const m of text.matchAll(/```yaml\n([\s\S]*?)```/g)) n += Buffer.byteLength(m[1]);
+  return n;
+}
+
+const REF_LINE = /^\s*- ([a-z]+)(?: "((?:[^"\\]|\\.)*)")?[^\n]*?\[ref=([a-z0-9]+)\]/gm;
+
+/** The role and name of every ref a snapshot shows, as `ref -> { role, name }`. */
+function refsOf(text) {
+  const out = new Map();
+  for (const m of text.matchAll(REF_LINE)) out.set(m[3], { role: m[1], name: (m[2] ?? "").replace(/\\(.)/g, "$1") });
+  return out;
+}
+
+/** Tools that act on an element, and the elements a call names (with the name the snapshot showed). */
+const ACTION_TOOLS = new Set(["browser_click", "browser_type", "browser_fill_form", "browser_select_option"]);
+
 /** Every tool call of one run: what the model would have sent and read. */
 export class Agent {
   constructor(client) {
     this.client = client;
     this.steps = [];
+    this.refs = new Map();
+  }
+
+  /** The elements an action call names, by the role and name its snapshot showed. */
+  intents(tool, args) {
+    if (!ACTION_TOOLS.has(tool)) return undefined;
+    const targets = tool === "browser_fill_form" ? (args.fields ?? []) : [args];
+    return targets.map((f) => this.refs.get(f.target) ?? { role: f.type ?? "", name: f.name ?? f.element ?? "" });
   }
 
   /** Calls a tool. A tool error is a result (agents read it and go on), not an exception. */
   async call(tool, args = {}) {
+    const intents = this.intents(tool, args);
+    const start = Date.now();
     const t0 = performance.now();
     let res;
     try {
@@ -81,12 +110,18 @@ export class Agent {
     } catch (err) {
       res = { isError: true, content: [{ type: "text", text: String(err?.message ?? err) }] };
     }
+    const ms = Math.round(performance.now() - t0);
     const text = textOf(res);
+    for (const [ref, info] of refsOf(text)) this.refs.set(ref, info);
     const step = {
       tool,
-      ms: Math.round(performance.now() - t0),
+      ms,
+      start,
+      end: start + ms,
       bytes: resultBytes(res),
+      snapshotBytes: snapshotBytes(text),
       error: Boolean(res.isError),
+      ...(intents ? { intents } : {}),
     };
     this.steps.push(step);
     return { text, error: step.error };
@@ -101,11 +136,14 @@ export class Agent {
 
   summary() {
     const bytes = this.steps.reduce((n, s) => n + s.bytes, 0);
+    const observed = this.steps.reduce((n, s) => n + s.snapshotBytes, 0);
     return {
       calls: this.steps.length,
       errors: this.steps.filter((s) => s.error).length,
       bytes,
       tokens: estimateTokens(bytes),
+      observationTokens: estimateTokens(observed),
+      snapshots: this.steps.filter((s) => s.snapshotBytes > 0).length,
     };
   }
 }

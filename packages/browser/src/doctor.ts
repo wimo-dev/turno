@@ -41,6 +41,7 @@ import {
   playwrightCoreHint,
 } from "./engine-camoufox.js";
 import { findProfileChrome, sweepOrphan } from "./lifecycle.js";
+import { VERIFIED_PATCHRIGHT, patchrightCoreVersion } from "./patchright.js";
 import { totalMemory } from "./memory.js";
 import { readChallenges, summarizeChallenges } from "./reputation.js";
 import { inUseMessage, readRuntimeLock, runtimeLockAlive, runtimeLockPath } from "./runtime-lock.js";
@@ -143,6 +144,8 @@ export interface DoctorOptions {
    */
   agents?: { entries: readonly McpEntry[]; errors: readonly AgentServers[] };
   now?: Date;
+  /** The installed patchright-core version (tests inject one). */
+  patchrightVersion?: () => string | undefined;
 }
 
 /** One mcp.toml server of an identity, as mcpd runs it. */
@@ -247,6 +250,23 @@ function systemChecks(env: NodeJS.ProcessEnv, platform: NodeJS.Platform): Doctor
       });
   }
   return out;
+}
+
+/** Whether the installed patchright-core is the release the reputation suite last passed with. */
+function patchrightCheck(version: string | undefined): DoctorCheck {
+  const verified = VERIFIED_PATCHRIGHT;
+  if (version === verified.version)
+    return {
+      area: "engines",
+      level: "ok",
+      text: `patchright-core ${version}: the version the reputation suite last passed with (Chrome ${verified.chrome})`,
+    };
+  return {
+    area: "engines",
+    level: "warn",
+    text: `patchright-core ${version ?? "(version unreadable)"} is not ${verified.version}, the version the reputation suite last passed with: how init scripts reach pages and the automation leak checks were not verified on it`,
+    manual: `install the turno-browser release as published (its npm-shrinkwrap.json pins patchright-core ${verified.version}), or run the reputation bench on this version before relying on it`,
+  };
 }
 
 /** Which secret store holds the vault and the keychain: items on this machine, and where. */
@@ -910,7 +930,7 @@ async function collect(
     await memoryCheck(opts.memory ?? memoryPressureProbe()),
   );
   const ids = identityIds(env);
-  checks.push(...engineChecks(opts, env, ids));
+  checks.push(...engineChecks(opts, env, ids), patchrightCheck((opts.patchrightVersion ?? patchrightCoreVersion)()));
   if (!ids.length)
     checks.push({
       area: "identities",

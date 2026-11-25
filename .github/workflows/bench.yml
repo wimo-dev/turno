@@ -1,0 +1,61 @@
+name: bench
+
+# The heavy turno-browser benches: the reputation bench (detectors served locally, against turno's
+# Chrome and a plain Chrome) and the full evaluation suite. They take minutes and depend on the
+# runner's Chrome, so they never run on their own: start them by hand, for example on a pull
+# request that updates patchright-core, and compare the reports with the last ones that passed.
+on:
+  workflow_dispatch:
+    inputs:
+      rounds:
+        description: "Rounds of the evaluation suite"
+        required: false
+        default: "3"
+
+permissions: {}
+
+concurrency:
+  group: bench-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  browser:
+    name: browser benches (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read # check out the code
+    steps:
+      - uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        if: runner.os == 'Linux'
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      # Runners have no display, so the reputation bench runs headless only.
+      - name: Reputation bench
+        run: pnpm bench:reputation --modes headless --out reputation.json
+      - name: Evaluation suite
+        if: ${{ !cancelled() }}
+        env:
+          ROUNDS: ${{ inputs.rounds }}
+        run: pnpm bench:browser --rounds "$ROUNDS" --out eval.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ !cancelled() }}
+        with:
+          name: bench-${{ matrix.os }}
+          path: |
+            reputation.json
+            eval.json
+          if-no-files-found: ignore

@@ -3,7 +3,7 @@ title: Benchmarks
 description: How much memory MCP servers take with and without the gateway, how turno-browser does on a fixed set of browser tasks, and what a page can observe about it.
 ---
 
-This page gives the memory numbers behind turno's claim, how they were measured, and the command that reproduces them on your machine. The [turno-browser](#turno-browser) section covers the browser server: an evaluation suite of browser tasks with paired A/B runs, and a fingerprint and event bench.
+This page gives the memory numbers behind turno's claim, how they were measured, and the command that reproduces them on your machine. The [turno-browser](#turno-browser) section covers the browser server: an evaluation suite of browser tasks with paired A/B runs, a fingerprint and event bench, and a reputation bench that compares turno's Chrome with a plain one.
 
 turno exists because of one measurement: 18 Claude Code sessions open on a 16 GB Mac held about 11.7 GB in MCP server processes, most of them copies of the same few servers. The benchmark reproduces that effect with public servers so anyone can check it.
 
@@ -77,7 +77,7 @@ Once the gateway runs, `turno mcp savings` compares its memory now with an estim
 
 ## turno-browser
 
-Two scripts in `bench/browser` measure the browser server itself. Both start the built `turno-browser-mcp` the way an agent does, over stdio, on a throwaway identity in a throwaway `HOME`, so they test the real server and never read or change your own profiles.
+Three scripts in `bench/browser` measure the browser server itself. All of them start the built `turno-browser-mcp` the way an agent does, over stdio, on a throwaway identity in a throwaway `HOME`, so they test the real server and never read or change your own profiles.
 
 ```sh
 git clone https://github.com/wimo-dev/turno && cd turno
@@ -90,6 +90,8 @@ pnpm bench:browser
 pnpm bench:browser --b settle-100 --rounds 5
 # what a page can observe, against plain Chrome
 pnpm bench:fingerprint
+# leak and consistency detectors, against plain Chrome
+pnpm bench:reputation
 ```
 
 ### Evaluation suite
@@ -107,16 +109,22 @@ pnpm bench:fingerprint
 | `frames` | fills a form in a same-origin iframe and presses a button in a cross-origin iframe |
 | `dialog` | deletes a draft behind a `confirm()` dialog |
 | `find` | reads one price from a 400-row catalog without reading the whole page |
+| `clicks` | presses 8 buttons that only change the page and 4 that also send a request |
 
 Each task is a fixed script of tool calls, the way an agent works: take a snapshot, act on the refs it shows, read an error and recover. It is not a model, so every configuration gets exactly the same calls; the suite answers "does this change break a task, add calls, or cost time, tokens or memory", not "how good is an agent". Every run gets its own server, Chrome and fixture site, and Chrome starts before the clock does. For each run it records:
 
 | Metric | How |
 |---|---|
 | Success | from what the fixture site received (each page posts what the user did), never from what the script believes |
-| Calls, errors | tool calls the model would send, and how many returned an error |
-| Wall time | of the task, after Chrome has started |
+| Steps, errors | tool calls the model would send, and how many returned an error |
+| Wall time | of the task, after Chrome has started, and of each call, by tool |
 | Tokens | bytes of tool results divided by four, an estimate |
+| Observation tokens | the same for the page snapshots the results carry inline, what the model reads of the page |
+| Wrong-element actions | per 1,000 actions: a click, typed text, form field or selection whose input events landed on another element than the one the call named |
+| Click time | from the page's own clock: before the press (finding the element, waiting until it can be clicked, scrolling, moving the pointer), the press, and after the click event (Playwright's settle wait, the wait for requests the click started, the result) |
 | Peak memory | the highest sum of resident memory of the server and its Chrome processes, sampled every 200 ms |
+
+Every fixture page records which element each input event landed on, by the name an accessibility snapshot shows for it, and the site logs when each request arrives; the suite matches both with the time of each call. Pages report their input events over a WebSocket rather than a request, because Playwright waits for the requests an action starts and would count the report in the click's time. An action that returned an error (Playwright refused it, as for the covered button in `overlay`) is not a wrong-element action.
 
 With `--b <config>` every task runs in both configurations, in pairs, and the configuration that runs first alternates from one round to the next, so a warm cache or a machine that heats up weighs on both sides. The second table gives, per task and for all tasks together, the median of the paired differences (B minus A) relative to A, in how many pairs B was lower and higher, and from five rounds on a 95% bootstrap interval. `--smoke` runs four tasks once; CI runs it on every pull request. `--json` and `--out <file>` give the full report, every tool call included.
 
@@ -127,6 +135,7 @@ Configurations are data in `bench/browser/lib/configs.mjs`: server flags, `ident
 | `default` | nothing: the server as installed |
 | `headed` | a visible Chrome window |
 | `settle-100` | `"settle": "100ms"` |
+| `settle-0` | `"settle": "0"`: no wait after an action, which isolates what the wait costs a click |
 | `block-heavy` | blocks images, media and fonts |
 | `tabs-4` | at most 4 open pages |
 | `humanize-light`, `humanize-full` | human-like input levels (needs a turno-browser that has them) |
@@ -146,6 +155,8 @@ A configuration the server does not accept (an unknown `identity.json` key, engi
 ```sh
 pnpm bench:browser --config-file configs.json --a main --b default --rounds 5
 ```
+
+The tasks are scripted so the suite needs no model. For a model-driven run, `--driver <module>` loads an ES module whose default export is `{ name, async run({ goal, startUrl, agent, tools }) }`: it gets each task's request in words, the page to start on, the server's tool list and an `agent` whose `call(tool, args)` calls a tool and records it like a scripted step, and it returns the answer for read-only tasks. The checks stay the same, so success, steps, time, tokens and wrong-element actions compare directly with the scripted runs.
 
 Apple M3, 16 GB, macOS, Node 26.13, Chrome 157 headless, turno-browser 0.3.0, 2026-11-18, `default` against `settle-100`, five rounds (raw output in [bench/results](https://github.com/wimo-dev/turno/tree/main/bench/results)). Medians, then the median of the paired differences with its 95% interval:
 
@@ -189,6 +200,23 @@ pnpm bench:fingerprint --headed --baseline before.json
 The public detector pages run only when you set `TURNO_BENCH_PUBLIC_DETECTORS=1`: rebrowser bot-detector, Sannysoft, CreepJS, and the TLS fingerprint at browserleaks, whose JA4 and HTTP/2 hashes must match plain Chrome's exactly. These are third-party sites: they see the visit, your IP address and your browser. The bench always uses the throwaway identity, never a profile you signed into. Measured once on the machine above, headed: Sannysoft 0 of 31 tests failed, CreepJS 0% headless, JA4 and HTTP/2 identical to plain Chrome, and rebrowser 16 of 16 passed (Chrome 157). Playwright turns off Chrome's third-party storage partitioning, which a normal Chrome has, and rebrowser flagged it as `storagePartitioning`; turno passes Playwright's list of disabled features without that one, so it stays on.
 
 `turno browser bench`, in the CLI, is a different tool: it launches engines directly through Playwright, without the MCP server, against the public pages and your own URLs. This bench drives the server you run, adds the local probe and the input events, and lives in the repository.
+
+### Reputation bench
+
+`pnpm bench:reputation` runs the detectors anti-bot vendors build on against turno's Chrome and against the same installed Chrome started directly, with no automation, a throwaway profile and the mock keychain, in the same mode (headed or headless) on the same machine. Every detector page is served by the bench itself on `127.0.0.1` from a copy pinned to a commit or a release and to its SHA-256 (`bench/browser/lib/sources.mjs`, downloaded once into `bench/browser/.cache`); a copy whose hash changed is refused. The browsers never visit a third-party site.
+
+| Suite | What it reads |
+|---|---|
+| [rebrowser-bot-detector](https://github.com/rebrowser/rebrowser-bot-detector) | every test, including the ones that need the automation to act: the bench runs the calls the page asks for, the way an agent's `browser_evaluate` would |
+| [CreepJS](https://github.com/abrahamjuliot/creepjs) | the headless section (its percentages and the signals behind them) and the lies |
+| [BotD](https://github.com/fingerprintjs/BotD) | the verdict and which of its detectors fired, with BotD's own usage reporting off |
+| probe | the fingerprint bench's page: navigator, automation markers, protocol side effects, consistency, and the input events: mousemove rate, clicks with no movement before them, coalesced and `pointerrawupdate` events, `isTrusted`, and whether the page had focus and was visible when input arrived |
+
+Each detector posts its own result to the bench through a small reporter script, so reading a result never needs the automation and a plain Chrome reports the same way. Two upstream lines are changed when served, to keep the browser on the machine: rebrowser's Content Security Policy test loads its script from the bench's second origin instead of w3schools.com, and its Chrome version test reads the latest stable release from the bench, which asks chromiumdash once (`--offline` skips that, and that one test then says it cannot tell).
+
+A difference from plain Chrome is a `fail` when a detector gives turno a verdict it does not give plain Chrome (a red rebrowser test, a higher CreepJS headless percentage, more lies, a BotD bot verdict), a `warn` for the softer signals of the same kind, and `info` otherwise. The bench exits 1 on a `fail`. The JSON report (`--out`) carries the Chrome and patchright-core versions it ran with, and `--history <file>` adds the run to a file keyed by those two versions, which is how a patchright-core or Chrome update is compared with the last one that passed.
+
+Plain Chrome gets no input, so its event numbers show only what the page sees on its own. `--human` opens it headed on the probe page and lists the steps for you to do by hand; your input then becomes the reference the event numbers are compared with.
 
 ### Caveats
 

@@ -24,3 +24,6 @@ docs/design/
 docs/STATUS.md
 docs/social-preview.md
 CLAUDE.local.md
+
+# Detector pages the reputation bench downloads (pinned, hash-checked) and serves itself
+bench/browser/.cache/

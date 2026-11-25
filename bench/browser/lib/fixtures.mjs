@@ -1,12 +1,101 @@
 // The local pages the evaluation tasks run on, served on 127.0.0.1 (and on localhost, a second
 // origin for cross-origin frames). Pages report what the user did by POSTing to /submit/<task>,
 // so a task's check reads what the site received instead of trusting what the agent says.
+//
+// Every page also records which element each input event landed on (pointerdown, click, input,
+// change, keydown) and sends it to the site over a WebSocket opened when the page loads, and the
+// site logs when each request arrived. The suite matches both with the time of each tool call:
+// an action that landed on another element than the one the agent named, and how a click's time
+// splits around its input events. A WebSocket message is not a request: Playwright waits for the
+// requests an action starts (and settles again after them), so reporting by fetch would make
+// every click look slower than it is.
 
+import { createHash } from "node:crypto";
 import { createServer } from "node:http";
+
+// Runs in every fixture page and frame. The names it reports are the ones an accessibility
+// snapshot shows for the element: its aria-label, its label's own text, its text, its
+// placeholder or its value.
+const RECORDER = String.raw`(() => {
+  const socket = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/actions');
+  const queue = [];
+  const flush = () => {
+    if (queue.length && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(queue.splice(0)));
+  };
+  socket.addEventListener('open', flush);
+  const clean = (s) => String(s || '').replace(/\s+/g, ' ').trim();
+  const labelText = (label) => {
+    const copy = label.cloneNode(true);
+    for (const c of copy.querySelectorAll('input, select, textarea, button')) c.remove();
+    return clean(copy.textContent);
+  };
+  const names = (el) => {
+    const out = [el.getAttribute('aria-label')];
+    if (el.labels) for (const l of el.labels) out.push(labelText(l));
+    if (/^(BUTTON|A|OPTION|SUMMARY)$/.test(el.tagName)) out.push(el.textContent);
+    out.push(el.getAttribute('placeholder'), el.getAttribute('title'));
+    if (el.tagName === 'INPUT' && /^(button|submit|reset)$/.test(el.type)) out.push(el.value);
+    return [...new Set(out.map(clean).filter(Boolean))];
+  };
+  const ACTIONABLE = 'button, a[href], input, select, textarea, summary, [role=button], [role=link], [role=checkbox], [role=radio], [role=textbox]';
+  for (const type of ['pointerdown', 'click', 'input', 'change', 'keydown']) {
+    window.addEventListener(type, (e) => {
+      const path = e.composedPath();
+      const el = path.find((n) => n instanceof Element && n.matches(ACTIONABLE)) || path[0];
+      if (!(el instanceof Element)) return;
+      queue.push({ type, t: Date.now(), ts: e.timeStamp, trusted: e.isTrusted, tag: el.tagName.toLowerCase(), names: names(el), page: location.host + location.pathname });
+      // Sent at once, from the capturing listener: a click that submits a form or follows a
+      // link unloads the page right after, and a later send would be lost with it.
+      flush();
+    }, { capture: true, passive: true });
+  }
+})();`;
+
+/**
+ * Accepts the recorder's WebSocket and calls `onText` with each text message. Just enough of
+ * RFC 6455 for one local browser: masked text frames, no fragmentation, no extensions.
+ */
+function acceptRecorder(req, socket, onText) {
+  const key = req.headers["sec-websocket-key"];
+  if (!key) return socket.destroy();
+  const accept = createHash("sha1").update(`${key}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`).digest("base64");
+  socket.write(
+    `HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${accept}\r\n\r\n`,
+  );
+  let buf = Buffer.alloc(0);
+  socket.on("error", () => undefined);
+  socket.on("data", (chunk) => {
+    buf = Buffer.concat([buf, chunk]);
+    for (;;) {
+      if (buf.length < 2) return;
+      const opcode = buf[0] & 0x0f;
+      let len = buf[1] & 0x7f;
+      let at = 2;
+      if (len === 126) {
+        if (buf.length < 4) return;
+        len = buf.readUInt16BE(2);
+        at = 4;
+      } else if (len === 127) {
+        if (buf.length < 10) return;
+        len = Number(buf.readBigUInt64BE(2));
+        at = 10;
+      }
+      const masked = (buf[1] & 0x80) !== 0;
+      const end = at + (masked ? 4 : 0) + len;
+      if (buf.length < end) return;
+      const payload = Buffer.from(buf.subarray(at + (masked ? 4 : 0), end));
+      if (masked) for (let i = 0; i < payload.length; i++) payload[i] ^= buf[at + (i % 4)];
+      buf = buf.subarray(end);
+      if (opcode === 0x8) return socket.end();
+      if (opcode === 0x1) onText(payload.toString("utf8"));
+    }
+  });
+}
 
 const page = (title, body, script = "") =>
   `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${title}</title>
 <style>body{font:16px system-ui,sans-serif;margin:24px;max-width:720px} label{display:block;margin:8px 0}</style>
+<script>${RECORDER}</script>
 </head><body>${body}${script ? `<script>${script}</script>` : ""}</body></html>`;
 
 const submit = (task, expr) => `fetch('/submit/${task}', { method: 'POST', body: JSON.stringify(${expr}) })`;
@@ -197,6 +286,20 @@ f.onsubmit = async (e) => {
     ),
 };
 
+/** Buttons on the clicks page: the first ones change the page only, the last ones also save. */
+export const CLICKS = { toggles: 8, saves: 4 };
+
+PAGES["/clicks"] = () =>
+  page(
+    "Settings",
+    `<h1>Settings</h1><p id="count" role="status">0 changes</p>
+${Array.from({ length: CLICKS.toggles }, (_, i) => `<button class="toggle">Toggle ${i + 1}</button>`).join(" ")}
+<p>${Array.from({ length: CLICKS.saves }, (_, i) => `<button class="save" data-n="${i + 1}">Save ${i + 1}</button>`).join(" ")}</p>`,
+    `let n = 0;
+for (const b of document.querySelectorAll('.toggle')) b.onclick = () => { document.getElementById('count').textContent = ++n + ' changes'; };
+for (const b of document.querySelectorAll('.save')) b.onclick = () => ${submit("clicks-' + b.dataset.n + '", "{ saved: true }")};`,
+  );
+
 function reportPage(i) {
   return page(`Report ${i}`, `<h1>Report ${i}</h1><p>Value: ${reportValue(i)}</p>`);
 }
@@ -207,9 +310,14 @@ function reportPage(i) {
  */
 export async function startSite() {
   const submissions = {};
-  const site = { url: "", altUrl: "", submissions };
+  // Input events the pages recorded, and when each request other than those reports arrived
+  // (epoch ms), for matching with the tool calls.
+  const actions = [];
+  const requests = [];
+  const site = { url: "", altUrl: "", submissions, actions, requests };
   const server = createServer((req, res) => {
     const path = new URL(req.url ?? "/", "http://x").pathname;
+    requests.push({ t: Date.now(), path });
     if (req.method === "POST" && path.startsWith("/submit/")) {
       let body = "";
       req.on("data", (d) => {
@@ -248,6 +356,19 @@ export async function startSite() {
     if (path === "/slow") setTimeout(send, 800);
     else send();
   });
+  const sockets = new Set();
+  server.on("upgrade", (req, socket) => {
+    sockets.add(socket);
+    socket.on("close", () => sockets.delete(socket));
+    if (new URL(req.url ?? "/", "http://x").pathname !== "/actions") return socket.destroy();
+    acceptRecorder(req, socket, (text) => {
+      try {
+        actions.push(...JSON.parse(text));
+      } catch {
+        /* not a batch of events */
+      }
+    });
+  });
   await new Promise((r) => server.listen(0, "127.0.0.1", r));
   const { port } = server.address();
   site.url = `http://127.0.0.1:${port}`;
@@ -257,6 +378,7 @@ export async function startSite() {
     close: () =>
       new Promise((r) => {
         server.closeAllConnections?.();
+        for (const s of sockets) s.destroy();
         server.close(() => r());
       }),
   };

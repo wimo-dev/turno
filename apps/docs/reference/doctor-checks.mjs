@@ -491,6 +491,14 @@ export const DOCTOR_CHECKS = [
     fix: "Install the version doctor names (npm install -g playwright-core@<version>), or point TURNO_PLAYWRIGHT_CORE at a matching copy.",
   },
   {
+    id: "browser-patchright-unverified",
+    source: BROWSER,
+    match: "the version the reputation suite last passed with: how init scripts reach pages",
+    title: "patchright-core is not the version turno verified",
+    why: "turno-browser drives Chrome with patchright-core and relies on how that release puts turno's scripts into pages without serving the documents itself. Each release pins the patchright-core its reputation suite (automation leak checks, fingerprint consistency) last passed with. Another version, from an override or a manual install, may change that behavior without anyone having measured it.",
+    fix: "Install turno-browser as published, which pins the verified patchright-core in its npm-shrinkwrap.json. If you test a newer patchright-core on purpose, run the reputation bench from the repository on it first.",
+  },
+  {
     id: "browser-proxy-no-secret-store",
     source: BROWSER,
     match: "the proxy credentials are in the secret store, and this machine has none",

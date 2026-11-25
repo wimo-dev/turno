@@ -19,17 +19,35 @@
 //   --json                print the JSON report instead of tables
 //   --out <file>          also write the JSON report to a file
 //   --seed <n>            seed of the bootstrap intervals (default 1)
+//   --driver <module>     drive the tasks with a module instead of their scripts (a model, say);
+//                         see "Model-driven runs" below
 //
 // Every run starts the built turno-browser-mcp on a throwaway identity in a throwaway HOME and
 // a fresh fixture site, launches Chrome before measuring (a browser_evaluate that reads the
 // user agent), then runs the task and records: success (from what the site received), tool
 // calls, tool errors, wall time of the task, result bytes and estimated tokens (bytes / 4), and
-// the peak resident memory of the server and its Chrome processes. Exit code 1 when any run
-// failed or errored; configurations the server does not support are skipped and reported.
+// the peak resident memory of the server and its Chrome processes. It also records the bytes of
+// the page snapshots the model reads (observation tokens), the wall time of each call by tool,
+// and, from the input events the fixture pages record, actions that landed on another element
+// than the one named (wrong-element actions per 1,000) and how a click's time splits around its
+// input events (before the press, the press, after the click event: the settle wait). Exit code 1
+// when any run failed or errored; configurations the server does not support are skipped and
+// reported.
+//
+// Model-driven runs: --driver <module> loads an ES module whose default export is
+// `{ name, async run({ goal, startUrl, agent, tools }) }`. For every task it gets the request in
+// words (`goal`), the page to start on, the run's Agent (lib/server.mjs: `agent.call(tool, args)`
+// calls a tool and records it like the scripted runs do) and the server's tool list, and it
+// returns the answer for read-only tasks (`find`). The check is the same as for scripted runs, so
+// success, steps, time, tokens and wrong-element actions compare directly. The suite ships no
+// driver and needs no model: scripted runs are the default.
 
 import { writeFileSync } from "node:fs";
 import { cpus, totalmem } from "node:os";
+import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
+import { auditActions, clickTimings } from "./lib/audit.mjs";
 import { isHeaded, knownConfigs, readConfigsFile, resolveConfig } from "./lib/configs.mjs";
 import { startSite } from "./lib/fixtures.mjs";
 import { DEFAULT_BIN, UnsupportedConfig, buildVersions, memorySampler, startServer, warmUp } from "./lib/server.mjs";
@@ -48,6 +66,7 @@ const { values } = parseArgs({
     json: { type: "boolean", default: false },
     out: { type: "string" },
     seed: { type: "string", default: "1" },
+    driver: { type: "string" },
     list: { type: "boolean", default: false },
   },
 });
@@ -87,6 +106,16 @@ if (configs.length === 2 && configs[0].name === configs[1].name) {
   log("eval: A and B are the same configuration; the differences show the noise of this machine");
 }
 
+let driver;
+if (values.driver) {
+  try {
+    driver = (await import(pathToFileURL(resolve(values.driver)).href)).default;
+  } catch (err) {
+    fail(`--driver: ${err.message}`);
+  }
+  if (typeof driver?.run !== "function") fail("--driver: the module's default export has no run function");
+}
+
 async function runOne({ task, config, round }) {
   const base = { task: task.id, config: config.name, round };
   const site = await startSite();
@@ -107,10 +136,13 @@ async function runOne({ task, config, round }) {
     const sampler = memorySampler(server.pid, server.home);
     const agent = server.agent();
     const ctx = { agent, site };
+    const tools = driver ? (await server.client.listTools()).tools : undefined;
     const t0 = performance.now();
     let failure;
     try {
-      await task.run(ctx);
+      if (driver)
+        ctx.answer = await driver.run({ goal: task.goal, startUrl: `${site.url}${task.start}`, agent, tools });
+      else await task.run(ctx);
     } catch (err) {
       failure = String(err?.message ?? err);
     }
@@ -119,6 +151,10 @@ async function runOne({ task, config, round }) {
       ? { ok: false, detail: failure }
       : await task.check(ctx).catch((err) => ({ ok: false, detail: String(err?.message ?? err) }));
     const peakMiB = await sampler.stop();
+    // The pages send their input events in batches; let the last one arrive.
+    await new Promise((r) => setTimeout(r, 200));
+    const audit = auditActions(agent.steps, site.actions);
+    const count = (o) => audit.filter((a) => a.outcome === o).length;
     return {
       ...base,
       status: check.ok ? "ok" : "failed",
@@ -127,6 +163,11 @@ async function runOne({ task, config, round }) {
       ...agent.summary(),
       peakMiB,
       browser,
+      actions: audit.length - count("refused"),
+      wrongElement: count("wrong"),
+      noEffect: count("none"),
+      ...(count("wrong") ? { wrong: audit.filter((a) => a.outcome === "wrong") } : {}),
+      clicks: clickTimings(agent.steps, site.actions, site.requests),
       steps: agent.steps,
     };
   } finally {
@@ -158,13 +199,56 @@ for (const [i, item] of plan.entries()) {
 }
 
 const measured = (r) => r.status === "ok" || r.status === "failed";
-const METRICS = ["wallMs", "calls", "errors", "tokens", "peakMiB"];
+const METRICS = ["wallMs", "calls", "errors", "tokens", "observationTokens", "peakMiB"];
+
+/** Wrong-element actions per 1,000 actions that reached the page, over a set of runs. */
+function wrongPer1000(runs) {
+  const actions = runs.reduce((n, r) => n + (r.actions ?? 0), 0);
+  return actions ? Math.round((runs.reduce((n, r) => n + (r.wrongElement ?? 0), 0) / actions) * 1000 * 10) / 10 : NaN;
+}
 
 function cell(task, config) {
   const runs = results.filter((r) => r.task === task && r.config === config && measured(r));
   const out = { runs: runs.length, ok: runs.filter((r) => r.status === "ok").length };
+  out.successRate = runs.length ? out.ok / runs.length : NaN;
   for (const m of METRICS) out[m] = median(runs.map((r) => r[m]));
+  out.actions = runs.reduce((n, r) => n + (r.actions ?? 0), 0);
+  out.wrongPer1000 = wrongPer1000(runs);
+  out.noEffect = runs.reduce((n, r) => n + (r.noEffect ?? 0), 0);
   return out;
+}
+
+/** Over every run of a configuration: success, wrong elements, and the median wall time of a call, by tool. */
+function configTotals(config) {
+  const runs = results.filter((r) => r.config === config && measured(r));
+  const byTool = {};
+  for (const s of runs.flatMap((r) => r.steps ?? [])) {
+    byTool[s.tool] ??= [];
+    byTool[s.tool].push(s.ms);
+  }
+  const clicks = runs.flatMap((r) => r.clicks ?? []);
+  const split = (list) => ({
+    n: list.length,
+    beforeMs: median(list.map((c) => c.beforeMs)),
+    inputMs: median(list.map((c) => c.inputMs)),
+    afterMs: median(list.map((c) => c.afterMs)),
+    totalMs: median(list.map((c) => c.beforeMs + c.inputMs + c.afterMs)),
+  });
+  return {
+    runs: runs.length,
+    successRate: runs.length ? runs.filter((r) => r.status === "ok").length / runs.length : NaN,
+    actions: runs.reduce((n, r) => n + (r.actions ?? 0), 0),
+    wrongPer1000: wrongPer1000(runs),
+    noEffect: runs.reduce((n, r) => n + (r.noEffect ?? 0), 0),
+    perTool: Object.fromEntries(
+      Object.entries(byTool).map(([tool, ms]) => [tool, { calls: ms.length, medianMs: median(ms) }]),
+    ),
+    clicks: {
+      all: split(clicks),
+      withoutRequests: split(clicks.filter((c) => !c.requests)),
+      withRequests: split(clicks.filter((c) => c.requests)),
+    },
+  };
 }
 
 function pairsOf(task, metric) {
@@ -200,6 +284,7 @@ const summary = {
   cells: Object.fromEntries(
     tasks.map((t) => [t.id, Object.fromEntries(configs.map((c) => [c.name, cell(t.id, c.name)]))]),
   ),
+  configs: Object.fromEntries(configs.map((c) => [c.name, configTotals(c.name)])),
 };
 if (configs.length === 2) {
   summary.paired = {};
@@ -225,6 +310,7 @@ const report = {
   browser: firstBrowser,
   headed: values.headed,
   rounds,
+  driver: driver?.name ?? "scripted",
   tasks: tasks.map((t) => ({ id: t.id, title: t.title })),
   configs: configs.map((c) => ({
     ...c,
@@ -266,12 +352,12 @@ if (values.json) {
   console.log(
     `\nturno-browser ${v.turnoBrowser ?? "?"} (patchright-core ${v.patchrightCore ?? "?"}), ${firstBrowser ?? "browser unknown"}, ${values.headed ? "headed" : "headless"}, ${rounds} round(s), medians:\n`,
   );
-  const rows = [["TASK", "CONFIG", "OK", "CALLS", "ERRORS", "WALL ms", "TOKENS", "PEAK MiB"]];
+  const rows = [["TASK", "CONFIG", "OK", "STEPS", "ERRORS", "WALL ms", "TOKENS", "OBS TOKENS", "WRONG/1k", "PEAK MiB"]];
   for (const t of tasks) {
     for (const [j, c] of configs.entries()) {
       const s = summary.cells[t.id][c.name];
       if (unsupported.has(c.name)) {
-        rows.push([j ? "" : t.id, c.name, "unsupported", "", "", "", "", ""]);
+        rows.push([j ? "" : t.id, c.name, "unsupported", "", "", "", "", "", "", ""]);
         continue;
       }
       rows.push([
@@ -282,19 +368,79 @@ if (values.json) {
         fmt(s.errors),
         fmt(s.wallMs),
         fmt(s.tokens),
+        fmt(s.observationTokens),
+        Number.isFinite(s.wrongPer1000) ? String(s.wrongPer1000) : "-",
         fmt(s.peakMiB),
       ]);
     }
   }
   console.log(table(rows));
+  const measuredConfigs = configs.filter((c) => !unsupported.has(c.name));
+  if (measuredConfigs.length) {
+    console.log("\nEvery run of each configuration:\n");
+    const trow = [["CONFIG", "SUCCESS", "ACTIONS", "WRONG/1k", "NO EFFECT"]];
+    for (const c of measuredConfigs) {
+      const t = summary.configs[c.name];
+      trow.push([
+        c.name,
+        `${Math.round(t.successRate * 100)}%`,
+        fmt(t.actions),
+        Number.isFinite(t.wrongPer1000) ? String(t.wrongPer1000) : "-",
+        fmt(t.noEffect),
+      ]);
+    }
+    console.log(table(trow));
+    const tools = [...new Set(measuredConfigs.flatMap((c) => Object.keys(summary.configs[c.name].perTool)))].sort();
+    console.log("\nMedian wall time of one call, ms (calls):\n");
+    const prow = [["TOOL", ...measuredConfigs.map((c) => c.name)]];
+    for (const tool of tools)
+      prow.push([
+        tool,
+        ...measuredConfigs.map((c) => {
+          const x = summary.configs[c.name].perTool[tool];
+          return x ? `${fmt(x.medianMs)} (${x.calls})` : "-";
+        }),
+      ]);
+    console.log(table(prow));
+    console.log(
+      "\nA click, from the page's clock, medians in ms: before the press (find, wait, scroll, move), the press, after the click event (settle wait, requests, result):\n",
+    );
+    const crow = [["CONFIG", "CLICKS", "BEFORE", "PRESS", "AFTER", "TOTAL"]];
+    for (const c of measuredConfigs) {
+      const k = summary.configs[c.name].clicks;
+      for (const [label, x] of [
+        ["all", k.all],
+        ["no request", k.withoutRequests],
+        ["with requests", k.withRequests],
+      ]) {
+        if (!x.n) continue;
+        crow.push([
+          `${c.name}, ${label}`,
+          fmt(x.n),
+          fmt(x.beforeMs),
+          Number.isFinite(x.inputMs) ? x.inputMs.toFixed(1) : "-",
+          fmt(x.afterMs),
+          fmt(x.totalMs),
+        ]);
+      }
+    }
+    console.log(table(crow));
+  }
   if (summary.paired && !unsupported.size) {
     console.log(
       `\n${configs[1].name} minus ${configs[0].name}, median of paired differences (relative to A), then pairs where B was lower/higher${rounds >= 5 ? ", then a 95% bootstrap interval" : ""}:\n`,
     );
-    const prow = [["TASK", "WALL ms", "CALLS", "TOKENS", "PEAK MiB"]];
+    const prow = [["TASK", "WALL ms", "CALLS", "TOKENS", "OBS TOKENS", "PEAK MiB"]];
     for (const id of [...tasks.map((t) => t.id), "all"]) {
       const p = summary.paired[id];
-      prow.push([id, deltaCell(p.wallMs), deltaCell(p.calls), deltaCell(p.tokens), deltaCell(p.peakMiB)]);
+      prow.push([
+        id,
+        deltaCell(p.wallMs),
+        deltaCell(p.calls),
+        deltaCell(p.tokens),
+        deltaCell(p.observationTokens),
+        deltaCell(p.peakMiB),
+      ]);
     }
     console.log(table(prow));
     if (rounds < 5) console.log("\nUse --rounds 5 or more before trusting a difference.");

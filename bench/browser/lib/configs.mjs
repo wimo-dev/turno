@@ -27,6 +27,11 @@ export const BUILTIN = [
   { name: "headed", description: "a visible Chrome window (the default outside tests)", headed: true },
   { name: "settle-100", description: 'identity.json "settle": "100ms"', identity: { settle: "100ms" } },
   {
+    name: "settle-0",
+    description: 'identity.json "settle": "0" (no wait after an action: isolates what the wait costs)',
+    identity: { settle: "0" },
+  },
+  {
     name: "block-heavy",
     description: "identity.json blocks images, media and fonts",
     identity: { block: { types: ["image", "media", "font"] } },

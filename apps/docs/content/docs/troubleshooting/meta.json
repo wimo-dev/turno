@@ -72,6 +72,7 @@
     "browser-camoufox-not-found",
     "browser-playwright-core-missing",
     "browser-playwright-core-wrong-version",
+    "browser-patchright-unverified",
     "browser-proxy-no-secret-store",
     "browser-proxy-secret-missing",
     "browser-vault-no-secret-store",
