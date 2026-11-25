@@ -10,7 +10,8 @@ import { vaultSummary } from "../vault.js";
 import type { Ctx } from "./context.js";
 import { type ActKey, describeAct } from "../act-chain.js";
 import { type Effective, type EffectiveSettings, SAID_APART, defaultLines } from "../defaults.js";
-import { effectiveSettings } from "../effective.js";
+import { effectiveSettings, exitProblems, proxyInUse } from "../effective.js";
+import { type SystemProxy, systemProxy } from "../system-proxy.js";
 import { captchaJson, describePolicy, localTime } from "./identity.js";
 
 /**
@@ -30,7 +31,14 @@ const VERSION = (
 type Settings = NonNullable<ReturnType<Ctx["api"]["checkIdentitySettings"]>["settings"]>;
 
 /** What identity.json sets, with the defaults filled in (`defaults.ts`), for `status`. */
-function settingsSummary(s: Settings | undefined, e: EffectiveSettings, env: NodeJS.ProcessEnv) {
+function settingsSummary(
+  s: Settings | undefined,
+  e: EffectiveSettings,
+  id: string,
+  env: NodeJS.ProcessEnv,
+  system: () => SystemProxy | undefined,
+) {
+  const inUse = proxyInUse(s, e, env, system);
   const on = (v: Effective<unknown>) => v.value !== undefined && v.value !== false && v.value !== "off";
   const act = describeAct(s?.act as ActKey, env);
   const captcha = captchaJson(s?.captcha, env);
@@ -57,6 +65,10 @@ function settingsSummary(s: Settings | undefined, e: EffectiveSettings, env: Nod
     captcha: on(e.captcha),
     captchaSolver: captcha,
     proxy: (s?.proxy || undefined)?.server ?? null,
+    /** The system's proxy, when the identity has none of its own and Chrome follows it. */
+    systemProxy: inUse?.system ?? null,
+    /** What the last exit lookup through the proxy found wrong (time zone, locale). */
+    exitProblems: exitProblems(id, s, e, inUse?.server, env),
     health: (e.health.value || undefined)?.url ?? null,
     /** The values identity.json leaves to their defaults, with where each comes from (act and captcha above). */
     defaults: defaultLines(e, undefined, SAID_APART),
@@ -84,7 +96,8 @@ function settingsLine(s: ReturnType<typeof settingsSummary>): string {
       .filter(([, on]) => on)
       .map(([k, v]) => (v === "failed" ? `records ${k} (kept when a step fails)` : `records ${k}`))
       .join(", "),
-    s.proxy ? `proxy ${s.proxy}` : "",
+    s.proxy ? `proxy ${s.proxy}` : s.systemProxy ? `the system's proxy ${s.systemProxy}` : "",
+    ...s.exitProblems.map((p) => `warning: ${p}`),
     s.policy ? `policy: ${describePolicy(s.policy)}` : "",
   ];
   return parts.filter(Boolean).join("; ");
@@ -113,6 +126,12 @@ export async function status(c: Ctx, args: string[], io: Io): Promise<number> {
     .filter((id) => only === undefined || id === only);
   const { entries } = browserEntries(env);
   const identities = [];
+  // Read once for every identity: each one without a proxy of its own follows it.
+  let read: { value: SystemProxy | undefined } | undefined;
+  const system = () => {
+    read ??= { value: systemProxy(process.platform, env) };
+    return read.value;
+  };
   for (const id of ids) {
     const { path, settings, problems } = m.checkIdentitySettings(id, env);
     const holder = m.inUseBy(id, env);
@@ -125,7 +144,7 @@ export async function status(c: Ctx, args: string[], io: Io): Promise<number> {
       id,
       profile: tildify(m.identityDir(id, env), env),
       settingsFile: tildify(path, env),
-      settings: settingsSummary(settings, effectiveSettings(id, { env }), env),
+      settings: settingsSummary(settings, effectiveSettings(id, { env, systemProxy: system }), id, env, system),
       problems,
       inUse,
       holder: holder ?? null,

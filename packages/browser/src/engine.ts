@@ -8,7 +8,7 @@ import { createCamoufoxEngine } from "./engine-camoufox.js";
 import { createLightpandaEngine } from "./engine-lightpanda.js";
 import { findProfileChrome, startedChromePid } from "./lifecycle.js";
 import { chromeNetwork, pinUserAgent, verifyCoherence } from "./network-chrome.js";
-import { networkEngineClash } from "./network.js";
+import { type ResolvedProxy, networkEngineClash } from "./network.js";
 import { policyEngineClash } from "./policy.js";
 import { type ResolvedBrowser, resolveBrowser } from "./browsers.js";
 import { acquireRuntimeLock } from "./runtime-lock.js";
@@ -76,6 +76,8 @@ export interface LaunchedBrowser {
   userBrowser?: boolean;
   /** Marks a page as opened by the agent, so `close` closes it (attach mode). */
   own?(page: Page): void;
+  /** The identity's proxy as the launch resolved it, credentials included (the exit check uses it). */
+  proxy?: ResolvedProxy;
 }
 
 export interface LaunchRequest {
@@ -378,6 +380,7 @@ const chromeEngine: Engine = {
       engine: "chrome",
       context,
       ...(pid !== undefined ? { pid } : {}),
+      ...(network?.proxy ? { proxy: network.proxy } : {}),
       ...(idleTimer ? { idleTimer } : {}),
       isOpen: () => !closing && browser.isConnected(),
       async close() {

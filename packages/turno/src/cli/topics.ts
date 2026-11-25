@@ -49,6 +49,10 @@ const ENVIRONMENT: readonly { title: string; rows: readonly (readonly [string, s
         "TURNO_BROWSER_BACKGROUND_IDLE",
         "the background server of a browser identity exits after this long without a request (default: 15m; 0: never)",
       ],
+      [
+        "TURNO_BROWSER_EXIT_CHECK",
+        "0: turno-browser does not look up where a proxy exits (one HTTPS request to get.geojs.io through the proxy, once a day)",
+      ],
       ["TURNO_LIGHTPANDA_PATH", "the Lightpanda binary turno-browser's read mode runs (default: lightpanda on PATH)"],
       [
         "TURNO_BROWSER_SESSION",

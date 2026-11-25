@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
-import type { Page } from "patchright-core";
+import type { BrowserContext, Page } from "patchright-core";
 import { type PressureLevel, type PressureProbe, memoryPressureProbe } from "turno-core/memory";
 import type { SecretStore } from "turno-core/secrets";
 import { CallToolRequestSchema, type CallToolResult, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
@@ -75,6 +75,10 @@ import { NavigationGuard } from "./policy-guard.js";
 import { FlowRecorder, type PendingStep } from "./recorder.js";
 import { Recording, tracesTmpDir } from "./recordings.js";
 import { Redactor, SCRIPT_TOOLS, VaultGuard } from "./redact.js";
+import { StorageGuard } from "./storage-guard.js";
+import { type SystemProxy, systemProxy } from "./system-proxy.js";
+import { type ExitProxy, checkExit } from "./exit-geo.js";
+import { STORAGE_WRITE_TOOLS, maskStorageStateText } from "./storage-mask.js";
 import { type ChallengeEvent, recordChallenge, watchChallenges } from "./reputation.js";
 import { installResources } from "./resources.js";
 import {
@@ -96,7 +100,7 @@ import {
 } from "./session.js";
 import { type SessionView, TabSharing, viewConfig } from "./sharing.js";
 import { DEFAULT_TAB_LOCKS, DIRECT_SESSION, type TabLockPolicy } from "./tab-locks.js";
-import { type IdentitySettings, readIdentitySettings } from "./settings.js";
+import { type IdentitySettings, readIdentitySettings, systemTimezone } from "./settings.js";
 import {
   DEFAULT_CAPS,
   type DefaultsContext,
@@ -476,6 +480,8 @@ class SessionBackend extends EventEmitter implements ServerBackend {
   private disposed = false;
   /** What the last launch records, identity.json `record` and its defaults together. */
   private recordSettings: { flows: boolean } | undefined;
+  /** What the exit check found wrong, told once in the next result (`exit-geo.ts`). */
+  private exitNote: string | undefined;
   /** Each client session's flow recorder: a recording belongs to the session that started it. */
   private readonly recorders = new Map<string, FlowRecorder>();
   /** The agent name each client session's calls came with (mcpd, a shared host), for the cursor. */
@@ -501,6 +507,8 @@ class SessionBackend extends EventEmitter implements ServerBackend {
       tuning: TuningFlags;
       redactor: Redactor;
       guard: VaultGuard;
+      /** Session cookie and token values, masked in every result (`storage-guard.ts`). */
+      storage: StorageGuard;
       vaultStore?: SecretStore;
       /** Wins over identity.json `tabLocks` (tests); the defaults fill the rest. */
       tabLocks: Partial<TabLockPolicy>;
@@ -641,6 +649,7 @@ class SessionBackend extends EventEmitter implements ServerBackend {
           await launched.close().catch(() => {});
           throw error;
         }
+        this.checkExit(identity, launched, config, settings, effective);
       }
       const { BrowserBackend } = upstream().tools;
       const isCurrent = () => this.current === promise;
@@ -697,7 +706,7 @@ class SessionBackend extends EventEmitter implements ServerBackend {
       launched.context.on("page", mask);
       try {
         await backend.initialize(clientInfo);
-        this.hookUpstream(backend);
+        this.hookUpstream(backend, launched.context);
         // After upstream's own routes (--allowed-origins, --blocked-origins), so this one runs
         // first and hands every request it does not block or serve on to them.
         if (identity && profile)
@@ -739,7 +748,7 @@ class SessionBackend extends EventEmitter implements ServerBackend {
             const config = viewConfig(forViews);
             const view = new BrowserBackend(config, launched.context, tools, {});
             await view.initialize(clientInfo);
-            this.hookUpstream(view);
+            this.hookUpstream(view, launched.context);
             return { backend: view, config };
           },
         });
@@ -864,6 +873,9 @@ class SessionBackend extends EventEmitter implements ServerBackend {
       ...(this.host.caps ? { caps: this.host.caps } : {}),
       ...(this.host.actFallback ? { actFallback: this.host.actFallback } : {}),
       ...(identity ? { captchaKey: captchaKeyOf(identity.env) } : {}),
+      serverProxy:
+        config.browser.launchOptions.proxy !== undefined || userArgs.some((a) => a.startsWith("--proxy-server")),
+      ...(identity && settings?.proxy === undefined ? { systemProxy: cachedSystemProxy() ?? null } : {}),
     };
     return resolveDefaults(settings, ctx, {
       ...(live ? { live: true } : { live: false }),
@@ -900,6 +912,10 @@ class SessionBackend extends EventEmitter implements ServerBackend {
       // not allow) still says how the passkey prompt went.
       const notes = (await this.current?.catch(() => undefined))?.passkeys?.takeNotes() ?? [];
       result = withPasskeyNotes(result, notes, json);
+      if (this.exitNote) {
+        result = withTrailer(result, "Proxy", this.exitNote, "proxy", json);
+        this.exitNote = undefined;
+      }
     }
     // Every result and error of this server leaves through the redactor.
     return this.host.redactor.result(result);
@@ -981,25 +997,84 @@ class SessionBackend extends EventEmitter implements ServerBackend {
   }
 
   /**
+   * With a proxy in use (the identity's, the server's own or the system's), looks up where it
+   * exits, in the background, and keeps what does not match the identity's time zone or locale
+   * for the next result and the server's log. A PAC file or auto discovery is not resolved, so
+   * those are not checked.
+   */
+  private checkExit(
+    identity: IdentityRef,
+    launched: LaunchedBrowser,
+    config: McpConfig,
+    settings: IdentitySettings | undefined,
+    effective: EffectiveSettings,
+  ): void {
+    const own = config.browser.launchOptions.proxy as ExitProxy | undefined;
+    const system = effective.proxy.origin.from === "auto" && effective.proxy.value ? cachedSystemProxy() : undefined;
+    const proxy = launched.proxy ?? own ?? (system?.server ? { server: system.server } : undefined);
+    if (!proxy) return;
+    const locale = typeof effective.locale.value === "string" ? effective.locale.value : settings?.languages?.[0];
+    void checkExit(identity, proxy, {
+      timezone: settings?.timezone ?? systemTimezone(),
+      ...(locale ? { locale } : {}),
+    }).then((problems) => {
+      if (!problems.length) return;
+      const note = `Sites see this browser's proxy address; ${problems.join("; ")}. A site can read the difference.`;
+      process.stderr.write(`turno-browser-mcp: ${note}\n`);
+      this.exitNote = note;
+    });
+  }
+
+  /**
    * Chains the redactor into upstream's own (`redactSecrets`), which every text result, written
    * file (a snapshot or a network request saved with `filename`) and session log line passes
-   * through, and, while a network tool runs, the credential rules of `network-redact.ts`.
+   * through, and, while a network tool runs, the credential rules of `network-redact.ts`; while
+   * browser_storage_state runs, the file it writes has its session values masked.
+   *
+   * Every stock call of the backend (a batch step, an act step and a shared view's call too)
+   * then reads the browser's cookies and the page's web storage, so their session values join the
+   * redactor before the result leaves (`storage-guard.ts`); the storage tools' own lines are
+   * masked, and a mask in a storage write stands for the value it hides.
    */
-  private hookUpstream(backend: BrowserBackendInstance): void {
+  private hookUpstream(backend: BrowserBackendInstance, browserContext: BrowserContext): void {
     const context = backendContext(backend);
     if (!context || typeof context.redactSecrets !== "function") return;
     const own = context.redactSecrets.bind(context);
     let network = 0;
-    context.redactSecrets = (text) => this.host.redactor.text(network ? redactNetworkText(own(text)) : own(text));
+    let state = 0;
+    context.redactSecrets = (text) => {
+      let out = own(text);
+      if (network) out = redactNetworkText(out);
+      if (state) out = maskStorageStateText(out);
+      return this.host.redactor.text(out);
+    };
+    const storage = this.host.storage;
+    storage.patchRestore(browserContext);
+    const page = () => context.currentTab()?.page;
     const call = backend.callTool.bind(backend);
     backend.callTool = async (name, args, signal) => {
       const counted = NETWORK_TOOLS.has(name);
+      const saving = name === "browser_storage_state";
+      let callArgs = args;
+      if (STORAGE_WRITE_TOOLS.has(name)) {
+        const unmasked = await storage.unmaskWrite(name, args, browserContext, page());
+        if ("error" in unmasked)
+          return errorResult(unmasked.error, !!(args._meta as { json?: boolean } | undefined)?.json);
+        callArgs = unmasked.args;
+      }
+      // A file the call writes is redacted as it is written: the values must be known before.
+      if (saving || typeof args.filename === "string") await storage.refresh(browserContext, page());
       if (counted) network++;
+      if (saving) state++;
+      let result: ToolResult;
       try {
-        return await call(name, args, signal);
+        result = await call(name, callArgs, signal);
       } finally {
         if (counted) network--;
+        if (saving) state--;
       }
+      const seen = await storage.refresh(browserContext, page());
+      return storage.maskResult(name, result, seen);
     };
   }
 
@@ -1846,6 +1921,14 @@ function refuseCaps(
 
 /** The system locale, read once per process (on macOS it runs `defaults`). */
 let systemLocaleRead: { value: string | undefined } | undefined;
+let systemProxyRead: { value: SystemProxy | undefined } | undefined;
+
+/** The system's proxy, read once per process: Chrome itself reads it again as it changes. */
+function cachedSystemProxy(): SystemProxy | undefined {
+  systemProxyRead ??= { value: systemProxy() };
+  return systemProxyRead.value;
+}
+
 function cachedSystemLocale(): string | undefined {
   systemLocaleRead ??= { value: systemLocale() };
   return systemLocaleRead.value;
@@ -1859,7 +1942,7 @@ function optional<K extends string, V>(key: K, value: V | undefined): { [P in K]
 /**
  * The capabilities the server lists: the server's own `--caps` (or its config's) when given,
  * else the defaults (`defaults.ts`): vision, pdf, devtools (not with record.traces, which uses the
- * same tracer) and network (not when the policy turns it off).
+ * same tracer), network (not when the policy turns it off) and storage (not in attach mode).
  */
 function defaultCaps(config: McpConfig, settings: IdentitySettings | undefined, options: HostOptions): McpConfig {
   if (config.capabilities) return config;
@@ -1932,6 +2015,7 @@ export function createHost(options: HostOptions): Host {
     tuning: options.tuning ?? {},
     redactor,
     guard,
+    storage: new StorageGuard(redactor),
     tabLocks: options.tabLocks ?? {},
     engineFlags,
     pressure: options.memory ?? memoryPressureProbe(),

@@ -276,7 +276,7 @@ export interface IdentitySettings {
    * `"auto"` (the default): coherent in a headless Chrome; `false`: never.
    */
   userAgent?: UserAgentMode | "auto" | false;
-  /** A proxy for the identity's traffic; credentials only as `keychain:` references. `false`: none. */
+  /** A proxy for the identity's traffic; credentials only as `keychain:` references. `false`: none, not even the system's. */
   proxy?: ProxySettings | false;
   /** The agent cursor: `"auto"` (the default, when the browser can be seen), `"on"` or `"off"`. */
   cursor?: CursorMode;

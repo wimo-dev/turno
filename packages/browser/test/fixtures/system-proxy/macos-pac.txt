@@ -1,0 +1,12 @@
+<dictionary> {
+  ExceptionsList : <array> {
+    0 : localhost
+    1 : 127.0.0.1
+  }
+  ExcludeSimpleHostnames : 1
+  HTTPEnable : 0
+  HTTPSEnable : 0
+  ProxyAutoConfigEnable : 1
+  ProxyAutoConfigURLString : http://wpad/wpad.dat
+  ProxyAutoDiscoveryEnable : 1
+}

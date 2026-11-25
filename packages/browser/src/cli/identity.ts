@@ -25,7 +25,7 @@ import {
   effectiveEntries,
   fromDefault,
 } from "../defaults.js";
-import { effectiveSettings } from "../effective.js";
+import { effectiveSettings, exitProblems, proxyInUse } from "../effective.js";
 import { findCamoufox } from "../engine-camoufox.js";
 import { findLightpanda } from "../engine-lightpanda.js";
 import { type ActKey, describeAct } from "../act-chain.js";
@@ -402,6 +402,10 @@ function networkPatch(
   if (bool(p, "no-proxy")) {
     if (given) fail("--no-proxy does not go with the other --proxy flags");
     patch.proxy = null;
+  } else if (parts.server !== undefined && isOff(parts.server)) {
+    if (parts.username !== undefined || parts.password !== undefined)
+      fail("--proxy-server off does not go with the other --proxy flags");
+    patch.proxy = false;
   } else if (given) {
     patch.proxy = mergeGroup<ProxySettings>(current?.proxy || undefined, parts);
   }
@@ -819,6 +823,8 @@ export function show(c: Ctx, id: string, args: string[], io: Io): number {
   for (const [k, v] of rows) io.out(s.kv(k, v, width));
   io.out(s.muted("defaults (not in identity.json; decided at every launch):"));
   for (const line of defaultLines(effective, undefined, SAID_APART)) io.out(`  ${line}`);
+  const proxy = proxyInUse(settings, effective, io.env);
+  for (const problem of exitProblems(id, settings, effective, proxy?.server, io.env)) io.out(s.note("warn", problem));
   for (const problem of problems) io.out(s.note("err", `identity.json ${problem}`));
   if (health?.status === "needs_auth") io.out(s.note("info", `sign in again: ${c.names.browser} login ${id}`));
   return Exit.ok;
@@ -839,7 +845,7 @@ export const SET_SYNOPSIS =
   "[--engine chrome|lightpanda] [--attach auto|<dir>|<url>] [--record-flows true|false] [--record-traces true|false] [--record-screenshots true|false] [--record-max-size <size>] [--no-record] " +
   "[--act] [--act-sampling true|false] [--act-provider chat-completions] [--act-endpoint <url>] [--act-model <name>] [--act-key keychain:<item>] [--act-max-steps <n>] [--act-max-tokens <n>] [--act-timeout <duration>] [--no-act] " +
   "[--captcha-provider task-api] [--captcha-endpoint <url>] [--captcha-key keychain:<item>] [--captcha-timeout <duration>] [--no-captcha] [--live true|false|auto] [--live-wait <duration>] [--no-live] " +
-  "[--user-agent coherent|auto|off] [--proxy-server <url>] [--proxy-username <name|keychain:item>] [--proxy-password keychain:<item>] [--no-proxy] " +
+  "[--user-agent coherent|auto|off] [--proxy-server <url>|off] [--proxy-username <name|keychain:item>] [--proxy-password keychain:<item>] [--no-proxy] " +
   "[--policy-file <file>] [--allowed-domains <host,...>] [--disable <feature,...>] [--auto-submit true|false] [--no-policy] [--browser chrome|edge|brave|chromium|chrome-for-testing|<path>] [--force] [--dry-run] [--json]";
 
 /** More help for `set`: what each tuning flag writes to identity.json, with the host's command names. */
@@ -951,10 +957,11 @@ Network and user agent (for your own accounts and sites you may automate):
                                   never takes a typed user agent
   --proxy-server <url>            send this identity's traffic through a proxy: http://,
                                   https://, socks4:// or socks5://host:port; its operator sees
-                                  where you go, and sites see its address
+                                  where you go, and sites see its address; off: no
+                                  proxy, not even the system's
   --proxy-username <name>         the proxy user name, or keychain:<item>
   --proxy-password keychain:<item> the password, only from the secret store (${n.secretStore ?? n.secretSet("<item>")})
-  --no-proxy                      remove the proxy
+  --no-proxy                      remove the proxy (Chrome follows the system's)
 
 What the identity may do (a policy; only this command writes it, no agent tool can):
   --policy-file <file>            the whole policy from a JSON file, like

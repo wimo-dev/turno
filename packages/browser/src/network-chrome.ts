@@ -183,6 +183,14 @@ export async function chromeNetwork(
       );
     out.proxy = await resolveProxy(settings.proxy, env, secret);
     out.args.push(...CHROME_PROXY_ARGS.filter((a) => !hasArg(userArgs, a.split("=")[0]!)));
+  } else if (
+    settings.proxy === false &&
+    config.browser.launchOptions.proxy === undefined &&
+    !hasArg(userArgs, "--proxy-server") &&
+    !hasArg(userArgs, "--no-proxy-server")
+  ) {
+    // Without a switch Chrome follows the system's proxy; `false` asks for direct connections.
+    out.args.push("--no-proxy-server");
   }
   const defaultVersion = byDefault ? chromeVersion(config, env) : undefined;
   const ready =
