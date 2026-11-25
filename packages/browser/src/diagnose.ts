@@ -12,7 +12,7 @@ import type { ToolResult } from "./upstream.js";
  * element covers, such as a cookie banner over the page. When the same element still covers it
  * a moment later, the call does not run and the agent hears which element is in the way at
  * once, instead of after the 5 second action timeout. That check costs one look at the target
- * per call; it scrolls only a target out of view, to where Playwright would scroll it.
+ * per call and never scrolls the page.
  *
  * Every message starts with a stable code (`FailureCode`), and the JSON form carries it as `code`.
  */
@@ -39,8 +39,7 @@ export type Diagnosis =
   | { state: "hidden"; target: ElementInfo; because?: ElementInfo }
   | { state: "disabled"; target: ElementInfo }
   | { state: "readonly"; target: ElementInfo }
-  /** `outside`: the look did not scroll and the target is out of view, so it could not hit-test it. */
-  | { state: "ok"; target: ElementInfo; outside?: true };
+  | { state: "ok"; target: ElementInfo };
 
 /** True for the failures a look at the element can explain: actionability timeouts. */
 export function isActionabilityFailure(text: string): boolean {
@@ -154,8 +153,7 @@ function inspect(el: Element, scroll = true): Diagnosis {
   const x = r.left + r.width / 2;
   const y = r.top + r.height / 2;
   // Without scrolling, a center outside the viewport cannot be hit-tested: nothing to say yet.
-  if (!scroll && (x < 0 || y < 0 || x >= window.innerWidth || y >= window.innerHeight))
-    return { state: "ok", target, outside: true };
+  if (!scroll && (x < 0 || y < 0 || x >= window.innerWidth || y >= window.innerHeight)) return { state: "ok", target };
   let hit = document.elementFromPoint(x, y);
   while (hit?.shadowRoot) {
     const inner = hit.shadowRoot.elementFromPoint(x, y);
@@ -307,11 +305,11 @@ function targetOf(args: Record<string, unknown>): string {
 }
 
 /** One look at a target; undefined when it is not exactly one element or the look fails. */
-async function lookAt(page: Page, target: string, scroll = false): Promise<Diagnosis | undefined> {
+async function lookAt(page: Page, target: string): Promise<Diagnosis | undefined> {
   try {
     const locator = locatorOf(page, target);
     if ((await locator.count()) !== 1) return undefined;
-    return await locator.evaluate(inspect, scroll, { timeout: 500 });
+    return await locator.evaluate(inspect, false, { timeout: 500 });
   } catch {
     return undefined;
   }
@@ -326,10 +324,10 @@ function coveredError(tool: string, target: string, d: Diagnosis, why: string, j
 
 /**
  * Before a diagnosed call: when another element covers its target, now and `COVER_STABLE_MS`
- * later, the error that names that element; undefined (run the call) otherwise. A target out of
- * view is scrolled to the middle of the viewport first, as Playwright's action would do, so a
- * full-page banner over a button below the fold is named too. Anything this check cannot tell (a
- * target not found yet, in a frame) is left to Playwright and the diagnosis after it.
+ * later, the error that names that element; undefined (run the call) otherwise. It never
+ * scrolls: humanize scrolls to a target out of view with the wheel, as a person would, so such a
+ * target, like anything else this check cannot tell (a target not found yet, in a frame), is left
+ * to Playwright and the diagnosis after it.
  */
 export async function coveredBeforeCall(
   page: Page | undefined,
@@ -341,8 +339,7 @@ export async function coveredBeforeCall(
   if (!page || !(tool in DIAGNOSED_TOOLS)) return undefined;
   const target = targetOf(args);
   if (!target) return undefined;
-  let first = await lookAt(page, target);
-  if (first?.state === "ok" && first.outside) first = await lookAt(page, target, true);
+  const first = await lookAt(page, target);
   if (first?.state !== "covered") return undefined;
   await wait(COVER_STABLE_MS);
   const again = await lookAt(page, target);

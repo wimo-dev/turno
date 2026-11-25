@@ -149,10 +149,6 @@ async function site(): Promise<{
       <a id="file" href="/api/file">Export</a>
       <button id="ask" onclick="if (confirm('Delete it?')) document.title = 'confirmed'">Delete</button>
       <script>new MutationObserver(() => { document.title = "mutated"; }).observe(document.body, { subtree: true, childList: true, attributes: true, characterData: true });</script>`,
-    // A button below the fold, under a banner that covers the whole viewport.
-    "/covered-below": `<title>covered below</title><div style="height:3000px"></div><button id="save" onclick="document.title='saved'">Save</button>
-      <div class="cookie-banner" role="dialog" aria-label="We use cookies" style="position:fixed;inset:0;background:#fff">
-        <p>We use cookies</p><button>Accept all</button></div>`,
     "/res": `<title>resources</title><link rel="stylesheet" href="/static/app.css"><link rel="stylesheet" href="/static/nostore.css">
       <script src="/static/cookie.js"></script><script src="/promo/ad.js"></script><img src="/static/logo.svg" alt="logo"><h1>Resources</h1>`,
     // Timer ticks in each of the last whole seconds (oldest first, the running second left out),
@@ -298,14 +294,6 @@ describe.skipIf(reason !== undefined)(
       expect(text).toContain('Next: close or answer that element first (it has "Accept all", "Reject")');
       // Named before the call ran, not after Playwright's action timeout.
       expect(text).toContain("turno: the call did not run: the target is covered");
-
-      // Out of view: scrolled in as Playwright would, then named before the call too.
-      await call(client, "browser_navigate", { url: `${web.url}/covered-below` });
-      const below = textOf(await client.callTool({ name: "browser_click", arguments: { target: "#save" } }));
-      expect(below).toMatch(
-        /^### Error\nELEMENT_COVERED: Could not click button "Save" \(button#save\), #save: dialog "We use cookies"/,
-      );
-      expect(below).toContain("turno: the call did not run: the target is covered");
 
       // Not in the way: an overlay that goes within 300 ms.
       await call(client, "browser_navigate", { url: `${web.url}/fading` });

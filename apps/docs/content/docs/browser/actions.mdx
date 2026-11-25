@@ -15,9 +15,9 @@ the target (a cookie banner, a dialog) with its buttons, or that the target is h
 disabled, and the next step. The message starts with a code that stays the same from release to
 release: `ELEMENT_COVERED`, `ELEMENT_HIDDEN`, `ELEMENT_DISABLED`, `ELEMENT_READONLY`,
 `ELEMENT_GONE` or `ELEMENT_NOT_STABLE` (in a JSON result, `code`, and `cover` for the element in
-the way). A target that another element covers, and still covers 300 ms later, is named at once
-instead of after Playwright's 5 second action timeout: the call does not run. A target out of
-view is scrolled to the middle of the window first, as Playwright's action would scroll it.
+the way). A target in view that another element covers before the call, and still covers it
+300 ms later, is named at once: the call does not run, instead of waiting out Playwright's 5
+second action timeout.
 
 After an action, turno waits only until the page is done with it: the requests the action
 started have finished (or none started within 100 ms), a navigation of the page has reached
