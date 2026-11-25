@@ -198,13 +198,15 @@ describe.skipIf(reason !== undefined)(
       expect(log.visibility).toEqual(["hidden", "visible"]);
     });
 
-    it("leaves the page alone with --cursor off, and with auto on a headless Chrome", async () => {
+    it("leaves the page alone with --cursor off, and with auto on a headless Chrome without the live view", async () => {
       const web = await site();
       onTestFinished(() => web.close());
       for (const [id, args] of [
         ["off", ["--cursor", "off"]],
         ["auto", []],
       ] as const) {
+        // The live view is on by default, and someone watching it sees the cursor.
+        if (id === "auto") writeIdentitySettings(id, { live: { enabled: false } }, sb.env);
         const client = await start(id, [...args]);
         await call(client, "browser_navigate", { url: web.url });
         const snapshot = await call(client, "browser_snapshot");

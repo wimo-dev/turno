@@ -89,7 +89,7 @@ It exits with code 1 when a check fails; warnings exit 0. Each row below is one 
 | [A Chrome was left running with no server](/docs/troubleshooting/browser-orphan-chrome) | `Chrome pid <pid> was left running on this profile with no server` | warning |
 | [A Chrome that turno did not start holds the profile](/docs/troubleshooting/browser-foreign-chrome) | `Chrome pid <pid> holds this profile, but no turno process does` | warning |
 | [An identity has a stale runtime lock](/docs/troubleshooting/browser-stale-lock) | `stale runtime lock of pid <node pid> (that process is gone)` | warning |
-| [An identity is not signed in (NEEDS_AUTH)](/docs/troubleshooting/browser-needs-auth) | `NEEDS_AUTH: not signed in at <url>: <health> (checked <checked at>)` | failure |
+| [An identity is not signed in (NEEDS_AUTH)](/docs/troubleshooting/browser-needs-auth) | `NEEDS_AUTH: not signed in at <url>: <health> (checked <checked at>)` | warning or failure |
 | [An identity's health check could not run](/docs/troubleshooting/browser-health-check-failed) | `the health check of <url> could not run: <health> (checked <checked at>)` | warning |
 | [An identity met challenges in the last 7 days](/docs/troubleshooting/browser-challenges) | `<recent> challenge<s> in the last 7 days on <sites> site<s> (<kinds>)` | warning |
 | [No Chromium-based browser is installed (turno-browser)](/docs/troubleshooting/browser-chrome-not-found) | `Google Chrome not found, and no other Chromium-based browser (Edge, Brave, Chromium, Chrome for Testing)` | failure |
@@ -109,7 +109,7 @@ It exits with code 1 when a check fails; warnings exit 0. Each row below is one 
 | [An agent runs turno-browser-mcp from a path that is gone](/docs/troubleshooting/browser-agent-command-missing) | `<label> runs <server> with <e>, which is not there` | warning |
 | [An agent lost the server init registered](/docs/troubleshooting/browser-agent-registration-lost) | `<label> no longer has <server>, which init registered in <file>` | warning |
 | [No Chrome to attach to](/docs/troubleshooting/browser-attach-not-listening) | `attach: no Chrome with remote debugging on< for <dir>>, so the next tool call fails` | warning |
-| [Several sessions share one tab](/docs/troubleshooting/browser-sharing-not-exclusive) | `[server.<name>] in mcp.toml lets several sessions in (exclusive = false), but this identity serves one at a time ("sharing": "session"), so those sessions share one current tab` | warning |
+| [Several sessions share one tab](/docs/troubleshooting/browser-sharing-not-exclusive) | `[server.<name>] in mcp.toml lets several sessions in (exclusive = false), but this identity serves one at a time ("sharing": "session"<, the default in attach mode>), so those sessions share one current tab` | warning |
 | [A Lightpanda was left running](/docs/troubleshooting/browser-stray-lightpanda) | `Lightpanda pid <stray> was left running by a server that is gone` | warning |
 | [The test launch of the browser failed](/docs/troubleshooting/browser-smoke-launch-failed) | `smoke launch failed: <first line>` | failure |
 

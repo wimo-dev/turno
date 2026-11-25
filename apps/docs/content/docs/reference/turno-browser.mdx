@@ -164,54 +164,59 @@ Examples:
 Usage:
   turno-browser set <id> [--timezone <zone>] [--locale <tag>] [--languages
       <tag,...>] [--region <CC>] [--health-url <url>] [--health-text <text>]
-      [--health-selector <css>] [--no-health] [--tabs-max <n>] [--tabs-popups
-      close|keep] [--tabs-park <duration>] [--tabs-close <duration>] [--no-tabs]
-      [--background-throttling true|false] [--settle <duration>] [--resources
-      normal|low] [--block-trackers true|false] [--block-types image,media,font]
-      [--block-patterns <host|glob>,...] [--no-block] [--cache]
-      [--cache-max-size <size>] [--no-cache] [--humanize
-      off|light|full|adaptive] [--cursor auto|on|off] [--sharing session|tabs]
-      [--tab-lock-wait <duration>] [--tab-lock-release <duration>] [--engine
-      chrome|lightpanda] [--attach auto|<dir>|<url>] [--record-flows true|false]
-      [--record-traces true|false] [--record-screenshots true|false]
+      [--health-selector <css>] [--health off] [--no-health] [--tabs-max <n>]
+      [--tabs-popups close|keep] [--tabs-park <duration>] [--tabs-close
+      <duration>] [--no-tabs] [--background-throttling true|false] [--settle
+      <duration>] [--resources normal|low|auto] [--block-trackers true|false]
+      [--block-types image,media,font] [--block-patterns <host|glob>,...]
+      [--no-block] [--cache] [--cache-max-size <size>] [--no-cache] [--humanize
+      auto|off|light|full|adaptive] [--cursor auto|on|off] [--sharing
+      session|tabs] [--tab-lock-wait <duration>] [--tab-lock-release <duration>]
+      [--engine chrome|lightpanda] [--attach auto|<dir>|<url>] [--record-flows
+      true|false] [--record-traces true|false] [--record-screenshots true|false]
       [--record-max-size <size>] [--no-record] [--act] [--act-sampling
       true|false] [--act-provider chat-completions] [--act-endpoint <url>]
       [--act-model <name>] [--act-key keychain:<item>] [--act-max-steps <n>]
       [--act-max-tokens <n>] [--act-timeout <duration>] [--no-act]
       [--captcha-provider task-api] [--captcha-endpoint <url>] [--captcha-key
       keychain:<item>] [--captcha-timeout <duration>] [--no-captcha] [--live
-      true|false] [--live-wait <duration>] [--no-live] [--user-agent coherent]
-      [--proxy-server <url>] [--proxy-username <name|keychain:item>]
-      [--proxy-password keychain:<item>] [--no-proxy] [--policy-file <file>]
-      [--allowed-domains <host,...>] [--disable <feature,...>] [--auto-submit
-      true|false] [--no-policy] [--browser
+      true|false|auto] [--live-wait <duration>] [--no-live] [--user-agent
+      coherent|auto|off] [--proxy-server <url>] [--proxy-username
+      <name|keychain:item>] [--proxy-password keychain:<item>] [--no-proxy]
+      [--policy-file <file>] [--allowed-domains <host,...>] [--disable
+      <feature,...>] [--auto-submit true|false] [--no-policy] [--browser
       chrome|edge|brave|chromium|chrome-for-testing|<path>] [--force]
       [--dry-run] [--json]
     change an identity's identity.json (an empty value removes a setting)
 
 Each flag writes one key of identity.json; an empty value (--settle "") removes it, and
 --no-health, --no-tabs, --no-block and --no-cache remove a whole group. A flag of a group
-changes only its part: the rest of that group stays.
+changes only its part: the rest of that group stays. A key that is not in identity.json takes
+its default at every launch (turno-browser show <id> lists each value and where it comes from);
+off pins a key off for good: --health off, --locale off, --user-agent off.
 
 How the host runs this identity's Chrome (read at every Chrome start):
-  --resources normal|low          low: the preset for a machine short of memory (at most 2
+  --resources normal|low|auto     low: the preset for a machine short of memory (at most 2
                                   tabs, idle tabs parked after 2m, Chrome closed after 5m
                                   without a call, a note in tool results when memory runs
-                                  low); the flags below still win over it
+                                  low); the flags below still win over it. auto (default):
+                                  low while the system reports memory pressure at launch
   --tabs-max <n>                  most tabs open at once, 0 for no cap (default 8)
   --tabs-popups close|keep        close popups the agent did not open (default close)
   --tabs-park <duration>          park an unused tab on about:blank, "0" never (default 5m)
   --tabs-close <duration>         close an unused tab, "0" never (default 15m)
-  --background-throttling <bool>  let Chrome slow tabs that are not in front (default false)
+  --background-throttling <bool>  let Chrome slow tabs that are not in front (default: true
+                                  in a headless Chrome without the live view, else false)
   --settle <duration>             wait after each action for the work it started, "0" to "10s"
   --block-trackers <bool>         block a built-in list of ad and analytics hosts
   --block-types <list>            block image, media and font requests (never the page itself)
   --block-patterns <list>         block host names (and subdomains) or URL globs with *
   --cache                         keep images, fonts, styles and scripts on disk (100MB)
   --cache-max-size <size>         the cache's size, "1MB" to "10GB"; turns the cache on
-  --sharing session|tabs          "tabs": every agent session at once, each in its own locked
-                                  tabs (default "session": one at a time); mcp.toml then needs
-                                  exclusive = false for the identity's server
+  --sharing session|tabs          "tabs" (default): every agent session at once, each in its
+                                  own locked tabs; mcp.toml then needs exclusive = false for the
+                                  identity's server. "session": one at a time (the default with
+                                  --attach)
   --tab-lock-wait <duration>      with tabs: how long a call waits for a tab another session
                                   holds, "0" (fail at once) to "10m" (default 10s)
   --tab-lock-release <duration>   with tabs: a session without calls lets go of its tabs after
@@ -220,10 +225,13 @@ How the host runs this identity's Chrome (read at every Chrome start):
 Blocking without the cache turns Chrome's own HTTP cache off: use them together.
 
 Input:
-  --humanize <level>              off (default), light (the pointer travels a curve to a point
-                                  inside the target, keys typed with human delays), full (plus
-                                  overshoot, reading pauses, wheel scrolling) or adaptive
-                                  (light, full on a site after a challenge page there)
+  --humanize <level>              auto (default): off on localhost and for read-only steps,
+                                  light for other actions, full on sign-in, payment and support
+                                  pages and on a site after a challenge page there; off, light
+                                  (the pointer travels a curve to a point inside the target,
+                                  keys typed with human delays), full (plus overshoot, reading
+                                  pauses, wheel scrolling) or adaptive (light, full after a
+                                  challenge page)
   --cursor auto|on|off            the agent cursor: an arrow with the agent's name that glides to
                                   what it acts on, a ring, click ripples, and a frame with a badge
                                   while it works. auto (default): when the browser can be seen (a
@@ -241,10 +249,13 @@ Which engine runs this identity (all off by default):
                                   chrome://inspect/#remote-debugging; Chrome asks you to allow
                                   each connection, and the agent then sees all its windows
 
-What turno-browser records for this identity (all off by default; turno-browser record):
-  --record-flows <bool>           keep every session's actions as a flow (auto-<time>, newest 20)
-  --record-traces <bool>          a Playwright trace of each browser session (turno-browser traces)
-  --record-screenshots <bool>     a screenshot after each action
+What turno-browser records for this identity (turno-browser record):
+  --record-flows <bool>           keep every session's actions as a flow (auto-<time>, newest
+                                  20; on by default)
+  --record-traces <bool>          a Playwright trace of each browser session (turno-browser traces);
+                                  by default only the traces with a failed step are kept
+  --record-screenshots <bool>     a screenshot after each action (on by default, never of a
+                                  page that shows a vault value; not with attach or Lightpanda)
   --record-max-size <size>        cap of the traces and screenshots, "10MB" to "10GB" (default 200MB)
 Vault sign-ins and passwords never reach a flow, a trace or a screenshot.
 
@@ -266,15 +277,18 @@ party you pick, and many sites' terms forbid them; the server lists their tools 
   --captcha-timeout <duration>    longest wait for a solution (default 3m)
   --no-act, --no-captcha          turn them off
 
-The live view and take-over (off by default; turno-browser live, pause, resume):
+The live view and take-over (turno-browser live, pause, resume):
   --live <bool>                   serve a view of the agent's tab on 127.0.0.1 and let you pause
-                                  the agent to take the controls (from the next server start)
+                                  the agent to take the controls (from the next server start);
+                                  on by default, and the view opens only with turno-browser live <id>
   --live-wait <duration>          how long a paused call waits for you, "5s" to "30m" (default 2m)
 
-Network and user agent (all off by default; for your own accounts and sites you may automate):
-  --user-agent coherent           the installed Chrome's own user agent and client hints, with
-                                  this identity's languages and time zone, checked at every
-                                  launch (a headless Chrome stops saying HeadlessChrome); turno
+Network and user agent (for your own accounts and sites you may automate):
+  --user-agent coherent|auto|off  coherent: the installed Chrome's own user agent and client
+                                  hints, with this identity's languages and time zone, checked
+                                  at every launch (a headless Chrome stops saying
+                                  HeadlessChrome). auto (default): coherent in a headless Chrome
+                                  only, dropped when the check fails. off: Chrome's own. turno
                                   never takes a typed user agent
   --proxy-server <url>            send this identity's traffic through a proxy: http://,
                                   https://, socks4:// or socks5://host:port; its operator sees
@@ -868,8 +882,9 @@ Which browser: the identity's identity.json browser (chrome, edge, brave, chromi
 chrome-for-testing or a path; turno-browser set <id> --browser), else Google Chrome. The
 Playwright MCP flags --browser and --executable-path win over identity.json for this server.
 
-  --identity <id>          use the identity's saved profile (served one session at a time by
-                           mcpd, unless the identity's "sharing" is "tabs")
+  --identity <id>          use the identity's saved profile (every agent session at once, each
+                           in its own tabs, unless the identity's "sharing" is "session" or it
+                           attaches to your Chrome)
   --allow-http-identity    allow --port or --host together with --identity; the server then
                            binds to 127.0.0.1 only. Any local process can use that browser.
 
@@ -884,22 +899,28 @@ Tabs (these flags win over the identity's identity.json):
   --park-after <duration>  park a page unused this long on about:blank; it loads again on its
                            next use (default 5m; 0: never)
   --close-after <duration> close a page unused this long (default 15m; 0: never)
-  --background-throttling  let Chrome slow down tabs that are not in front (default off); the
-                           agent's tab is brought to the front before each call
-  --sharing <session|tabs> "tabs": several agent sessions use the browser at once, each in
-                           its own tabs, which it locks (default "session", one at a time;
-                           mcp.toml then needs exclusive = false for this server)
-  --resources <normal|low> low: the preset for a machine short of memory: at most 2 tabs,
+  --background-throttling  let Chrome slow down tabs that are not in front (default: on in a
+                           headless Chrome without the live view, off otherwise); the agent's
+                           tab is brought to the front before each call
+  --sharing <session|tabs> "tabs" (default): several agent sessions use the browser at once,
+                           each in its own tabs, which it locks (mcp.toml then needs
+                           exclusive = false for this server); "session": one at a time (the
+                           default with --attach)
+  --resources <normal|low|auto>
+                           auto (default): low while the system reports memory pressure at
+                           launch. low: the preset for a machine short of memory: at most 2 tabs,
                            pages parked after 2m, Chrome closed after 5m without a call (unless
                            TURNO_BROWSER_IDLE says otherwise), the background server gone after
                            5m, and a note in tool results while memory is low. The flags
                            above still win over it
 
 Input (wins over the identity's identity.json):
-  --humanize <level>       off (default), light, full or adaptive: the pointer travels a curve
-                           to a point inside the target, keys are typed with human delays;
+  --humanize <level>       auto (default), off, light, full or adaptive: the pointer travels a
+                           curve to a point inside the target, keys are typed with human delays;
                            full adds overshoot, reading pauses and wheel scrolling; adaptive is
-                           light, and full on a site that showed a challenge page
+                           light, and full on a site that showed a challenge page; auto is off
+                           on localhost and for reading, light to act, and full on sign-in,
+                           payment and support pages and on challenged sites
   --cursor <auto|on|off>   the agent cursor: a named arrow that glides to what the agent acts
                            on, a ring, click ripples and a frame with a badge while it works.
                            auto (default): when the browser can be seen (a window, or the live
@@ -920,7 +941,7 @@ Engines (these flags win over the identity's identity.json; all off by default):
                            data dir, or a loopback endpoint. The agent sees every window of
                            that profile; turno closes only the tabs it opened
 
-Live view (wins over the identity's identity.json; off by default):
+Live view (on by default with an identity; identity.json "live": {"enabled": false} turns it off):
   --live                   serve a view of the agent's tab on 127.0.0.1 (turno-browser live
                            <id> opens it) and let you pause the agent to take the controls
   --live-wait <duration>   how long a call waits while you have the agent paused (default 2m,

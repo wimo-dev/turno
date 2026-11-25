@@ -544,7 +544,7 @@ class SessionBackend extends EventEmitter implements ServerBackend {
       const settings = identity ? readIdentitySettings(identity.id, identity.env) : undefined;
       const effective = await this.defaults(settings, hostConfig);
       const tuning = resolveTuning(settings, this.host.tuning, effective);
-      const locale = uiLocale(settings, effective.locale.value || undefined);
+      const locale = uiLocale(settings);
       // The low-resource preset's idle limit, unless the user set one (`resolveTuning`).
       const config =
         tuning.browserIdleMs === undefined
