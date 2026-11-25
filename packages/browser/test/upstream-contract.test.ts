@@ -331,6 +331,21 @@ describe("upstream contract (patchright-core 1.64.3)", () => {
     expect(bundleSource).toContain("options.timeoutSettle = numberParser(e.PLAYWRIGHT_MCP_TIMEOUT_SETTLE);");
   });
 
+  it("lets the host replace a tab's wait after an action (action-wait.ts)", () => {
+    // The method the adaptive wait replaces on each tab, with what it keeps of it.
+    expect(bundleSource).toContain(
+      "      async waitForCompletion(callback) {\n        await this._initializedPromise;\n        await this._raceAgainstModalStates(() => waitForCompletion(this, callback));\n      }",
+    );
+    expect(bundleSource).toContain("      modalStates() {\n        return this._modalStates;");
+    // Upstream's own wait, which stays the ceiling: settle, 5 s for requests, 10 s for load.
+    const wait = bundleFunction("waitForCompletion");
+    expect(wait).toContain("const settleMs = tab2.context.config.timeouts?.settle ?? 500;");
+    expect(wait).toContain('await tab2.page.mainFrame().waitForLoadState("load", { timeout: 1e4 })');
+    expect(wait).toContain("const timeout = new Promise((resolve) => setTimeout(resolve, 5e3));");
+    // The DOM check runs in the utility world: patchright's fourth evaluate argument.
+    expect(bundleSource).toContain("async evaluate(pageFunction, arg2, options, isolatedContext = true) {");
+  });
+
   it("reports a failed action the way the click diagnosis reads it", () => {
     expect(bundleSource).toContain(
       'content: [{ type: "text", text: json ? JSON.stringify({ isError: true, error: message }, null, 2) : `### Error\n${message}` }],',

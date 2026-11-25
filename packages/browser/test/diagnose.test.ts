@@ -37,14 +37,14 @@ describe("failureMessage", () => {
     const text = failureMessage("browser_click", "e7", d, TIMEOUT);
     expect(text).toBe(
       [
-        'Could not click button "Save" (button#save), e7: dialog "We use cookies" (div.cookie-banner) covers it and would get the click instead.',
+        'ELEMENT_COVERED: Could not click button "Save" (button#save), e7: dialog "We use cookies" (div.cookie-banner) covers it and would get the click instead.',
         'Next: close or answer that element first (it has "Accept all", "Reject"), then try again; take a new snapshot if the page changed.',
         "Playwright: locator.click: Timeout 5000ms exceeded.",
       ].join("\n"),
     );
   });
 
-  it("says when the target is hidden, by what, disabled, read-only or gone", () => {
+  it("says when the target is hidden, by what, disabled, read-only or gone, each with its code", () => {
     expect(
       failureMessage(
         "browser_click",
@@ -52,8 +52,8 @@ describe("failureMessage", () => {
         { state: "hidden", target, because: { role: "navigation", name: "Menu", selector: "nav.menu" } },
         TIMEOUT,
       ),
-    ).toContain(
-      'it is not visible (navigation "Menu" (nav.menu) hides it).\nNext: open the menu, tab or section that holds it',
+    ).toMatch(
+      /^ELEMENT_HIDDEN: .*it is not visible \(navigation "Menu" \(nav\.menu\) hides it\)\.\nNext: open the menu, tab or section that holds it/,
     );
     expect(
       failureMessage(
@@ -63,11 +63,14 @@ describe("failureMessage", () => {
         TIMEOUT,
       ),
     ).toMatch(
-      /^Could not type into textbox "Email" \(input#email\), #email: it is disabled\.\nNext: do what enables it first/,
+      /^ELEMENT_DISABLED: Could not type into textbox "Email" \(input#email\), #email: it is disabled\.\nNext: do what enables it first/,
     );
-    expect(failureMessage("browser_type", "e2", { state: "readonly", target }, TIMEOUT)).toContain("it is read-only.");
+    expect(failureMessage("browser_type", "e2", { state: "readonly", target }, TIMEOUT)).toMatch(
+      /^ELEMENT_READONLY: .*it is read-only\./,
+    );
+    expect(failureMessage("browser_click", "e2", { state: "ok", target }, TIMEOUT)).toMatch(/^ELEMENT_NOT_STABLE: /);
     expect(failureMessage("browser_hover", "e2", undefined, TIMEOUT)).toMatch(
-      /^Could not hover over e2: the element is no longer on the page\.\nNext: take a new snapshot/,
+      /^ELEMENT_GONE: Could not hover over e2: the element is no longer on the page\.\nNext: take a new snapshot/,
     );
   });
 });
@@ -121,7 +124,7 @@ describe("coveredBeforeCall", () => {
     expect(res?.isError).toBe(true);
     const text = (res!.content[0] as { text: string }).text;
     expect(text).toMatch(
-      /^### Error\nCould not click button "Save" \(button#save\), #save: dialog "We use cookies" \(div\.cookie\) covers it/,
+      /^### Error\nELEMENT_COVERED: Could not click button "Save" \(button#save\), #save: dialog "We use cookies" \(div\.cookie\) covers it/,
     );
     expect(text).toContain("turno: the call did not run: the target is covered");
     expect(seen).toEqual([false, false]);
@@ -142,6 +145,10 @@ describe("coveredBeforeCall", () => {
   it("answers in JSON when the call asked for it", async () => {
     const { page } = pageWith([covered("div.cookie"), covered("div.cookie")]);
     const res = await coveredBeforeCall(page, "browser_click", { target: "#save" }, true, noWait);
-    expect(JSON.parse((res!.content[0] as { text: string }).text)).toMatchObject({ isError: true });
+    expect(JSON.parse((res!.content[0] as { text: string }).text)).toMatchObject({
+      isError: true,
+      code: "ELEMENT_COVERED",
+      cover: { role: "dialog", name: "We use cookies", selector: "div.cookie" },
+    });
   });
 });

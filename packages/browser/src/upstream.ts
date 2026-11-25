@@ -87,9 +87,19 @@ export interface BrowserBackendInstance {
   once(event: "disconnected", listener: () => void): unknown;
 }
 
-/** One tab of upstream's `Context` (`tab.ts`): only the page is read. */
-interface UpstreamTab {
+/** One tab of upstream's `Context` (`tab.ts`). */
+export interface UpstreamTab {
   page: Page;
+  /** The session's `Context`, whose config the tab reads on every call. */
+  context: { config: McpConfig };
+  /** Open dialogs and file choosers: while one is open the page runs no script. */
+  modalStates(): readonly { type: string }[];
+  /** Runs an action and waits for what it started (`action-wait.ts` replaces it). */
+  waitForCompletion(callback: () => Promise<unknown>): Promise<void>;
+  /** Resolves once the tab has read the page's console messages and requests. */
+  _initializedPromise: Promise<unknown>;
+  /** Runs `action` until it ends or a dialog or file chooser opens. */
+  _raceAgainstModalStates(action: () => Promise<unknown>): Promise<unknown>;
 }
 
 /** Upstream's per-session `Context` (`context.ts`), which `BrowserBackend` keeps in `_context`. */
