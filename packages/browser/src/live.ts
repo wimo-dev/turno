@@ -22,7 +22,15 @@ import { names } from "./names.js";
  *   snapshot may now point elsewhere, and a fresh snapshot comes back instead.
  * - When the wait runs out the call fails with a message that says the user still has the
  *   browser; the next call waits again.
+ * - The person can also take the controls without pausing first: input in the live view while
+ *   the agent works, or their own clicks, keys and scrolls in the agent's Chrome window, start an
+ *   automatic pause (`PauseHold.idleMs`). It holds the agent's next call like a pause and hands
+ *   the browser back by itself once the person has made no input for that long, or at once with
+ *   Hand back in the view. The agent and the person never type over each other.
  */
+
+/** How long the person's input must stop before an automatic pause hands the browser back. */
+export const DEFAULT_IDLE_MS = 5_000;
 
 /** How long a paused call waits for the user when identity.json and the flags say nothing. */
 export const DEFAULT_LIVE_WAIT_MS = 2 * 60_000;
@@ -103,8 +111,12 @@ export type GateOutcome =
       before: TabState[];
       /** Clicks, keys and scrolls the user sent through the live view during the pause. */
       inputs: number;
+      /** Clicks, keys and scrolls the person made in the agent's page itself during the pause. */
+      pageInputs: number;
+      /** The pause started by itself when the person used the browser, and ended when they stopped. */
+      auto: boolean;
     }
-  | { kind: "timeout"; pausedMs: number; by: string; step: boolean }
+  | { kind: "timeout"; pausedMs: number; by: string; step: boolean; auto: boolean }
   | { kind: "aborted" };
 
 /** How a pause holds calls beyond the live wait: a step the agent asked the person to do. */
@@ -113,6 +125,11 @@ export interface PauseHold {
   step?: boolean;
   /** When the step ends at the latest (epoch ms): a held call waits at least until then. */
   until?: number;
+  /**
+   * The person took the controls by using the browser: the pause ends by itself once their
+   * input has stopped this long (`handBackWhenIdle`).
+   */
+  idleMs?: number;
 }
 
 /** How long a held call waits past the end of a person step, for the step to clean up. */
@@ -125,6 +142,10 @@ interface Pause {
   until: number | undefined;
   before: Promise<TabState[]>;
   inputs: number;
+  pageInputs: number;
+  /** The latest input of the person (epoch ms), the start of the pause until there is one. */
+  lastInput: number;
+  idleMs: number | undefined;
   done: Promise<void>;
   release: () => void;
 }
@@ -133,13 +154,38 @@ interface Pause {
 export class PauseGate {
   private pause: Pause | undefined;
   /** The pause that ended last, for a step the person resumed before it read its input count. */
-  private ended: { since: number; inputs: number } | undefined;
+  private ended: { since: number; inputs: number; at: number } | undefined;
   private waiting = 0;
 
   constructor(private readonly now: () => number = Date.now) {}
 
-  get paused(): { since: number; by: string; step: boolean } | undefined {
-    return this.pause && { since: this.pause.since, by: this.pause.by, step: this.pause.step };
+  get paused(): { since: number; by: string; step: boolean; idleMs?: number } | undefined {
+    const p = this.pause;
+    if (!p) return undefined;
+    return { since: p.since, by: p.by, step: p.step, ...(p.idleMs === undefined ? {} : { idleMs: p.idleMs }) };
+  }
+
+  /** When the last pause ended (epoch ms), or undefined when none has. */
+  get endedAt(): number | undefined {
+    return this.ended?.at;
+  }
+
+  /** The latest input of the pause that started at `since` (its start when there was none). */
+  lastInputOf(since: number): number | undefined {
+    return this.pause?.since === since ? this.pause.lastInput : undefined;
+  }
+
+  /** What the pause on now started with, for the timeline's hand-back line. */
+  current(): { since: number; by: string; step: boolean; before: Promise<TabState[]>; inputs: number } | undefined {
+    const p = this.pause;
+    return p && { since: p.since, by: p.by, step: p.step, before: p.before, inputs: p.inputs };
+  }
+
+  /** The person pressed Pause during an automatic pause: it no longer ends by itself. */
+  keep(): boolean {
+    if (!this.pause || this.pause.idleMs === undefined) return false;
+    this.pause.idleMs = undefined;
+    return true;
   }
 
   /** The live view input of the pause that started at `since`, on now or ended last (else 0). */
@@ -169,6 +215,9 @@ export class PauseGate {
       until: hold.until,
       before,
       inputs: 0,
+      pageInputs: 0,
+      lastInput: this.now(),
+      idleMs: hold.idleMs,
       done,
       release,
     };
@@ -180,14 +229,28 @@ export class PauseGate {
     const p = this.pause;
     if (!p) return false;
     this.pause = undefined;
-    this.ended = { since: p.since, inputs: p.inputs };
+    this.ended = { since: p.since, inputs: p.inputs, at: this.now() };
     p.release();
     return true;
   }
 
   /** The user clicked, typed or scrolled through the live view. */
   noteInput(): void {
-    if (this.pause) this.pause.inputs++;
+    if (!this.pause) return;
+    this.pause.inputs++;
+    this.pause.lastInput = this.now();
+  }
+
+  /** Input is on its way: an automatic pause does not end while it lands. */
+  touch(): void {
+    if (this.pause) this.pause.lastInput = this.now();
+  }
+
+  /** The person clicked, typed or scrolled in the page itself, `count` times, the latest at `at`. */
+  notePageInput(count: number, at: number): void {
+    if (!this.pause || count <= 0) return;
+    this.pause.pageInputs += count;
+    this.pause.lastInput = Math.max(this.pause.lastInput, at);
   }
 
   /** Waits while paused, at most `waitMs`; resolves at once when there is no pause. */
@@ -214,7 +277,8 @@ export class PauseGate {
       ]);
       if (outcome === "aborted") return { kind: "aborted" };
       const pausedMs = this.now() - p.since;
-      if (outcome === "timeout") return { kind: "timeout", pausedMs, by: p.by, step: p.step };
+      const auto = p.idleMs !== undefined;
+      if (outcome === "timeout") return { kind: "timeout", pausedMs, by: p.by, step: p.step, auto };
       return {
         kind: "resumed",
         pausedMs,
@@ -222,6 +286,8 @@ export class PauseGate {
         step: p.step,
         before: await p.before.catch(() => []),
         inputs: p.inputs,
+        pageInputs: p.pageInputs,
+        auto,
       };
     } finally {
       this.waiting--;
@@ -249,6 +315,7 @@ export function describeChanges(
   currentBefore: number | undefined,
   currentAfter: number | undefined,
   inputs: number,
+  pageInputs = 0,
 ): { changed: boolean; lines: string[] } {
   const lines: string[] = [];
   const was = new Map(before.map((t) => [t.id, t]));
@@ -270,6 +337,10 @@ export function describeChanges(
   }
   if (inputs > 0)
     lines.push(`The user clicked, typed or scrolled ${inputs} time${inputs === 1 ? "" : "s"} through the live view.`);
+  if (pageInputs > 0)
+    lines.push(
+      `The person clicked, typed or scrolled ${pageInputs} time${pageInputs === 1 ? "" : "s"} in the page itself.`,
+    );
   return { changed: lines.length > 0, lines };
 }
 
@@ -282,6 +353,8 @@ export function resumeNote(o: {
   ran: boolean;
   /** The pause was a person step (`browser_request_human`, or a page's passkey prompt). */
   step?: boolean;
+  /** The person took the controls by using the browser, and handed it back by stopping. */
+  auto?: boolean;
   /** A flow is being recorded: what the user did is not in it. */
   recordingFlow?: boolean;
   /** The browser is not running, so there is no snapshot. */
@@ -292,10 +365,15 @@ export function resumeNote(o: {
         "### Waited for the person",
         `The browser was handed to the person for a step (${o.by}); it took ${formatPause(o.pausedMs)} and has ended.`,
       ]
-    : [
-        "### Paused by the user",
-        `The user paused this browser (${o.by}) for ${formatPause(o.pausedMs)} and has resumed it.`,
-      ];
+    : o.auto
+      ? [
+          "### The person used the browser",
+          `The person was using this browser (${o.by}), so your call waited ${formatPause(o.pausedMs)} until they stopped or handed it back.`,
+        ]
+      : [
+          "### Paused by the user",
+          `The user paused this browser (${o.by}) for ${formatPause(o.pausedMs)} and has resumed it.`,
+        ];
   if (o.lines.length) out.push("While you waited:", ...o.lines.map((l) => `- ${l}`));
   else out.push("Nothing changed in the browser's tabs (same tabs, URLs and titles).");
   if (o.ran) out.push(`Your ${o.tool} call ran after the resume; its result follows.`);
@@ -316,6 +394,14 @@ export function pausedWhileRunningNote(step: boolean): string {
     : "### Paused by the user\nThe user paused this browser while this call ran. Your next call waits until they resume.";
 }
 
+/** Who an automatic pause is for when the person used the agent's Chrome window itself. */
+export const PAGE_INPUT_BY = "the person's input in the browser window";
+
+/** The error of a call that waited the whole live wait while the person kept using the browser. */
+export function stillUsingMessage(tool: string, pausedMs: number, by: string): string {
+  return `The person has been using this browser for ${formatPause(pausedMs)} (${by}) and has not stopped, so ${tool} was not run. Wait, then call again: the browser goes back to you once their input stops for a few seconds, or when they press Hand back in the live view.`;
+}
+
 /** The error of a call whose wait ran out. */
 export function timeoutMessage(identity: string, tool: string, pausedMs: number, by: string, waitMs: number): string {
   return (
@@ -323,4 +409,36 @@ export function timeoutMessage(identity: string, tool: string, pausedMs: number,
     `within ${formatPause(waitMs)}, so ${tool} was not run. The user is probably acting in the browser: wait, or ask ` +
     `them to resume (Resume in the live view, or ${names().browser} resume ${identity}), then call again.`
   );
+}
+
+/**
+ * Ends the automatic pause that started at `since` once the person's input has stopped for its
+ * `idleMs`: the latest live view input the gate saw, or the latest input `activity` reads from the
+ * page (its time and how many new inputs since the last read). Stops when that pause ends some
+ * other way (Hand back, or the person pressed Pause, which makes it a pause of their own).
+ */
+export function handBackWhenIdle(
+  owner: { gate: PauseGate; resume(): boolean },
+  since: number,
+  activity?: () => Promise<{ at: number; count: number } | undefined>,
+  o: { pollMs?: number; now?: () => number } = {},
+): Promise<void> {
+  const now = o.now ?? Date.now;
+  const pollMs = o.pollMs ?? 250;
+  return (async () => {
+    for (;;) {
+      await new Promise<void>((r) => setTimeout(r, pollMs).unref());
+      const p = owner.gate.paused;
+      if (!p || p.since !== since || p.idleMs === undefined) return;
+      const seen = await activity?.().catch(() => undefined);
+      if (seen) owner.gate.notePageInput(seen.count, seen.at);
+      const last = owner.gate.lastInputOf(since) ?? since;
+      if (now() - last >= p.idleMs) {
+        // Read again: Pause pressed while the page answered makes it the person's own pause.
+        const still = owner.gate.paused;
+        if (still?.since === since && still.idleMs !== undefined) owner.resume();
+        return;
+      }
+    }
+  })();
 }

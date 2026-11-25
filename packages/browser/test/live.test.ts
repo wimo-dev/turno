@@ -3,6 +3,7 @@ import {
   DEFAULT_LIVE_WAIT_MS,
   PauseGate,
   describeChanges,
+  handBackWhenIdle,
   formatPause,
   resolveLive,
   resumeNote,
@@ -49,10 +50,63 @@ describe("PauseGate", () => {
       step: false,
       before: [{ id: 1, url: "https://a.example/", title: "A" }],
       inputs: 2,
+      pageInputs: 0,
+      auto: false,
     });
     expect(gate.held).toBe(0);
     expect(gate.paused).toBeUndefined();
     expect(gate.resume()).toBe(false);
+  });
+
+  it("holds the agent while the person keeps using the browser, and hands back once they stop", async () => {
+    let now = 0;
+    const gate = new PauseGate(() => now);
+    const owner = { gate, resume: () => gate.resume() };
+    gate.start("the person's input in the browser window", Promise.resolve([]), { idleMs: 5_000 });
+    const since = gate.paused!.since;
+    // What the page reports, once: the reader hands each input out a single time.
+    let pending: { at: number; count: number } | undefined;
+    const activity = async () => {
+      const p = pending;
+      pending = undefined;
+      return p;
+    };
+    const back = handBackWhenIdle(owner, since, activity, { pollMs: 1, now: () => now });
+    const held = gate.wait(60_000);
+    let settled = false;
+    void held.then(() => {
+      settled = true;
+    });
+    // Input in the page every 2 s for 10 s: the call stays held all along.
+    for (let at = 2_000; at <= 10_000; at += 2_000) {
+      now = at;
+      pending = { at, count: 1 };
+      await new Promise((r) => setTimeout(r, 10));
+      expect(settled).toBe(false);
+    }
+    now = 12_000;
+    gate.noteInput(); // the live view too
+    now = 16_900;
+    await new Promise((r) => setTimeout(r, 10));
+    expect(settled).toBe(false);
+    now = 17_000;
+    await back;
+    expect(await held).toMatchObject({ kind: "resumed", auto: true, inputs: 1, pageInputs: 5 });
+  });
+
+  it("keeps an automatic pause once the person presses Pause", async () => {
+    let now = 0;
+    const gate = new PauseGate(() => now);
+    gate.start("the live view", Promise.resolve([]), { idleMs: 1_000 });
+    const back = handBackWhenIdle({ gate, resume: () => gate.resume() }, gate.paused!.since, undefined, {
+      pollMs: 1,
+      now: () => now,
+    });
+    expect(gate.keep()).toBe(true);
+    now = 60_000;
+    await back;
+    expect(gate.paused).toMatchObject({ by: "the live view" });
+    expect(gate.paused?.idleMs).toBeUndefined();
   });
 
   it("gives up after the wait, still paused, and stops waiting when the call is cancelled", async () => {

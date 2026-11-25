@@ -632,17 +632,19 @@ vault sign-in or the idle limit ends one): --segment picks one, the last by defa
     },
     live: {
       summary: "watch the agent in an identity's browser and take the controls (opens the live view)",
-      synopsis: "<id> [--no-open] [--json]",
-      details: `Shows what the agent is doing (paused or not, its tabs) and opens the live view in your
-default browser: the agent's tab as a picture, Pause and Resume buttons, and while the agent is
-paused, your clicks, keys and scrolls go to the page. The view is served on 127.0.0.1 only; the
-link it opens works once. Off by default: turn it on with ${b} set <id> --live true
-(it starts with the next turno-browser-mcp for the identity).
+      synopsis: "<id> [--no-open] [--tab] [--json]",
+      details: `Shows what the agent is doing (paused or not, its tabs) and opens the live view as an app
+window of your Chromium browser (your default one, else Google Chrome; --tab opens a tab of the
+default browser instead): the agent's tab as a picture next to a timeline of its steps, and Pause
+and Hand back buttons. Your clicks, keys and scrolls on the picture go to the page; while the agent
+works they take the controls first, and it goes on a few seconds after your last input. The view
+is served on 127.0.0.1 only; the link it opens works once. On by default for a server with an
+identity: ${b} set <id> --live false turns it off.
 
 Read mode (Lightpanda) has no pixels, attach mode is your own Chrome, which you already see, and
 Camoufox (Firefox) has no Chrome screencast: there the view is off, and pause and resume still work. A page that holds a vault or password
 value is never shown until it navigates.`,
-      flags: ["--no-open", "--json"],
+      flags: ["--no-open", "--tab", "--json"],
       json: liveCmd.LIVE_JSON,
       run: run("live"),
     },
@@ -661,7 +663,8 @@ next step. In a headed Chrome the agent's tab comes to the front. Needs the live
       synopsis: "<id> [--json]",
       details: `The waiting calls go on. Each starts with a note: how long the pause lasted and what changed
 (the current tab's URL and title, tabs opened and closed, your input in the view). When something
-changed, a call that does more than read does not run, and the agent gets a fresh snapshot instead.`,
+changed, a call that does more than read does not run, and the agent gets a fresh snapshot instead.
+The live view's Hand back button does the same.`,
       flags: ["--json"],
       json: liveCmd.LIVE_JSON,
       run: run("resume"),

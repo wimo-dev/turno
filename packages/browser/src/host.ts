@@ -33,7 +33,7 @@ import {
   runHealthCheck,
   writeHealth,
 } from "./health.js";
-import { AgentCursor, CursorInput, cursorTools, resolveCursor } from "./agent-cursor.js";
+import { AgentCursor, CursorInput, agentName, cursorTools, resolveCursor } from "./agent-cursor.js";
 import { HumanInput, adaptiveSites, humanizeTools } from "./human-input.js";
 import { identityStateDir } from "./ids.js";
 import { idleMs } from "./idle-timer.js";
@@ -49,17 +49,22 @@ import {
   stillWaitingResult,
 } from "./human-step.js";
 import {
+  DEFAULT_IDLE_MS,
   type LiveFlags,
+  PAGE_INPUT_BY,
   describeChanges,
   formatPause,
+  handBackWhenIdle,
   pausedWhileRunningNote,
   resolveLive,
   resumeNote,
+  stillUsingMessage,
   timeoutMessage,
   viewRefusal,
 } from "./live.js";
 import { LiveServer } from "./live-server.js";
 import { MemoryWatch } from "./memory.js";
+import { PageActivity } from "./page-activity.js";
 import { names } from "./names.js";
 import { NETWORK_TOOLS, redactNetworkText } from "./network-redact.js";
 import { type PasskeyNote, type PasskeyProbe, PasskeyWatch, createPasskeyProbe } from "./passkey.js";
@@ -448,6 +453,16 @@ interface Running {
   passkeyProbe?: PasskeyProbe;
   /** The devtools recordings the agent runs in this browser now ("a trace", "a video"). */
   devtools: Set<string>;
+  /** The person's own input in this Chrome's window, when it has one (`page-activity.ts`). */
+  activity?: PageActivity;
+}
+
+/** Input the agent's own action can still cause after its call ends (a focus moving, a scroll easing out). */
+const ACTIVITY_GRACE_MS = 400;
+
+/** How a call went through the pause gate, for the live view's timeline. */
+interface GateTrace {
+  held?: { ran: boolean };
 }
 
 /** Calls that act on no page's content, or leave it: the passkey probe stays out of them. */
@@ -530,6 +545,8 @@ class SessionBackend extends EventEmitter implements ServerBackend {
       actFallback?: ActFallback;
       /** Where the captcha solver's key comes from, when this server lists browser_solve_captcha. */
       solver?: string;
+      /** How long the person's input must stop before an automatic pause ends (tests shorten it). */
+      idleMs?: number;
     },
     private readonly title: (clientInfo: ClientInfo) => string,
   ) {
@@ -676,6 +693,7 @@ class SessionBackend extends EventEmitter implements ServerBackend {
       // The agent cursor (on when someone can see this browser): the input tools move it. It wraps
       // the humanized tools, so it is the layer next to the page: humanize's pointer path runs
       // through the cursor's mouse and the arrow follows it step by step.
+      const seenWindow = config.browser?.launchOptions?.headless !== true || launched.userBrowser === true;
       const cursor = resolveCursor(tuning.cursor, {
         headless: config.browser?.launchOptions?.headless === true && !launched.userBrowser,
         live: this.host.live !== undefined,
@@ -847,6 +865,11 @@ class SessionBackend extends EventEmitter implements ServerBackend {
         ...(guard ? { guard } : {}),
         ...(watched ? { passkeys: watched.watch, passkeyProbe: watched.probe } : {}),
         devtools: new Set<string>(),
+        // A person can only type over the agent in a Chrome window: headless, they use the live
+        // view, which pauses the agent itself. Camoufox has no utility world to listen from.
+        ...(seenWindow && (launched.engine === "chrome" || launched.engine === "attach")
+          ? { activity: new PageActivity() }
+          : {}),
       };
     })();
     promise.catch(() => {
@@ -912,9 +935,20 @@ class SessionBackend extends EventEmitter implements ServerBackend {
   ): Promise<ToolResult> {
     if (client && session) this.clients.set(session, client);
     const started = performance.now();
+    const at = Date.now();
+    const trace: GateTrace = {};
     const refused = this.refusePolicy(name, args);
-    if (refused) return errorResult(refused, !!(args._meta as { json?: boolean } | undefined)?.json);
-    let result = await this.callLive(name, args, signal, session, sample, progress);
+    if (refused)
+      return this.noteStep(
+        name,
+        args,
+        session,
+        at,
+        started,
+        trace,
+        this.host.redactor.result(errorResult(refused, !!(args._meta as { json?: boolean } | undefined)?.json)),
+      );
+    let result = await this.callLive(name, args, signal, session, sample, progress, trace);
     if (this.touchesBrowser(name)) {
       const json = !!(args._meta as { json?: boolean } | undefined)?.json;
       result = await this.afterCall(name, args, result, session, started);
@@ -929,7 +963,37 @@ class SessionBackend extends EventEmitter implements ServerBackend {
       }
     }
     // Every result and error of this server leaves through the redactor.
-    return this.host.redactor.result(result);
+    return this.noteStep(name, args, session, at, started, trace, this.host.redactor.result(result));
+  }
+
+  /** A browser call's line in the live view's timeline, from its redacted result. */
+  private noteStep(
+    name: string,
+    args: Record<string, unknown>,
+    session: string | undefined,
+    at: number,
+    started: number,
+    trace: GateTrace,
+    result: ToolResult,
+  ): ToolResult {
+    const live = this.host.live;
+    if (!live || !this.touchesBrowser(name)) return result;
+    const key = session ?? DIRECT_SESSION;
+    const client = this.clients.get(key) ?? this.clientInfo?.clientName;
+    const ms = performance.now() - started;
+    live.timeline.call({
+      // When it ended: a call held for the person lands after the hand-back, in order.
+      at: at + ms,
+      ms,
+      session: key,
+      agent: client ? agentName(client) : "",
+      tool: name,
+      args,
+      result,
+      readOnly: this.readsOnly(name),
+      ...(trace.held ? { held: trace.held } : {}),
+    });
+    return result;
   }
 
   /** Why the identity's policy refuses this call before it runs (`policy.ts`), or undefined. */
@@ -1135,9 +1199,10 @@ class SessionBackend extends EventEmitter implements ServerBackend {
     session: string | undefined,
     sample?: Sampler,
     progress?: Progress,
+    trace: GateTrace = {},
   ): Promise<ToolResult> {
     if (!this.touchesBrowser(name)) return await this.callAny(name, args, signal, session, sample, progress);
-    return await this.callGated(name, args, signal, session, sample, progress);
+    return await this.callGated(name, args, signal, session, sample, progress, trace);
   }
 
   private async callGated(
@@ -1147,6 +1212,7 @@ class SessionBackend extends EventEmitter implements ServerBackend {
     session: string | undefined,
     sample?: Sampler,
     progress?: Progress,
+    trace: GateTrace = {},
   ): Promise<ToolResult> {
     const watch = this.watch;
     const step = name === HUMAN_STEP_TOOL;
@@ -1156,14 +1222,23 @@ class SessionBackend extends EventEmitter implements ServerBackend {
     // behind the step it is about.
     if (step && (this.steps.running || (args.continue !== undefined && args.continue !== false)))
       return await this.callAny(name, args, signal, session, sample, progress);
+    // The person typing, clicking or scrolling in the agent's window since its last call takes
+    // the controls: this call waits until they stop (`page-activity.ts`).
+    if (!step) await this.collision(key);
     const outcome = await watch.gate.wait(watch.waitMs, signal);
     if (outcome.kind === "timeout")
       return errorResult(
-        timeoutMessage(this.host.identity?.id ?? "", name, outcome.pausedMs, outcome.by, watch.waitMs),
+        outcome.auto
+          ? stillUsingMessage(name, outcome.pausedMs, outcome.by)
+          : timeoutMessage(this.host.identity?.id ?? "", name, outcome.pausedMs, outcome.by, watch.waitMs),
         json,
       );
     if (outcome.kind === "aborted") return errorResult(`${name} was cancelled while the user had the browser`, json);
-    const end = step ? () => {} : watch.begin();
+    const begun = step ? () => {} : watch.begin();
+    const end = () => {
+      begun();
+      if (!step) this.agentDoneAt = Date.now();
+    };
     try {
       if (outcome.kind === "open") {
         const disarm = step ? undefined : await this.armPasskeys(name, key);
@@ -1200,19 +1275,23 @@ class SessionBackend extends EventEmitter implements ServerBackend {
         beforePage ? watch.idOf(beforePage) : undefined,
         afterPage ? watch.idOf(afterPage) : undefined,
         outcome.inputs,
+        outcome.pageInputs,
       );
       const note = {
         pausedMs: outcome.pausedMs,
         by: outcome.by,
         step: outcome.step,
+        auto: outcome.auto,
         lines,
         tool: name,
         recordingFlow: this.recorderFor(session)?.recording !== undefined,
       };
       if (!changed || this.readsOnly(name)) {
+        trace.held = { ran: true };
         const result = await this.callAny(name, args, signal, session, sample, progress);
         return withNote(result, resumeNote({ ...note, ran: true }), json);
       }
+      trace.held = { ran: false };
       // A call that was not run is an error, so a client that reads only the outcome (a script,
       // turno browser do) does not take it for done.
       const notRun = `### Error\n${name} was not run: ${outcome.step ? "the person" : "the user"} changed the browser while you waited (below).`;
@@ -1225,7 +1304,40 @@ class SessionBackend extends EventEmitter implements ServerBackend {
       return { ...(json ? noted : withNote(noted, notRun, false)), isError: true };
     } finally {
       end();
+      if (!step) await this.armActivity(key);
     }
+  }
+
+  /** When the agent last had the browser: the end of its latest call (epoch ms). */
+  private agentDoneAt = 0;
+
+  /** Counts the person's input on the session's tab from now (`page-activity.ts`). */
+  private async armActivity(key: string): Promise<void> {
+    const running = await this.current?.catch(() => undefined);
+    if (!running?.activity || !running.launched.isOpen()) return;
+    await running.activity.arm(await this.currentPageOf(key)).catch(() => {});
+  }
+
+  /**
+   * The person clicked, typed or scrolled in the agent's window after its last call: an
+   * automatic pause, which ends once their input has stopped (`live.ts`). Not while another call
+   * runs, since the agent's own input then looks the same.
+   */
+  private async collision(key: string): Promise<void> {
+    const watch = this.watch;
+    if (watch.paused || watch.inFlight > 0) return;
+    const running = await this.current?.catch(() => undefined);
+    const activity = running?.activity;
+    if (!activity || !running.launched.isOpen()) return;
+    const page = await this.currentPageOf(key);
+    const after = Math.max(this.agentDoneAt, watch.gate.endedAt ?? 0) + ACTIVITY_GRACE_MS;
+    const seen = await activity.since(page, after).catch(() => undefined);
+    if (!seen || watch.paused || watch.inFlight > 0) return;
+    if (!(await watch.pause(PAGE_INPUT_BY, false, { idleMs: this.host.idleMs ?? DEFAULT_IDLE_MS }))) return;
+    const since = watch.gate.paused?.since;
+    if (since === undefined) return;
+    watch.gate.notePageInput(seen.count, seen.at);
+    void handBackWhenIdle(watch, since, () => activity.since(page, 0));
   }
 
   /**

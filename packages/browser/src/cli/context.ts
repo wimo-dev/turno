@@ -5,6 +5,7 @@ import type { BrowserFunctions } from "../api.js";
 import type { DoctorOptions, ServedIdentity } from "../doctor.js";
 import type { SettingsPatch } from "../settings.js";
 import { type CliNames, STANDALONE_NAMES } from "../names.js";
+import { appWindowCommand } from "./app-window.js";
 import type { DoTransport } from "./do.js";
 import { type BackgroundDoDeps, backgroundTransport, defaultBackgroundDoDeps } from "./do-background.js";
 
@@ -46,8 +47,11 @@ export interface BrowserCliHost {
   hints?(env: NodeJS.ProcessEnv): boolean;
 }
 
-/** Opens a link in the default browser (`live`); tests inject a fake. */
-export type OpenUrl = (url: string, io: Io) => Promise<void>;
+/**
+ * Opens a link in the default browser (`live`); with `app`, as an app window of a Chromium
+ * browser when there is one (`app-window.ts`). Tests inject a fake.
+ */
+export type OpenUrl = (url: string, io: Io, options?: { app?: boolean }) => Promise<void>;
 
 /** How the vault and session commands read what a person types; tests replace it. */
 export interface VaultInput {
@@ -104,18 +108,32 @@ export function openUrlCommand(
   return { command: "xdg-open", args: [url] };
 }
 
-/** Opens the link with `openUrlCommand`, detached so the command can exit. */
-export const openInBrowser: OpenUrl = async (url, io) => {
-  if (!/^https?:\/\//.test(url)) throw new Error(`refusing to open ${JSON.stringify(url)}: only http(s) links`);
-  const { command, args } = openUrlCommand(url);
-  await new Promise<void>((resolve, reject) => {
-    const child = spawn(command, args, { stdio: "ignore", env: io.env, detached: true, windowsHide: true });
+function detached(command: string, args: string[], env: NodeJS.ProcessEnv): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const child = spawn(command, args, { stdio: "ignore", env, detached: true, windowsHide: true });
     child.on("error", reject);
     child.on("spawn", () => {
       child.unref();
       resolve();
     });
   });
+}
+
+/** Opens the link with `openUrlCommand`, or as an app window, detached so the command can exit. */
+export const openInBrowser: OpenUrl = async (url, io, options = {}) => {
+  if (!/^https?:\/\//.test(url)) throw new Error(`refusing to open ${JSON.stringify(url)}: only http(s) links`);
+  if (options.app) {
+    const app = appWindowCommand(url);
+    if (app) {
+      try {
+        return await detached(app.command, app.args, io.env);
+      } catch {
+        /* that browser did not start: a tab of the default browser instead */
+      }
+    }
+  }
+  const { command, args } = openUrlCommand(url);
+  await detached(command, args, io.env);
 };
 
 /** The line `add` prints for wiring an agent: `setup` prints the config it names. */

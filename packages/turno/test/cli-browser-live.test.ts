@@ -40,6 +40,7 @@ function status(over: Partial<LiveStatus> = {}): LiveStatus {
     pinned: false,
     hidden: false,
     viewers: 0,
+    stuck: null,
     tabs: [{ id: 1, url: "https://example.com/inbox", title: "Inbox" }],
     ...over,
   };
@@ -118,13 +119,14 @@ describe("turno browser set --live", () => {
 });
 
 describe("turno browser live, pause and resume", () => {
-  it("says how to turn the view on, or that no server runs, when there is nothing to talk to", async () => {
+  it("says that no server runs, or how to turn the view on, when there is nothing to talk to", async () => {
     await browser(["add", "school"]);
-    expect((await browser(["live", "school"])).code).toBe(
-      'the live view is off for "school" (the default). Turn it on with turno browser set school --live true; it starts with the next turno-browser-mcp for this identity.',
-    );
-    await browser(["set", "school", "--live", "true"]);
+    // On by default: without a server there is just nothing to talk to yet.
     expect((await browser(["pause", "school"])).code).toMatch(/^no turno-browser-mcp serves "school" right now/);
+    await browser(["set", "school", "--live", "false"]);
+    expect((await browser(["live", "school"])).code).toBe(
+      'the live view is off for "school". Turn it on with turno browser set school --live true; it starts with the next turno-browser-mcp for this identity.',
+    );
     expect((await browser(["live", "nobody"])).code).toMatch(/identity "nobody" does not exist/);
   });
 
