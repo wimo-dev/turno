@@ -346,10 +346,13 @@ export function effectiveEntries(e: EffectiveSettings): [string, Effective<unkno
   ];
 }
 
-/** The values identity.json leaves to their defaults, one line each: "resources: low (auto: memory pressure)". */
-export function defaultLines(e: EffectiveSettings): string[] {
+/**
+ * The values identity.json leaves to their defaults, one line each: "resources: low (auto: memory
+ * pressure)". With `"auto"`, only those the context decides (not the fixed defaults).
+ */
+export function defaultLines(e: EffectiveSettings, only?: "auto"): string[] {
   return effectiveEntries(e)
-    .filter(([, v]) => fromDefault(v.origin))
+    .filter(([, v]) => fromDefault(v.origin) && (!only || v.origin.from === "auto" || v.origin.from === "launch"))
     .map(([key, v]) => describeEffective(key, v));
 }
 

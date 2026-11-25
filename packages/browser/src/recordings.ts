@@ -288,6 +288,19 @@ export interface RecordingOptions {
   now?: () => Date;
 }
 
+/**
+ * Removes the raw files Playwright wrote while tracing. Chrome can still be writing into the
+ * folder as it closes, so a failure here is left for the next session's cleanup: it must never
+ * end the server.
+ */
+function removeTracesTmp(identity: IdentityRef): void {
+  try {
+    rmSync(tracesTmpDir(identity.id, identity.env), { recursive: true, force: true, maxRetries: 3 });
+  } catch {
+    /* left for the next session */
+  }
+}
+
 /** The recording of one browser session (one launch). */
 export class Recording {
   readonly dir: string;
@@ -327,7 +340,7 @@ export class Recording {
     if (!o.settings.traces && !o.settings.screenshots) return undefined;
     const r = new Recording(o);
     mkdirSync(r.dir, { recursive: true, mode: 0o700 });
-    rmSync(tracesTmpDir(o.identity.id, o.identity.env), { recursive: true, force: true });
+    removeTracesTmp(o.identity);
     r.rotate(r.cap / 2);
     r.write();
     if (o.settings.traces) await r.startTrace();
@@ -411,7 +424,7 @@ export class Recording {
     } catch (error) {
       entry.discarded = `not saved (${why}): ${String((error as Error).message ?? error).split("\n")[0]}`;
     } finally {
-      rmSync(tracesTmpDir(this.o.identity.id, this.o.identity.env), { recursive: true, force: true });
+      removeTracesTmp(this.o.identity);
     }
     // A trace of steps that all worked is not kept by default: nothing in it needs looking at.
     const failed = this.index.steps.slice(Math.max(0, entry.from - 1), entry.to).some((s) => !s.ok);
@@ -562,6 +575,6 @@ export class Recording {
     this.trace = "off";
     this.index.ended = new Date().toISOString();
     this.write();
-    rmSync(tracesTmpDir(this.o.identity.id, this.o.identity.env), { recursive: true, force: true });
+    removeTracesTmp(this.o.identity);
   }
 }

@@ -8,7 +8,7 @@ import { cookieHosts } from "../cookie-hosts.js";
 import { readLastUsed } from "../last-used.js";
 import { vaultSummary } from "../vault.js";
 import type { Ctx } from "./context.js";
-import type { Effective, EffectiveSettings } from "../defaults.js";
+import { type Effective, type EffectiveSettings, defaultLines } from "../defaults.js";
 import { effectiveSettings } from "../effective.js";
 import { describePolicy, localTime } from "./identity.js";
 

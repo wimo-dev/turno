@@ -68,6 +68,8 @@ describe("identity.json wins over a default", () => {
   it("with an explicit false, or a value, for every key that has a default", () => {
     const e = resolveDefaults(
       {
+        created: "2026-11-25T00:00:00.000Z",
+        updated: "2026-11-25T00:00:00.000Z",
         live: { enabled: false },
         userAgent: false,
         locale: false,

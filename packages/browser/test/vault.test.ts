@@ -75,7 +75,7 @@ describe("the credential vault", () => {
       opts(),
     );
     let info = await vaultList("work", opts());
-    expect(info.submit).toBe("confirm");
+    expect(info.submit).toBe("auto");
     expect(info.sites.map((s) => [s.site, s.stored, s.totp])).toEqual([
       ["github", true, false],
       ["mail", true, false],

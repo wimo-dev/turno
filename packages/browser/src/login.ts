@@ -8,6 +8,8 @@ import { identityStateDir } from "./ids.js";
 import { IdentityError, identityDir, inUseBy, isInUse } from "./identities.js";
 import { startedChromePid } from "./lifecycle.js";
 import { CHROME_PROXY_ARGS, resolveProxy } from "./network.js";
+import { readChromeMetadata } from "./network-chrome.js";
+import type { McpConfig } from "./upstream.js";
 import { acquireRuntimeLock } from "./runtime-lock.js";
 import {
   type HealthCheck,
@@ -205,6 +207,13 @@ export async function loginIdentity(id: string, options: LoginOptions = {}): Pro
       }
       const result = { sites: [...sites].sort() };
       writeLoginRecord(id, env, { at: new Date().toISOString(), sites: result.sites });
+      // This Chrome's client hints, read once per version, so a headless server of the identity
+      // gets the coherent user agent by default from its next launch (`network-chrome.ts`).
+      if (settings?.userAgent !== false && settings?.engine === undefined)
+        await readChromeMetadata(
+          { browser: { launchOptions: identityBrowserLaunch(settings, env, names().browser) } } as unknown as McpConfig,
+          env,
+        );
       return result;
     } finally {
       process.off("SIGINT", stop);

@@ -751,7 +751,7 @@ export function show(c: Ctx, id: string, args: string[], io: Io): number {
     if (settings.attach !== undefined) rows.push(["engine", `attach to your Chrome (${settings.attach})`]);
     const recorded = describeRecord(settings.record);
     if (recorded) rows.push(["recording", recorded]);
-    const act = describeAct(settings.act);
+    const act = describeAct(settings.act || undefined);
     if (act) rows.push(["act", act]);
     if (settings.captcha) rows.push(["captcha", `on: ${settings.captcha.provider} at ${settings.captcha.endpoint}`]);
     if (settings.policy) rows.push(["policy", describePolicy(settings.policy)]);

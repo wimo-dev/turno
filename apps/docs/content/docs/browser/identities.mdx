@@ -82,7 +82,7 @@ Every feature has a default that turno works out when Chrome starts, from what i
 | Background throttling | on | headless without the live view |
 | [Human-like input](/docs/browser/actions#human-like-input) | `auto` | off on localhost and for reading, light to act, full on sign-in, payment and support pages and challenged sites |
 | [Tab sharing](/docs/browser/sharing) | `tabs` | `session` in attach mode |
-| [Coherent user agent](/docs/browser/network#a-coherent-user-agent) | on | headless Chrome only |
+| [Coherent user agent](/docs/browser/network#a-coherent-user-agent) | on | headless Chrome only, once `login` has read that Chrome's client hints |
 | Locale | the system's | when `identity.json` has no locale or languages |
 | Cookie key | the system keychain | new identities created at a terminal on macOS with Google Chrome |
 | [Health check](#session-health) | the one `login` finds | when `identity.json` has none |

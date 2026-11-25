@@ -202,7 +202,7 @@ const chromeEngine: Engine = {
     // Proxy credentials and the coherent user agent are settled before the lock: a missing
     // secret or an unknown Chrome version stops here, with nothing to undo.
     const networkOf = (s: IdentitySettings | undefined) =>
-      s ? chromeNetwork(s, config, identity!.env, secret ?? (() => {})) : Promise.resolve(undefined);
+      s ? chromeNetwork(s, config, identity!.env, secret ?? (() => {}), byDefault) : Promise.resolve(undefined);
     let network = await networkOf(asked).catch((error: unknown) => {
       if (!byDefault) throw error;
       return networkOf(plain);

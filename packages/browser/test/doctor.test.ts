@@ -11,7 +11,7 @@ import { writeHealth } from "../src/health.js";
 import { addIdentity, identityDir } from "../src/identities.js";
 import { recordChallenge } from "../src/reputation.js";
 import { acquireRuntimeLock, runtimeLockPath } from "../src/runtime-lock.js";
-import { identitySettingsPath, systemTimezone } from "../src/settings.js";
+import { identitySettingsPath, systemTimezone, writeIdentitySettings } from "../src/settings.js";
 import { vaultAdd, vaultItem } from "../src/vault.js";
 import { type Sandbox, sandbox } from "./helpers/sandbox.js";
 import { fakeProgram, pathWith, slashes } from "./helpers/programs.js";
@@ -242,7 +242,12 @@ describe("browser doctor: identities", () => {
       checkedAt: "2026-11-17T15:50:00.000Z",
     });
     const { checks } = await doctor();
-    expect(checks.filter((c) => c.area === "identity school")).toEqual([
+    const decided = checks.find((c) => c.area === "identity school" && c.text.startsWith("decided at launch"));
+    expect(decided?.text).toMatch(
+      /^decided at launch: resources: auto \(auto: the low-resource preset while memory is short\);/,
+    );
+    expect(decided?.text).toMatch(/\(turno-browser show school lists every default\)$/);
+    expect(checks.filter((c) => c.area === "identity school" && c !== decided)).toEqual([
       {
         area: "identity school",
         level: "ok",
@@ -407,6 +412,7 @@ describe("browser doctor: mcp.toml against the identity's sharing", () => {
 
   it("warns when a one-session identity is served to several sessions at once", async () => {
     addIdentity("work", sb.env);
+    writeIdentitySettings("work", { sharing: "session" }, sb.env);
     expect(await warned([shared()])).toEqual({
       area: "identity work",
       level: "warn",
@@ -417,11 +423,15 @@ describe("browser doctor: mcp.toml against the identity's sharing", () => {
 
   it("says nothing for exclusive servers, one server per session, --sharing tabs, or another identity", async () => {
     addIdentity("work", sb.env);
+    writeIdentitySettings("work", { sharing: "session" }, sb.env);
     expect(await warned([shared({ exclusive: true })])).toBeUndefined();
     expect(await warned([shared({ scope: "session" })])).toBeUndefined();
     expect(await warned([shared({ sharing: "tabs" })])).toBeUndefined();
     expect(await warned([{ ...shared(), identity: "school" }])).toBeUndefined();
-    writeFileSync(identitySettingsPath("work", sb.env), JSON.stringify({ format: 7, sharing: "tabs" }));
+    writeIdentitySettings("work", { sharing: "tabs" }, sb.env);
+    expect(await warned([shared()])).toBeUndefined();
+    // Tabs by default: an identity without "sharing" is served to every session.
+    writeIdentitySettings("work", { sharing: null }, sb.env);
     expect(await warned([shared()])).toBeUndefined();
   });
 });

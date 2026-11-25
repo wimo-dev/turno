@@ -35,8 +35,9 @@ blocking turns Chrome's own cache off.
 
 Two settings change how an identity's browser reaches sites, set per identity in `identity.json`
 (format 11). The proxy is off by default. The coherent user agent is on by default only in a
-headless Chrome, which otherwise says `HeadlessChrome`; a Chrome with a window keeps its own, which
-is already coherent. These settings are for your own accounts and for sites you may automate, and
+headless Chrome, which otherwise says `HeadlessChrome`, once turno has read that Chrome's client
+hints (`turno-browser login` reads them when you close it, once per Chrome version, so no launch
+pays for an extra Chrome); a Chrome with a window keeps its own, which is already coherent. These settings are for your own accounts and for sites you may automate, and
 the choice is yours. Each one has a cost to weigh:
 
 - a browser whose parts disagree (a user agent from one Chrome, client hints from another, a time

@@ -218,7 +218,7 @@ describe("turno identity add/show/set for browser identities", () => {
       /input +light, full on sites that showed a challenge \(adaptive\) \(seed 9\)/,
     );
     await expect(identity.run(["set", "browser:school", "--humanize", "max"], fakeIo(sb.env))).rejects.toThrow(
-      /^--humanize must be "off", "light", "full", "adaptive"$/,
+      /^--humanize must be "off", "light", "full", "adaptive", "auto"$/,
     );
     expect(await identity.run(["set", "browser:school", "--humanize", ""], fakeIo(sb.env))).toBe(0);
     expect(file().humanize).toBeUndefined();
@@ -464,7 +464,7 @@ describe("turno browser doctor and mcp.toml", () => {
 
   it("warns, through the real package, when sessions of a one-session identity would share a tab", async () => {
     const mod = await real();
-    mod.addIdentity("school", sb.env);
+    mod.addIdentity("school", sb.env, { sharing: "session" });
     sb.write(
       ".config/turno/mcp.toml",
       '[server.browser-school]\ncommand = "turno-browser-mcp"\nargs = ["--identity", "school"]\nexclusive = false\n',

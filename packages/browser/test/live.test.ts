@@ -13,8 +13,10 @@ import {
 /** The live view's pause gate and notes, without a browser or a server. */
 
 describe("resolveLive", () => {
-  it("is off by default, and a flag wins over identity.json", () => {
-    expect(resolveLive(undefined)).toEqual({ enabled: false, waitMs: DEFAULT_LIVE_WAIT_MS });
+  it("is on by default (and with auto), and a flag wins over identity.json", () => {
+    expect(resolveLive(undefined)).toEqual({ enabled: true, waitMs: DEFAULT_LIVE_WAIT_MS });
+    expect(resolveLive({ enabled: "auto" })).toEqual({ enabled: true, waitMs: DEFAULT_LIVE_WAIT_MS });
+    expect(resolveLive({ enabled: false })).toEqual({ enabled: false, waitMs: DEFAULT_LIVE_WAIT_MS });
     expect(resolveLive({ enabled: true, wait: "30s" })).toEqual({ enabled: true, waitMs: 30_000 });
     expect(resolveLive({ enabled: false, wait: "30s" }, { live: true, waitMs: 5_000 })).toEqual({
       enabled: true,

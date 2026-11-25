@@ -122,7 +122,7 @@ describe("turno-browser", () => {
     expect(run(["set", "school", "--resources", "low"]).code).toBe(0);
     expect(run(["show", "school"]).out).toMatch(/^ *resources +low: at most 2 tabs/m);
     expect(run(["set", "school", "--resources", "tiny"]).err).toContain(
-      '--resources must be "normal" (the default) or "low"',
+      '--resources must be "auto" (the default: the low-resource preset while memory is short), "normal" or "low"',
     );
   });
 

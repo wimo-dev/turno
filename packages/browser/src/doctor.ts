@@ -371,11 +371,6 @@ function identityChecks(
   } else {
     add({ level: "ok", text: `identity.json: ${describeSettings(settings)}` });
   }
-  // What a key left out of identity.json gets, and why: decided again at every launch.
-  if (!problems.length) {
-    const defaults = defaultLines(effectiveSettings(id, { env }));
-    if (defaults.length) add({ level: "info", text: `defaults: ${defaults.join("; ")}` });
-  }
 
   if (settings) for (const c of engineRows(id, settings, env)) add(c);
   out.push(...browserRows(id, env, installed));
@@ -480,6 +475,15 @@ function identityChecks(
       text: `${recent.length} challenge${recent.length === 1 ? "" : "s"} in the last 7 days on ${sites.length} site${sites.length === 1 ? "" : "s"} (${kinds.join(", ")})`,
       fix: `turno browser reputation ${id}`,
     });
+  }
+  // What the context decides for the keys identity.json leaves out, at every launch; show lists the rest.
+  if (!problems.length) {
+    const decided = defaultLines(effectiveSettings(id, { env }), "auto");
+    if (decided.length)
+      add({
+        level: "info",
+        text: `decided at launch: ${decided.join("; ")} (turno browser show ${id} lists every default)`,
+      });
   }
   return out;
 }

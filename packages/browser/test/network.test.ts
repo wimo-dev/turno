@@ -46,13 +46,13 @@ afterEach(() => sb.cleanup());
 const PASSWORD = "Pr0xy pass&<word>";
 
 describe("identity.json userAgent and proxy (format 11)", () => {
-  it("takes userAgent coherent only, and writes format 11 while a format 11 key is set", () => {
+  it("takes userAgent coherent (auto and false are format 14), and writes format 11 while a format 11 key is set", () => {
     const s = writeIdentitySettings("ua", { userAgent: "coherent", timezone: "Europe/Madrid" }, sb.env);
     expect(s.version).toBe(11);
     expect(readIdentitySettings("ua", sb.env)?.userAgent).toBe("coherent");
     for (const bad of ["Mozilla/5.0 (Windows NT 10.0)", "windows", true])
       expect(() => writeIdentitySettings("ua", { userAgent: bad as "coherent" }, sb.env)).toThrow(
-        /userAgent must be "coherent": turno builds the user agent from the installed Chrome and never takes a typed one/,
+        /userAgent must be "coherent", "auto" \(the default: coherent in a headless Chrome\) or false: turno builds the user agent from the installed Chrome and never takes a typed one/,
       );
     expect(writeIdentitySettings("ua", { userAgent: null }, sb.env).version).toBe(1);
   });

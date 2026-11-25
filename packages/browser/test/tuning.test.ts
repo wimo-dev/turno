@@ -146,7 +146,7 @@ describe("the low-resource preset", () => {
       rest: ["--headless"],
     });
     expect(() => extractTuning(["--resources=tiny"])).toThrow(
-      '--resources must be "normal" or "low" (the low-resource preset), not "tiny"',
+      '--resources must be "normal", "low" (the low-resource preset) or "auto" (low under memory pressure), not "tiny"',
     );
   });
 
