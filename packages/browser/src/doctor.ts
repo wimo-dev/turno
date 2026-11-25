@@ -5,7 +5,9 @@ import { browserPaths as paths, tildify } from "turno-core/paths";
 import { type ProcTable, readProcTable, signalProcess } from "turno-core/process";
 import { type PressureProbe, memoryPressureProbe } from "turno-core/memory";
 import { type SecretStore, describeSecretStore, secretStore, windowsPowerShell } from "turno-core/secrets";
+import { type ActKey, describeAct, resolveActFallback } from "./act-chain.js";
 import { backgroundAlive, readBackgroundState } from "./background-state.js";
+import { captchaSourceLabel, resolveCaptchaSource } from "./captcha.js";
 import {
   type BrowserLaunch,
   type DetectedBrowser,
@@ -20,7 +22,7 @@ import {
 import { profileHasCookies, readLoginRecord } from "./login.js";
 import { readHealth } from "./health.js";
 import { readDetectedHealth } from "./health-detect.js";
-import { defaultLines } from "./defaults.js";
+import { SAID_APART, defaultLines } from "./defaults.js";
 import { effectiveSettings } from "./effective.js";
 import { identityDir, isValidIdentityId } from "./ids.js";
 import { defaultChromeUserDataDir, parseAttachTarget, readAttachEndpoint } from "./engine-attach.js";
@@ -360,6 +362,32 @@ function servingRows(id: string, settings: IdentitySettings | undefined, servers
   return out;
 }
 
+/**
+ * The model natural language actions resolve to and where captcha solving goes, with the reason,
+ * from this shell's environment (a server started by an agent or mcpd may see another one).
+ */
+function providerRows(id: string, settings: IdentitySettings | undefined, env: NodeJS.ProcessEnv) {
+  const out: Omit<DoctorCheck, "area">[] = [];
+  const act = describeAct(settings?.act as ActKey, env);
+  const fallback = !settings?.act && resolveActFallback(env).kind === "none";
+  out.push(
+    act.path === "off" || fallback
+      ? {
+          level: "info",
+          text: `natural language actions: ${act.path === "off" ? "off" : "only with a client that offers MCP sampling"} (${act.reason})`,
+          fix: `set OPENAI_API_KEY or ANTHROPIC_API_KEY, install the Claude Code CLI or Codex, or name a provider: turno browser set ${id} --act-provider chat-completions --act-endpoint <url> --act-model <name>`,
+        }
+      : { level: "ok", text: `natural language actions: ${act.label} (${act.reason})` },
+  );
+  const captcha = resolveCaptchaSource(settings?.captcha, env);
+  out.push(
+    captcha.kind === "none"
+      ? { level: "ok", text: `captchas go to a person (browser_request_human): ${captcha.reason}` }
+      : { level: "ok", text: `captcha solver: ${captchaSourceLabel(captcha)}` },
+  );
+  return out;
+}
+
 function identityChecks(
   id: string,
   env: NodeJS.ProcessEnv,
@@ -393,6 +421,7 @@ function identityChecks(
   }
 
   if (settings) for (const c of engineRows(id, settings, env)) add(c);
+  if (!problems.length) for (const c of providerRows(id, settings, env)) add(c);
   out.push(...browserRows(id, env, installed));
   if (!problems.length) for (const c of servingRows(id, settings, servers)) add(c);
 
@@ -498,7 +527,7 @@ function identityChecks(
   }
   // What the context decides for the keys identity.json leaves out, at every launch; show lists the rest.
   if (!problems.length) {
-    const decided = defaultLines(effectiveSettings(id, { env }), "auto");
+    const decided = defaultLines(effectiveSettings(id, { env }), "auto", SAID_APART);
     if (decided.length)
       add({
         level: "info",

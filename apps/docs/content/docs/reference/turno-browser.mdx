@@ -259,10 +259,13 @@ What turno-browser records for this identity (turno-browser record):
   --record-max-size <size>        cap of the traces and screenshots, "10MB" to "10GB" (default 200MB)
 Vault sign-ins and passwords never reach a flow, a trace or a screenshot.
 
-Off by default, for your own accounts only (they send page content to a third
-party you pick, and many sites' terms forbid them; the server lists their tools from its next start):
-  --act                           natural language actions (browser_act, browser_extract,
-                                  browser_observe) with your client's model (MCP sampling)
+On when something answers them, for your own accounts only (they send page content to a
+third party, and many sites' terms forbid them; the server lists their tools from its next start).
+Without a provider, natural language actions (browser_act, browser_extract, browser_observe) use
+your client's model (MCP sampling), else OPENAI_API_KEY or ANTHROPIC_API_KEY from the environment,
+else the Claude Code CLI or Codex on the PATH; captcha solving needs a solver key, here or in
+TURNO_BROWSER_CAPTCHA_ENDPOINT with TURNO_BROWSER_CAPTCHA_KEY, and otherwise goes to the person:
+  --act                           natural language actions in that order (the same as no group)
   --act-provider chat-completions a model API to use when the client has no sampling, with
   --act-endpoint <url>            its base URL (https, or http on this machine),
   --act-model <name>              the model name it expects and
@@ -275,7 +278,7 @@ party you pick, and many sites' terms forbid them; the server lists their tools 
   --captcha-endpoint <url>        service that speaks the createTask protocol, at this URL,
   --captcha-key keychain:<item>   with its account key in the secret store
   --captcha-timeout <duration>    longest wait for a solution (default 3m)
-  --no-act, --no-captcha          turn them off
+  --no-act, --no-captcha          remove the group: back to the order above
 
 The live view and take-over (turno-browser live, pause, resume):
   --live <bool>                   serve a view of the agent's tab on 127.0.0.1 and let you pause

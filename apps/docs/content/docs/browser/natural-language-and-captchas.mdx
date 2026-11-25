@@ -1,40 +1,76 @@
 ---
 title: "Natural language actions and captcha solving"
-description: "Two opt-in sets of tools that send page content to a model or a service you choose, and the acceptable use of turno-browser."
+description: "Two sets of tools that send page content to a model or a solver service, when one is there to answer, and the acceptable use of turno-browser."
 ---
 
-Both are off until you turn them on for an identity, and both send something to a third party you choose. Read [Acceptable use](#acceptable-use) before you do.
+Both are on when something is there to answer them, and both send something to a third party:
+a model you already use, or a solver service you configure. Read [Acceptable use](#acceptable-use)
+before you rely on them.
 
 ## Natural language actions
 
-Off until you turn it on per identity. `browser_act` carries out a short
-instruction on the current tab ("accept the cookie banner, then open the second result") with a
-model choosing one browser action at a time; `browser_extract` reads data off the page as JSON
-from an instruction; `browser_observe` proposes the calls that would do it, without running them.
+`browser_act` carries out a short instruction on the current tab ("accept the cookie banner, then
+open the second result") with a model choosing one browser action at a time; `browser_extract`
+reads data off the page as JSON from an instruction; `browser_observe` proposes the calls that
+would do it, without running them.
+
+### Which model answers
+
+When identity.json names no provider, the server takes the first of these that works:
+
+1. **MCP sampling**, when the agent's client offers it: the client answers with a model it
+   chooses, and turno holds no key. mcpd passes the request to the session that made the call.
+2. **An API key in the environment**: `OPENAI_API_KEY` (OpenAI, `gpt-6-luna`), else
+   `ANTHROPIC_API_KEY` (Anthropic's chat completions endpoint, `claude-haiku-5-5`). The key is
+   read from the server's environment, sent only in the request's authorization header, and
+   hidden from every result like a vault value.
+3. **Your subscription CLI**, when it is on the PATH: the Claude Code CLI (`claude -p --model
+   haiku`), else Codex (`codex exec -m gpt-5.6-terra`), run headless with the login you already
+   have. When both are there and the first fails (for example, it is signed out), the call goes to
+   the other one. `TURNO_BROWSER_ACT_CLI=off` in the server's environment keeps both out of it.
+4. **Nothing**: the three tools are not listed.
+
+The tool list is decided per connection: a client that offers MCP sampling always sees the tools,
+and a client that does not sees them only when step 2 or 3 found something when the server
+started. Each result names the model that answered (`Model: the Claude Code CLI (haiku)`), and
+`turno-browser show`, `status` and `doctor` say which path an identity resolves to and why, from
+the environment of the shell you run them in (a server started by an agent or mcpd may see a
+different one).
+
+How the CLI runs: the instruction and the page go on its standard input, never on its command
+line, so they never show in a process list. It runs in an empty temporary folder, with its tools
+off, and loads no MCP server (the Claude Code CLI with an empty `--strict-mcp-config` and
+`--safe-mode`, Codex with `--ignore-user-config`), so it can never start turno-browser again; a
+turno-browser started under it would not run a CLI either. A call stops after 90 seconds, or at
+the call's own time limit. Its default models were measured on one act step (a search results
+page of about 5,000 characters, under a cookie banner): the Claude Code CLI answered in 1.7 s with
+`haiku` and safe mode (4.2 s without safe mode, 6.6 s with `sonnet`), and Codex in 5.1 s with
+`gpt-5.6-terra` (7.9 s with `gpt-5.6-luna`). The token budget below counts what turno sends and
+gets back, not the CLI's own system context.
+
+### A provider of your own
 
 ```sh
-# your client's model, through MCP sampling
-turno-browser set school --act
+# a chat completions API, used when the client does not offer sampling
 turno-browser set school --act-provider chat-completions \
   --act-endpoint https://models.example.com/v1 --act-model <model> --act-key keychain:act-model
 # the key, asked with a hidden prompt
 turno-browser secret set act-model
-# off again
+# back to the default order
 turno-browser set school --no-act
 ```
 
-The model is yours to pick. With MCP sampling (`--act`), the agent's own client answers with a
-model it chooses, and turno holds no key; mcpd passes the request to the session that made the
-call. When the client does not offer sampling, or with `--act-sampling false`, turno calls the
-provider you name: any HTTP API in the chat completions shape, which hosted services and local
-model servers both speak (`http://` is accepted only on 127.0.0.1, localhost or [::1]). Its key
-is a `keychain:<item>` reference read from the secret store at each call, never a value in
-identity.json or in a tool argument, and it is hidden from every result like a vault value.
+A provider in identity.json replaces steps 2 and 3: MCP sampling still comes first unless
+`--act-sampling false`, then turno calls the provider you name, any HTTP API in the chat
+completions shape, which hosted services and local model servers both speak (`http://` is
+accepted only on 127.0.0.1, localhost or [::1]). Its key is a `keychain:<item>` reference read
+from the secret store at each call, never a value in identity.json or in a tool argument, and it
+is hidden from every result like a vault value.
 
 Each call is bounded: at most `act.maxSteps` actions (10 by default, at most 30; a call can ask
 for fewer), `act.maxTokens` model tokens, prompts and replies together (50,000), and
-`act.timeout` (2 minutes). The tools are listed once the server starts with `act` set; turning
-it off takes effect at the next call.
+`act.timeout` (2 minutes). Which tools are listed is decided when the server starts; a provider
+you name takes effect at the next start.
 
 What the model gets and can do is fixed by turno, not by the model:
 
@@ -51,7 +87,9 @@ What the model gets and can do is fixed by turno, not by the model:
 
 What it costs: every call sends the instruction and the page's content (what the snapshot shows,
 including the text of your signed-in pages) to the model's provider, and a model can misread a
-page and click the wrong thing. Use it on your own accounts, for steps you would check.
+page and click the wrong thing. On the CLI path a call uses your subscription's quota like any
+other prompt. Use it on your own accounts, for steps you would check. To keep these tools off for
+an identity, list them in its [policy](/docs/browser/policy) (`"disabled": ["act"]`).
 
 With the other settings:
 
@@ -68,7 +106,7 @@ With the other settings:
 
 ## Captcha solving
 
-Off until you turn it on per identity. `browser_solve_captcha` finds a
+On when a solver key is configured; otherwise a captcha goes to you. `browser_solve_captcha` finds a
 captcha widget on the current tab (reCAPTCHA v2, hCaptcha or Turnstile), sends its kind, its
 public site key and the page address to a solver service you configure, and puts the token it
 returns into the page's response field (and calls the widget's callback when it names one). The
@@ -86,6 +124,19 @@ turno-browser set shop --no-captcha
 `task-api` is the `createTask` and `getTaskResult` protocol that many solver services share; the
 endpoint is the service's API address. The key is read from the secret store at each use and
 hidden from every result. A solve waits at most `captcha.timeout` (3 minutes).
+
+For every identity without a `captcha` group, the environment can name the solver instead: set
+both `TURNO_BROWSER_CAPTCHA_ENDPOINT` (the service's https address) and
+`TURNO_BROWSER_CAPTCHA_KEY` in the environment the server starts with. identity.json wins when
+both are there.
+
+Without a key, `browser_solve_captcha` is not listed, and a result that ends on a captcha says
+that no solver key is configured and asks the agent to hand the step to you with
+`browser_request_human` (see [When the agent asks for you](/docs/browser/live-view#when-the-agent-asks-for-you)).
+With a key, that note tells the agent to call `browser_solve_captcha`, and names where the key came
+from; the solve result names it too (`key from identity.json` or `key from
+TURNO_BROWSER_CAPTCHA_KEY in the environment`). `show`, `status` and `doctor` say which way each
+identity goes.
 
 Say plainly what it means before you turn it on:
 
@@ -111,4 +162,4 @@ on with `from`.
 
 ## Acceptable use
 
-Use it with your own accounts, on sites whose terms allow automated access by you, and at a human pace. The same goes for the [network and user agent settings](/docs/browser/network#network-and-user-agent) and Camoufox: they are for your own accounts and sites you may automate. Do not use it to get around access controls, paywalls or rate limits, to scrape at scale, or to access accounts that are not yours. Captcha solving is off unless you turn it on, and then it is for your own accounts only, with the costs [above](#captcha-solving). How you use the browser on third-party sites is between you and each site's terms.
+Use it with your own accounts, on sites whose terms allow automated access by you, and at a human pace. The same goes for the [network and user agent settings](/docs/browser/network#network-and-user-agent) and Camoufox: they are for your own accounts and sites you may automate. Do not use it to get around access controls, paywalls or rate limits, to scrape at scale, or to access accounts that are not yours. Captcha solving runs only with a solver key you configure, and then it is for your own accounts only, with the costs [above](#captcha-solving). How you use the browser on third-party sites is between you and each site's terms.

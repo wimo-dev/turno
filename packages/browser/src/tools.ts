@@ -1,8 +1,10 @@
 import type { BrowserContext, Page } from "patchright-core";
 import { actTool, extractTool, observeTool } from "./act.js";
+import type { ActFallback } from "./act-chain.js";
 import type { ActModel, Sampler } from "./act-model.js";
 import { batchTool } from "./batch.js";
 import { type CaptchaSolver, solveCaptchaTool } from "./captcha.js";
+import type { CliSpawn } from "./cli-model.js";
 import { requestHumanTool } from "./human-step.js";
 import { type VaultAccess, loginTool } from "./login-tool.js";
 import { type FlowRecorder, recordTool } from "./recorder.js";
@@ -86,6 +88,8 @@ interface TurnoToolContext {
   engine?: string;
   /** Providers that replace the configured ones (tests inject fakes). */
   providers?: Providers;
+  /** What the server's environment offers natural language actions, resolved when it started. */
+  actFallback?: ActFallback;
   /** Runs a person step on the session's tab (`browser_request_human`); set by the host for it. */
   human?: (params: Record<string, unknown>) => Promise<ToolResult>;
 }
@@ -96,6 +100,10 @@ export interface Providers {
   solver?: CaptchaSolver;
   /** The fetch the provider adapters use. */
   fetch?: typeof fetch;
+  /** What the environment offers natural language actions, instead of this machine's. */
+  actFallback?: ActFallback;
+  /** Runs a subscription CLI, instead of spawning it. */
+  spawn?: CliSpawn;
 }
 
 export interface TurnoTool {
@@ -115,21 +123,21 @@ export const TURNO_TOOLS: readonly TurnoTool[] = [
   requestHumanTool(),
 ];
 
+/** The natural language action tools, listed when `act-chain.ts` finds a model for them. */
+export const ACT_TOOL_NAMES: readonly string[] = ["browser_act", "browser_extract", "browser_observe"];
+
 /**
- * The tools an identity lists only after the person turns their feature on in identity.json
- * (format 8): natural language actions (`act`) and captcha solving (`captcha`). Off, they are
- * not listed at all, so a default session's tool list stays as it was.
+ * The tools an identity lists only when their feature has something to answer: natural language
+ * actions when a model is found (`act-chain.ts`), captcha solving when a solver key is configured
+ * (`captcha.ts`). Without one they are not listed at all.
  */
-export function optInTools(settings: { act?: unknown; captcha?: unknown } | undefined): TurnoTool[] {
-  return [
-    ...(settings?.act ? [actTool(), extractTool(), observeTool()] : []),
-    ...(settings?.captcha ? [solveCaptchaTool()] : []),
-  ];
+export function optInTools(on: { act: boolean; captcha: boolean }): TurnoTool[] {
+  return [...(on.act ? [actTool(), extractTool(), observeTool()] : []), ...(on.captcha ? [solveCaptchaTool()] : [])];
 }
 
 /** Every opt-in tool, for the name checks (contract test). */
 export function allOptInTools(): TurnoTool[] {
-  return optInTools({ act: {}, captcha: {} });
+  return optInTools({ act: true, captcha: true });
 }
 
 /** The zod of the bundle, to build a turno tool's `inputSchema` with. */

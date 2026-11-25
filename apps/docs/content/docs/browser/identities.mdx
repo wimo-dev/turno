@@ -86,6 +86,8 @@ Every feature has a default that turno works out when Chrome starts, from what i
 | Locale | the system's | when `identity.json` has no locale or languages |
 | Cookie key | the system keychain | new identities created at a terminal on macOS with Google Chrome |
 | [Health check](#session-health) | the one `login` finds | when `identity.json` has none |
+| [Natural language actions](/docs/browser/natural-language-and-captchas#which-model-answers) | on | when the client offers MCP sampling, an API key is in the environment, or the Claude Code CLI or Codex is on the PATH; off when the policy turns them off |
+| [Captcha solving](/docs/browser/natural-language-and-captchas#captcha-solving) | a person answers | solved when `TURNO_BROWSER_CAPTCHA_ENDPOINT` and `TURNO_BROWSER_CAPTCHA_KEY` are set |
 
 To keep a default from applying, set the key: a value, or for a key with no off value of its own, `off` (format 14 of `identity.json`):
 
@@ -197,7 +199,7 @@ Without a check of yours, `turno-browser login` finds one: the last page you ope
 
 ## Reputation log
 
-Each captcha, "verify it's you" or block page the identity meets is one line in its state folder, with the site's host name only: no path, no page content. With [captcha solving](/docs/browser/natural-language-and-captchas#captcha-solving) on, each solve attempt is a line too. The tool result that ends on such a page says so in a `Challenge` section (`turno.challenge` in JSON) and suggests that the person handles it; nothing is paused.
+Each captcha, "verify it's you" or block page the identity meets is one line in its state folder, with the site's host name only: no path, no page content. With [captcha solving](/docs/browser/natural-language-and-captchas#captcha-solving) on, each solve attempt is a line too. The tool result that ends on such a page says so in a `Challenge` section (`turno.challenge` in JSON) and says which way it goes: to `browser_solve_captcha` for a captcha when a solver key is configured, otherwise to the person (`browser_request_human`); nothing is paused.
 
 ```sh
 # counts per site, and whether they go up or down

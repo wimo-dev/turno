@@ -12,12 +12,17 @@ The browser goes where you or your agent sends it, as your own Chrome would. Eac
 - **Vault credentials** go only to the site they belong to. `browser_login` fills a username, password or one-time code only into frames on the origins the site was stored with, and the values never reach the model: they live in the OS secret store (the macOS Keychain or the Linux Secret Service), and every tool result and error is redacted before it goes back to the agent. See [Vault, sign-in and secrets](/docs/browser/vault).
 - **Password and one-time code fields** are masked in every snapshot, whoever typed them.
 
+## When something is there to answer
+
+| Feature | What goes out | Where it goes |
+|---|---|---|
+| [Natural language actions](/docs/browser/natural-language-and-captchas#natural-language-actions) (`browser_act`, `browser_extract`, `browser_observe`) | your instruction, the steps taken so far, and an accessibility snapshot of the current tab, with vault values and password, one-time code, card and secret fields replaced by `[vault: sensitive value]` | the first that answers: your agent's own client through MCP sampling; the chat completions endpoint you name in `act.endpoint` (its key from the secret store); OpenAI or Anthropic with `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` from the environment; or your Claude Code or Codex CLI, on its standard input, with your own login |
+| [Captcha solving](/docs/browser/natural-language-and-captchas#captcha-solving) (`browser_solve_captcha`) | the page URL, the widget kind and its site key (both public, in the page's markup), whether the widget is invisible, and your solver account key | the solver service you name in `captcha.endpoint` or `TURNO_BROWSER_CAPTCHA_ENDPOINT`; no cookies and no page content are sent, but the service usually loads the page on its own machines. Without a solver key nothing goes out: the captcha goes to you |
+
 ## Off until you turn it on
 
 | Feature | What goes out | Where it goes |
 |---|---|---|
-| [Natural language actions](/docs/browser/natural-language-and-captchas#natural-language-actions) (`browser_act`, `browser_extract`, `browser_observe`) | your instruction, the steps taken so far, and an accessibility snapshot of the current tab, with vault values and password, one-time code, card and secret fields replaced by `[vault: sensitive value]` | the model you configure: your agent's own client through MCP sampling, or the chat completions endpoint you name in `act.endpoint` (its key comes from the secret store) |
-| [Captcha solving](/docs/browser/natural-language-and-captchas#captcha-solving) (`browser_solve_captcha`) | the page URL, the widget kind and its site key (both public, in the page's markup), whether the widget is invisible, and your solver account key | the solver service you name in `captcha.endpoint`; no cookies and no page content are sent, but the service usually loads the page on its own machines |
 | [A proxy](/docs/browser/network#a-proxy) (`proxy`) | all of that identity's browser traffic | the proxy you name; its credentials come from the secret store |
 
 An instruction that contains a value the server hides (a vault value or a sensitive field) is refused before it reaches the model. A model reply is redacted too before anything reads it.

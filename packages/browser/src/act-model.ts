@@ -88,17 +88,32 @@ type Fetch = typeof fetch;
 /** Longest provider error body kept in a message. */
 const ERROR_CHARS = 300;
 
+/**
+ * Where providers of the chat completions shape differ: the name of the reply budget, whether
+ * they take a temperature, and fields of their own. The default is the original shape.
+ */
+export interface ChatDialect {
+  tokens: "max_tokens" | "max_completion_tokens";
+  temperature: boolean;
+  extra?: Readonly<Record<string, unknown>>;
+}
+
+const DEFAULT_DIALECT: ChatDialect = { tokens: "max_tokens", temperature: true };
+
 export function chatCompletionsModel(options: {
   endpoint: string;
   model: string;
   key?: string;
   fetch?: Fetch;
+  dialect?: ChatDialect;
+  label?: string;
 }): ActModel {
+  const dialect = options.dialect ?? DEFAULT_DIALECT;
   const url = `${options.endpoint.replace(/\/+$/, "")}/chat/completions`;
   const host = new URL(options.endpoint).host;
   const doFetch = options.fetch ?? fetch;
   return {
-    label: `chat-completions ${options.model} at ${host}`,
+    label: options.label ?? `chat-completions ${options.model} at ${host}`,
     async complete(request) {
       const body = {
         model: options.model,
@@ -106,8 +121,9 @@ export function chatCompletionsModel(options: {
           { role: "system", content: request.system },
           ...request.messages.map((m) => ({ role: m.role, content: m.text })),
         ],
-        max_tokens: request.maxTokens,
-        temperature: 0,
+        [dialect.tokens]: request.maxTokens,
+        ...(dialect.temperature ? { temperature: 0 } : {}),
+        ...dialect.extra,
       };
       let res: Response;
       try {

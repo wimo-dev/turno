@@ -9,7 +9,9 @@ import type { Page } from "patchright-core";
 import { type PressureLevel, type PressureProbe, memoryPressureProbe } from "turno-core/memory";
 import type { SecretStore } from "turno-core/secrets";
 import { CallToolRequestSchema, type CallToolResult, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import { type ActFallback, type ActKey, actListed, resolveActFallback } from "./act-chain.js";
 import type { Sampler } from "./act-model.js";
+import { captchaKeyOf, captchaSourceLabel, resolveCaptchaSource } from "./captcha.js";
 import { refuseWhileBackground } from "./background-state.js";
 import { coveredBeforeCall, explainFailure } from "./diagnose.js";
 import {
@@ -109,6 +111,7 @@ import {
   TURNO_TOOLS,
   type TurnoTool,
   checkTurnoTools,
+  ACT_TOOL_NAMES,
   optInTools,
   parseArguments,
 } from "./tools.js";
@@ -155,9 +158,11 @@ import { type BrowserWatch, PlainWatch } from "./watch.js";
  *   snapshot-free steps change only that session;
  * - with `"sharing": "tabs"`, serves several agent sessions (mcpd's `_meta["io.turno/session"]`)
  *   in that one browser, each with its own backend, current tab and tab locks (`sharing.ts`);
- * - lists the opt-in tools of the identity (natural language actions, captcha solving) only when
- *   identity.json turns them on when the server starts, and hands those tools MCP sampling,
- *   routed to the calling session, when the client offers it;
+ * - lists natural language actions when a model answers them, per connection (`act-chain.ts`:
+ *   MCP sampling of that client, an API key in the environment, a subscription CLI on PATH, or
+ *   the provider identity.json names), and captcha solving when a solver key is configured
+ *   (`captcha.ts`), and hands those tools MCP sampling, routed to the calling session, when the
+ *   client offers it;
  * - with the live view on (identity.json `live`, `--live`), holds every browser call while the
  *   user has paused the agent, and tells the held call what changed (`live.ts`, `live-server.ts`);
  *   a person step (`browser_request_human`, `human-step.ts`) holds them the same way, with the live
@@ -209,8 +214,11 @@ export interface HostOptions {
 
 export interface Host {
   config: McpConfig;
-  /** Stock tools first, in upstream's order, then turno's. */
-  listTools(): ToolSchemaJson[];
+  /**
+   * Stock tools first, in upstream's order, then turno's. `sampling`: whether the connection's
+   * client offers MCP sampling, which can be all natural language actions have to answer them.
+   */
+  listTools(client?: { sampling: boolean }): ToolSchemaJson[];
   factory: ServerBackendFactory;
   /** Hides vault values in a text this server is about to send. */
   redact(text: string): string;
@@ -335,15 +343,22 @@ function withTrailer(result: ToolResult, title: string, note: string, key: strin
   return { ...result, content: [{ ...first, text: `${text}\n### ${title}\n${note}` }, ...result.content.slice(1)] };
 }
 
-/** What the agent reads when the page it ended on is a challenge (`reputation.ts`). */
-function challengeNote(event: Omit<ChallengeEvent, "ts">): string {
+/**
+ * What the agent reads when the page it ended on is a challenge (`reputation.ts`), and which way
+ * it goes: a captcha widget to the configured solver (`solver` says where its key came from),
+ * anything else, or any captcha without a solver key, to a person.
+ */
+function challengeNote(event: Omit<ChallengeEvent, "ts">, solver: string | undefined): string {
   const what =
     event.kind === "captcha"
       ? "a captcha"
       : event.kind === "verify"
         ? "a check that asks whether a person is there"
         : "a page that blocks this browser";
-  return `This page (${event.site}) shows ${what}. A person should handle it: ask them to (with browser_request_human, if this server offers it), and go on once they are done.`;
+  if (event.kind === "captcha" && solver)
+    return `This page (${event.site}) shows ${what}. A captcha solver is configured (${solver}): call browser_solve_captcha, then submit the form; if it finds no widget it can answer, ask the person with browser_request_human.`;
+  const who = event.kind === "captcha" ? "No captcha solver key is configured, so a person" : "A person";
+  return `This page (${event.site}) shows ${what}. ${who} should handle it: ask them to (with browser_request_human, if this server offers it), and go on once they are done.`;
 }
 
 /** A result's text parts with credentials replaced (`network-redact.ts`). */
@@ -487,6 +502,10 @@ class SessionBackend extends EventEmitter implements ServerBackend {
       pressure: () => Promise<PressureLevel>;
       /** The server's own `--caps`, when given: then it is the whole list. */
       caps?: readonly string[];
+      /** What the environment offers natural language actions (`act-chain.ts`). */
+      actFallback?: ActFallback;
+      /** Where the captcha solver's key comes from, when this server lists browser_solve_captcha. */
+      solver?: string;
     },
     private readonly title: (clientInfo: ClientInfo) => string,
   ) {
@@ -825,6 +844,8 @@ class SessionBackend extends EventEmitter implements ServerBackend {
       ...(identity ? { systemLocale: cachedSystemLocale() } : {}),
       ...(identity ? optional("detectedHealth", readDetectedHealth(identity.id, identity.env)) : {}),
       ...(this.host.caps ? { caps: this.host.caps } : {}),
+      ...(this.host.actFallback ? { actFallback: this.host.actFallback } : {}),
+      ...(identity ? { captchaKey: captchaKeyOf(identity.env) } : {}),
     };
     return resolveDefaults(settings, ctx, {
       ...(live ? { live: true } : { live: false }),
@@ -926,7 +947,7 @@ class SessionBackend extends EventEmitter implements ServerBackend {
         timer = setTimeout(() => r(undefined), CHALLENGE_WAIT_MS);
       }),
     ]).finally(() => clearTimeout(timer));
-    return event ? withTrailer(result, "Challenge", challengeNote(event), "challenge", json) : result;
+    return event ? withTrailer(result, "Challenge", challengeNote(event, this.host.solver), "challenge", json) : result;
   }
 
   /** Values of a page's sensitive fields join the redactor, shown as `[sensitive field]`. */
@@ -1188,6 +1209,7 @@ class SessionBackend extends EventEmitter implements ServerBackend {
         ...(sample ? { sample } : {}),
         ...(engine ? { engine } : {}),
         ...(this.host.providers ? { providers: this.host.providers } : {}),
+        ...(this.host.actFallback ? { actFallback: this.host.actFallback } : {}),
         ...(human ? { human } : {}),
         ...(this.host.identity
           ? {
@@ -1757,9 +1779,10 @@ async function afterIdentityLaunch(
 
 /**
  * identity.json as the server starts: its opt-in keys and its policy. The tool list is fixed for
- * the life of the server, so turning a feature on or changing the policy takes a restart;
- * turning a feature off is honored at the next call, since each opt-in tool reads identity.json
- * again. An invalid file lists nothing extra (the first launch reports the problem).
+ * the life of the server (natural language actions per connection), so turning a feature on or
+ * changing the policy takes a restart; turning a feature off is honored at the next call, since
+ * each opt-in tool reads identity.json again. An invalid file lists nothing extra (the first
+ * launch reports the problem).
  */
 function startSettings(identity: IdentityRef | undefined): IdentitySettings | undefined {
   if (!identity) return undefined;
@@ -1841,14 +1864,24 @@ export function createHost(options: HostOptions): Host {
   const stock = tools.filteredTools(config).filter((t) => !disabled.has(t.schema.name));
   const stockSchemas = new Map(stock.map((t) => [t.schema.name, t.schema.inputSchema]));
   const stockTypes = new Map(stock.map((t) => [t.schema.name, t.schema.type]));
-  const turnoTools = [...(options.turnoTools ?? TURNO_TOOLS), ...optInTools(atStart)].filter(
-    (t) => !disabled.has(t.schema.name),
-  );
+  // The model for natural language actions and the captcha solver, from identity.json and the
+  // server's environment; the client's sampling is added per connection in `listTools`.
+  const identityEnv = options.identity?.env;
+  const actFallback = identityEnv ? (options.providers?.actFallback ?? resolveActFallback(identityEnv)) : undefined;
+  const actKey = atStart?.act as ActKey;
+  const actOn = (sampling: boolean) => !!actFallback && actListed(actKey, actFallback, sampling);
+  const captcha = identityEnv ? resolveCaptchaSource(atStart?.captcha, identityEnv) : undefined;
+  const turnoTools = [
+    ...(options.turnoTools ?? TURNO_TOOLS),
+    ...optInTools({ act: actOn(true), captcha: !!captcha && captcha.kind !== "none" }),
+  ].filter((t) => !disabled.has(t.schema.name));
   checkTurnoTools(turnoTools, tools.browserTools);
   const turno = new Map(turnoTools.map((t) => [t.schema.name, t]));
   const engine = options.engine ?? createEngine(config, options.engineFlags);
   const engineFlags = options.engineFlags ?? engine.flags ?? {};
   const schemas = [...stock.map((t) => t.schema), ...turnoTools.map((t) => t.schema)];
+  // A client without sampling sees them only when the environment or identity.json has a model.
+  const withoutSampling = actOn(false) ? schemas : schemas.filter((t) => !ACT_TOOL_NAMES.includes(t.name));
   const sessionsByName = new Map<string, number>();
   const title = (clientInfo: ClientInfo) => {
     const count = (sessionsByName.get(clientInfo.clientName) ?? 0) + 1;
@@ -1878,12 +1911,16 @@ export function createHost(options: HostOptions): Host {
     ...(options.vaultStore ? { vaultStore: options.vaultStore } : {}),
     ...(options.providers ? { providers: options.providers } : {}),
     ...(policy ? { policy } : {}),
+    ...(actFallback ? { actFallback } : {}),
+    ...(captcha && captcha.kind !== "none" && turno.has("browser_solve_captcha")
+      ? { solver: captchaSourceLabel(captcha) }
+      : {}),
   };
   return {
     config,
     ...(live ? { live } : {}),
     redact: (text) => redactor.text(text),
-    listTools: () => schemas.map(toMcpTool),
+    listTools: (client) => (client?.sampling === false ? withoutSampling : schemas).map(toMcpTool),
     factory: {
       name: SERVER_INFO.name,
       nameInConfig: "playwright",
@@ -2034,7 +2071,10 @@ function createServer(host: Host, shared?: SharedBackend): Server {
   shared?.servers.add(server);
   server.setRequestHandler(ListToolsRequestSchema, async () => {
     const live = await existing()?.catch(() => undefined);
-    return { tools: [...host.listTools(), ...(live?.dynamicTools() ?? [])] as ToolSchemaJson[] as never };
+    const sampling = Boolean(server.getClientCapabilities()?.sampling);
+    return {
+      tools: [...host.listTools({ sampling }), ...(live?.dynamicTools() ?? [])] as ToolSchemaJson[] as never,
+    };
   });
   server.setRequestHandler(CallToolRequestSchema, async (request, extra): Promise<CallToolResult> => {
     try {

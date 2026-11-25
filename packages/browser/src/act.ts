@@ -1,6 +1,7 @@
+import { type ActKey, chainModel, resolveAct } from "./act-chain.js";
 import { type ActModel, ModelError, estimateTokens, resolveModel } from "./act-model.js";
 import { clip, sections, textOf } from "./batch.js";
-import { type ActBudget, type ActSettings, actBudget } from "./opt-in-settings.js";
+import { type ActBudget, actBudget } from "./opt-in-settings.js";
 import type { Redactor } from "./redact.js";
 import { pageFields, secretValues } from "./sensitive.js";
 import { readIdentitySettings } from "./settings.js";
@@ -9,10 +10,11 @@ import { type ToolResult, type ToolSchema, type ZodObject, upstream } from "./up
 import { names } from "./names.js";
 
 /**
- * Natural language actions, off by default (identity.json `act`): `browser_act` turns an
- * instruction into stock tool calls, `browser_extract` reads data off the page, and
- * `browser_observe` proposes the calls without running them. The model is the user's: MCP
- * sampling when the client offers it, else the provider identity.json names (`act-model.ts`).
+ * Natural language actions: `browser_act` turns an instruction into stock tool calls,
+ * `browser_extract` reads data off the page, and `browser_observe` proposes the calls without
+ * running them. The model is the user's: the provider identity.json `act` names
+ * (`act-model.ts`), else the first of MCP sampling, an API key in the environment and a
+ * subscription CLI (`act-chain.ts`).
  *
  * What the model gets and what it can do is fixed here, not by the model:
  *
@@ -235,15 +237,15 @@ async function prepare(
   const stock = ctx.stock;
   if (!vault || !stock) return { error: `${tool} needs a browser identity (turno-browser-mcp --identity <id>)` };
   const { identity, redactor } = vault;
-  let settings: ActSettings | undefined;
+  let act: ActKey;
   try {
-    settings = readIdentitySettings(identity.id, identity.env)?.act || undefined;
+    act = readIdentitySettings(identity.id, identity.env)?.act as ActKey;
   } catch (error) {
     return { error: (error as Error).message };
   }
-  if (!settings)
+  if (act === false)
     return {
-      error: `natural language actions are off for identity "${identity.id}"; the person turns them on with ${names().identity("set", identity.id)} --act (MCP sampling) or --act-provider ..., then restarts the server`,
+      error: `natural language actions are off for identity "${identity.id}" (identity.json act is false); only the person can turn them on again`,
     };
   if (!instruction.trim()) return { error: "the instruction is empty" };
   if (instruction.length > MAX_INSTRUCTION)
@@ -253,24 +255,39 @@ async function prepare(
       error:
         "the instruction holds a value this server hides (a vault value or a sensitive field), and it would go to the model; sign in with browser_login and leave secrets out of instructions",
     };
-  let model: ActModel;
+  let model: ActModel | undefined;
   try {
-    model =
-      ctx.providers?.model ??
-      (await resolveModel({
-        settings,
+    if (ctx.providers?.model) model = ctx.providers.model;
+    else if (act?.provider)
+      model = await resolveModel({
+        settings: act,
         ...(ctx.sample ? { sample: ctx.sample } : {}),
         ...(vault.store ? { store: vault.store } : {}),
         ...(ctx.providers?.fetch ? { fetch: ctx.providers.fetch } : {}),
         env: identity.env,
         redactor,
         id: identity.id,
-      }));
+      });
+    else {
+      const fallback = ctx.actFallback ?? { kind: "none" as const, reason: "this server found no model" };
+      model = chainModel({
+        fallback,
+        ...(ctx.sample ? { sample: ctx.sample } : {}),
+        env: identity.env,
+        redactor,
+        ...(ctx.providers?.fetch ? { fetch: ctx.providers.fetch } : {}),
+        ...(ctx.providers?.spawn ? { spawn: ctx.providers.spawn } : {}),
+      });
+      if (!model)
+        return {
+          error: `natural language actions of "${identity.id}" have no model: ${resolveAct(act, fallback, false).reason}. The person can set an API key, sign in to the Claude Code CLI or Codex, or name a provider (${names().identity("set", identity.id)} --act-provider chat-completions --act-endpoint <url> --act-model <name>), then restart the server`,
+        };
+    }
   } catch (error) {
     if (error instanceof ModelError) return { error: error.message };
     throw error;
   }
-  const budget = actBudget(settings);
+  const budget = actBudget(act ?? {});
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), budget.timeoutMs);
   timer.unref?.();
@@ -311,7 +328,7 @@ const instructionSchema = () =>
     .describe("What to do on the current page, in plain words. Never include passwords or other secrets.");
 
 const PRIVACY =
-  "The instruction and a snapshot of the current tab go to the model the person configured (or your client's model through MCP sampling); vault values and sensitive fields are hidden from it.";
+  "The instruction and a snapshot of the current tab go to a model: your client's through MCP sampling, else the provider the person set, an API key in the environment or the person's Claude Code or Codex CLI; vault values and sensitive fields are hidden from it.";
 
 function actSchema(): ToolSchema {
   const z = upstream().utils.z;
