@@ -34,7 +34,7 @@ blocking turns Chrome's own cache off.
 ## Network and user agent
 
 Two settings change how an identity's browser reaches sites, set per identity in `identity.json`
-(format 11). The proxy is off by default. The coherent user agent is on by default only in a
+(format 11). Without a proxy of its own, an identity's Chrome follows the system's proxy, as your own Chrome does (see [the system's proxy](#the-systems-proxy)). The coherent user agent is on by default only in a
 headless Chrome, which otherwise says `HeadlessChrome`, once turno has read that Chrome's client
 hints (`turno-browser login` reads them when you close it, once per Chrome version, so no launch
 pays for an extra Chrome); a Chrome with a window keeps its own, which is already coherent. These settings are for your own accounts and for sites you may automate, and
@@ -53,7 +53,7 @@ turno-browser set school --proxy-server http://proxy.example.com:8080 \
   --proxy-username alice --proxy-password keychain:school-proxy
 # the password, typed into the secret store
 turno-browser secret set school-proxy
-# the proxy off, and the user agent back to its default (coherent in headless only)
+# the identity's proxy removed (Chrome follows the system's), and the user agent back to its default
 turno-browser set school --no-proxy --user-agent ""
 # Chrome's own user agent even in headless (format 14)
 turno-browser set school --user-agent off
@@ -113,6 +113,28 @@ out without the proxy. `turno-browser doctor` checks that the item exists withou
 All of the identity's traffic goes through the proxy, `turno-browser login` included, so a site
 sees one network for both. WebRTC is limited to the proxy too, so a page cannot learn your own
 address that way. Sites see the proxy's address, and its operator sees where you go.
+
+### The system's proxy
+
+turno passes Chrome no proxy switch unless the identity or the server sets one, so Chrome reads the operating system's proxy settings on its own, PAC files and auto discovery included. turno reads the same settings only to say which proxy that is: `turno-browser show` and `status` name it (`proxy: on (auto: the system's: http://proxy.example.com:8080 (macOS network settings))`).
+
+| System | Where turno reads it |
+|---|---|
+| macOS | `scutil --proxy`: the HTTPS, HTTP and SOCKS proxies, a PAC file and auto discovery |
+| Windows | WinINET's per-user settings, `HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings` (`ProxyEnable`, `ProxyServer`, `ProxyOverride`, `AutoConfigURL`) |
+| Linux | on GNOME and its relatives, `gsettings list-recursively org.gnome.system.proxy`; elsewhere `https_proxy`, `http_proxy`, `all_proxy`, `auto_proxy` and `no_proxy`, as Chrome reads them |
+
+`"proxy": false` in identity.json (`turno-browser set <id> --proxy-server off`) keeps the identity off the system's proxy too: Chrome gets `--no-proxy-server` and connects directly. `--no-proxy` removes the key, so Chrome follows the system's again. Attach mode keeps your Chrome's own settings, and Camoufox follows Firefox's.
+
+### Where the proxy exits
+
+With a proxy in use, the identity's, the server's or the system's, sites see the proxy's address, and a time zone or language from another country next to it is a difference a site can read. When the browser starts, turno asks [GeoJS](https://www.geojs.io/) for the exit's country and time zone, through the proxy, once a day per proxy, and compares them with the identity's time zone and locale. A mismatch shows in the next tool result, in the server's log and in `show` and `status`, with the value that would match:
+
+```text
+warning: the proxy exits in MX (America/Monterrey), but the identity's time zone is Europe/Madrid: set --timezone America/Monterrey
+```
+
+Zones with the same offset (`America/Monterrey` and `America/Mexico_City`) agree. The lookup sends no cookie, no identity name and no header but the host and a generic user agent; only the country and time zone are kept, in the identity's state folder. A PAC file or auto discovery is not resolved, so those proxies are not checked. `TURNO_BROWSER_EXIT_CHECK=0` turns the lookup off; see [What leaves your machine](/docs/browser/what-leaves-your-machine).
 
 ### With the other settings
 

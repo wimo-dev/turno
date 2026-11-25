@@ -181,7 +181,7 @@ Usage:
       [--captcha-provider task-api] [--captcha-endpoint <url>] [--captcha-key
       keychain:<item>] [--captcha-timeout <duration>] [--no-captcha] [--live
       true|false|auto] [--live-wait <duration>] [--no-live] [--user-agent
-      coherent|auto|off] [--proxy-server <url>] [--proxy-username
+      coherent|auto|off] [--proxy-server <url>|off] [--proxy-username
       <name|keychain:item>] [--proxy-password keychain:<item>] [--no-proxy]
       [--policy-file <file>] [--allowed-domains <host,...>] [--disable
       <feature,...>] [--auto-submit true|false] [--no-policy] [--browser
@@ -295,10 +295,11 @@ Network and user agent (for your own accounts and sites you may automate):
                                   never takes a typed user agent
   --proxy-server <url>            send this identity's traffic through a proxy: http://,
                                   https://, socks4:// or socks5://host:port; its operator sees
-                                  where you go, and sites see its address
+                                  where you go, and sites see its address; off: no
+                                  proxy, not even the system's
   --proxy-username <name>         the proxy user name, or keychain:<item>
   --proxy-password keychain:<item> the password, only from the secret store (turno-browser secret set <item>)
-  --no-proxy                      remove the proxy
+  --no-proxy                      remove the proxy (Chrome follows the system's)
 
 What the identity may do (a policy; only this command writes it, no agent tool can):
   --policy-file <file>            the whole policy from a JSON file, like
