@@ -39,6 +39,9 @@ This page lists every environment variable turno reads. `turno help environment`
 | `TURNO_BROWSER_SESSION` | the session name of turno browser do (same as --session; default: default), to keep several apart |
 | `TURNO_CAMOUFOX_PATH` | the Camoufox executable turno-browser's camoufox engine runs (default: the newest in Camoufox's cache) |
 | `TURNO_PLAYWRIGHT_CORE` | the playwright-core folder the camoufox engine runs on (default: the one next to turno-browser) |
+| `TURNO_BROWSER_ACT_CLI` | off: natural language actions never run the Claude Code CLI or Codex (MCP sampling and API keys still count) |
+| `TURNO_BROWSER_CAPTCHA_ENDPOINT` | a task-api captcha solver's URL, for identities without a captcha group (with TURNO_BROWSER_CAPTCHA_KEY) |
+| `TURNO_BROWSER_CAPTCHA_KEY` | that solver's account key, hidden from every result |
 
 ## Set by turno for the agents it starts (read them, do not set them)
 
@@ -51,6 +54,7 @@ This page lists every environment variable turno reads. `turno help environment`
 | `TURNO_MCPD_TOKEN` | the profile's gateway token, for agents that read headers from the environment |
 | `TURNO_MCPD_SERVICE` | set by the mcpd service file (LaunchAgent or systemd unit) |
 | `TURNO_BROWSER_PROMPTED_PARAMS` | set by turno browser replay for the server it starts: the parameters typed at its hidden prompt |
+| `TURNO_BROWSER_ACT_CHILD` | set by turno-browser for the Claude Code CLI or Codex it runs: a turno-browser under it never runs one again |
 
 ## Standard variables turno honors
 
@@ -92,47 +96,59 @@ Where turno keeps things:
   TURNO_CHROME_BIN  the Chrome program on Linux, for turno open
 
 How turno behaves:
-  TURNO_NO_INPUT            1: never ask, exit 2 and name the flag instead (same
-                            as --no-input); 0: ask even inside an agent session
-  TURNO_COLOR               always, never or auto (same as --color); see the
-                            order below
-  TURNO_ALLOW_PLAIN         1: turno auto runs the plain agent when config.toml
-                            does not parse
-  TURNO_SAFE                1: turno run, turno <profile> and turno auto open
-                            the agent in safe mode, without the gateway and the
-                            status line (same as --no-gateway)
-  TURNO_NO_UPDATE_CHECK     1: no daily update check and no notice
-  TURNO_NO_UPDATE_NOTIFIER  1: same as TURNO_NO_UPDATE_CHECK (the name gh uses)
-  TURNO_REGISTRY            npm registry for update checks (default:
-                            npm_config_registry, else registry.npmjs.org)
-  TURNO_BROWSER_IDLE        turno-browser closes Chrome after this long without
-                            a tool call (default: 15m)
+  TURNO_NO_INPUT             1: never ask, exit 2 and name the flag instead
+                             (same as --no-input); 0: ask even inside an agent
+                             session
+  TURNO_COLOR                always, never or auto (same as --color); see the
+                             order below
+  TURNO_ALLOW_PLAIN          1: turno auto runs the plain agent when config.toml
+                             does not parse
+  TURNO_SAFE                 1: turno run, turno <profile> and turno auto open
+                             the agent in safe mode, without the gateway and the
+                             status line (same as --no-gateway)
+  TURNO_NO_UPDATE_CHECK      1: no daily update check and no notice
+  TURNO_NO_UPDATE_NOTIFIER   1: same as TURNO_NO_UPDATE_CHECK (the name gh uses)
+  TURNO_REGISTRY             npm registry for update checks (default:
+                             npm_config_registry, else registry.npmjs.org)
+  TURNO_BROWSER_IDLE         turno-browser closes Chrome after this long without
+                             a tool call (default: 15m)
   TURNO_BROWSER_BACKGROUND_IDLE
-                            the background server of a browser identity exits
-                            after this long without a request (default: 15m; 0:
-                            never)
-  TURNO_LIGHTPANDA_PATH     the Lightpanda binary turno-browser's read mode runs
-                            (default: lightpanda on PATH)
-  TURNO_BROWSER_SESSION     the session name of turno browser do (same as
-                            --session; default: default), to keep several apart
-  TURNO_CAMOUFOX_PATH       the Camoufox executable turno-browser's camoufox
-                            engine runs (default: the newest in Camoufox's
-                            cache)
-  TURNO_PLAYWRIGHT_CORE     the playwright-core folder the camoufox engine runs
-                            on (default: the one next to turno-browser)
+                             the background server of a browser identity exits
+                             after this long without a request (default: 15m; 0:
+                             never)
+  TURNO_LIGHTPANDA_PATH      the Lightpanda binary turno-browser's read mode
+                             runs (default: lightpanda on PATH)
+  TURNO_BROWSER_SESSION      the session name of turno browser do (same as
+                             --session; default: default), to keep several apart
+  TURNO_CAMOUFOX_PATH        the Camoufox executable turno-browser's camoufox
+                             engine runs (default: the newest in Camoufox's
+                             cache)
+  TURNO_PLAYWRIGHT_CORE      the playwright-core folder the camoufox engine runs
+                             on (default: the one next to turno-browser)
+  TURNO_BROWSER_ACT_CLI      off: natural language actions never run the Claude
+                             Code CLI or Codex (MCP sampling and API keys still
+                             count)
+  TURNO_BROWSER_CAPTCHA_ENDPOINT
+                             a task-api captcha solver's URL, for identities
+                             without a captcha group (with
+                             TURNO_BROWSER_CAPTCHA_KEY)
+  TURNO_BROWSER_CAPTCHA_KEY  that solver's account key, hidden from every result
 
 Set by turno for the agents it starts (read them, do not set them):
-  TURNO_PROFILE          the profile a launcher opened
-  TURNO_AGENT            that profile's agent (codex, copilot, cursor)
-  TURNO_SESSION_PID      the agent's process id, sent to the gateway
-  TURNO_SESSION_CWD_B64  the agent's folder (base64url), sent to the gateway
-  TURNO_MCPD_TOKEN       the profile's gateway token, for agents that read
-                         headers from the environment
-  TURNO_MCPD_SERVICE     set by the mcpd service file (LaunchAgent or systemd
-                         unit)
+  TURNO_PROFILE            the profile a launcher opened
+  TURNO_AGENT              that profile's agent (codex, copilot, cursor)
+  TURNO_SESSION_PID        the agent's process id, sent to the gateway
+  TURNO_SESSION_CWD_B64    the agent's folder (base64url), sent to the gateway
+  TURNO_MCPD_TOKEN         the profile's gateway token, for agents that read
+                           headers from the environment
+  TURNO_MCPD_SERVICE       set by the mcpd service file (LaunchAgent or systemd
+                           unit)
   TURNO_BROWSER_PROMPTED_PARAMS
-                         set by turno browser replay for the server it starts:
-                         the parameters typed at its hidden prompt
+                           set by turno browser replay for the server it starts:
+                           the parameters typed at its hidden prompt
+  TURNO_BROWSER_ACT_CHILD  set by turno-browser for the Claude Code CLI or Codex
+                           it runs: a turno-browser under it never runs one
+                           again
 
 Standard variables turno honors:
   NO_COLOR            set and not empty: no colors (no-color.org)
