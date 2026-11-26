@@ -14,7 +14,7 @@ import { type UiLocale, fill, uiStrings } from "./ui-strings.js";
  * "Now" card and the step timeline next to it (under it in a narrow window). Over the picture a
  * canvas draws each kind of action in its own way and color (`live-stage.ts`): a box that
  * converges on the target, a ripple where a click lands, a scan while the agent reads, the
- * picture dissolving as it navigates, an amber band and a card when the agent waits for the
+ * picture dissolving as it navigates, an amber band and a chip when the agent waits for the
  * person. The agent's named cursor and a label with the action float over it too.
  *
  * New steps and changes of state are announced to screen readers (`aria-live`); the picture and
@@ -47,7 +47,10 @@ button:focus-visible, #frame:focus-visible { outline: 2px solid var(--agent); ou
 
 header.bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 9px 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; }
 .brand { font-weight: 600; letter-spacing: -.01em; white-space: nowrap; }
-.brand span { color: var(--muted); font-weight: 400; }
+.seg { display: inline-flex; align-items: center; gap: 2px; padding: 2px; border: 1px solid var(--line); border-radius: 8px; font-size: 12px; }
+.seg .k { padding: 0 6px 0 4px; color: var(--muted); }
+.seg button { padding: 3px 8px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--sunk); color: var(--fg); font-weight: 500; }
 .chip { font: 12px/1 var(--mono); padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; color: var(--muted); max-width: 30ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chip:empty { display: none; }
 .pill { --c: var(--muted); display: inline-flex; align-items: center; gap: 8px; min-width: 0; padding: 6px 11px 6px 8px; border-radius: 999px; background: color-mix(in srgb, var(--c) 14%, transparent); color: var(--c); font-weight: 500; transition: background .3s, color .3s; }
@@ -64,7 +67,9 @@ header.bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px;
 .btn.primary:disabled { display: none; }
 
 nav { display: flex; flex-wrap: wrap; gap: 6px; }
-nav button { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel); cursor: pointer; }
+nav button { display: inline-flex; align-items: baseline; gap: 6px; max-width: 300px; overflow: hidden; white-space: nowrap; font-size: 13px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel); cursor: pointer; }
+nav button .host { flex: none; max-width: 16ch; overflow: hidden; text-overflow: ellipsis; color: var(--muted); font: 11px/1 var(--mono); }
+nav button .title { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 nav button.on { border-color: var(--agent); color: var(--agent); }
 
 .layout { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 12px; align-items: start; }
@@ -77,7 +82,7 @@ main { min-width: 0; display: grid; gap: 8px; }
 .stage.nogl[data-edge="human"] { box-shadow: inset 0 0 0 3px var(--human); }
 .stage.nogl[data-edge="bad"] { box-shadow: inset 0 0 0 3px var(--bad); }
 #fx { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 3; }
-.nogl #fx { display: none; }
+.nogl #fx, .fxoff #fx { display: none; }
 .browser { position: relative; z-index: 1; width: fit-content; max-width: 100%; min-width: min(100%, 420px); margin: 0 auto; border-radius: 10px; overflow: hidden; background: var(--panel); box-shadow: 0 1px 0 var(--line), 0 20px 50px -24px var(--shadow); }
 .browser.shake { animation: shake .4s; }
 @keyframes shake { 20%, 60% { transform: translateX(-4px) } 40%, 80% { transform: translateX(4px) } }
@@ -106,23 +111,17 @@ main { min-width: 0; display: grid; gap: 8px; }
 #tag { z-index: 4; font: 11px/1 var(--mono); padding: 5px 7px; border-radius: 6px; color: #fff; background: var(--c, var(--agent)); white-space: nowrap; max-width: 46ch; overflow: hidden; text-overflow: ellipsis; opacity: 0; transform: translateY(4px); transition: opacity .2s, transform .2s; }
 #tag.on { opacity: 1; transform: none; }
 #ring { z-index: 4; border: 2px solid var(--c, var(--agent)); border-radius: 8px; box-shadow: 0 0 0 4px color-mix(in srgb, var(--c, var(--agent)) 20%, transparent); display: none; transition: left .3s, top .3s, width .3s, height .3s; }
-.nogl #ring.on { display: block; }
+.nogl #ring.on, .fxoff #ring.on { display: block; }
 #uline { z-index: 4; height: 2px; width: 0; background: var(--type); opacity: 0; }
 #uline.on { opacity: 1; animation: uline var(--d, 1s) linear forwards; }
 @keyframes uline { from { width: 0 } to { width: var(--w, 0) } }
 .rip { position: absolute; z-index: 4; width: 14px; height: 14px; margin: -7px 0 0 -7px; border-radius: 50%; border: 2px solid var(--c); background: color-mix(in srgb, var(--c) 25%, transparent); pointer-events: none; animation: rip .65s ease-out forwards; }
 @keyframes rip { to { transform: scale(3.4); opacity: 0 } }
 
-#gate { position: absolute; left: 50%; top: 12px; transform: translateX(-50%); z-index: 5; width: min(92%, 480px); background: var(--panel); color: var(--fg); border: 1px solid color-mix(in srgb, var(--human) 55%, var(--line)); border-radius: 12px; padding: 12px 14px; display: grid; gap: 8px; box-shadow: 0 16px 40px -18px var(--shadow); }
-#gate[hidden], #take[hidden] { display: none; }
-#gate .k { font: 11px/1 var(--mono); color: var(--human); letter-spacing: .06em; text-transform: uppercase; }
-#gate-what { font-weight: 600; overflow-wrap: anywhere; }
-#gate-detail { color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
-#gate-detail:empty { display: none; }
-#gate .acts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
-#gate .go { background: var(--human); color: #1b1206; border-color: var(--human); font-weight: 500; }
-#gate .hint { color: var(--muted); font-size: 12px; }
-#take { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 5; display: flex; align-items: center; gap: 10px; padding: 5px 5px 5px 12px; border-radius: 999px; background: var(--panel); border: 1px solid color-mix(in srgb, var(--human) 55%, var(--line)); color: var(--human); white-space: nowrap; font-weight: 500; box-shadow: 0 10px 30px -16px var(--shadow); }
+#ask, #take { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 5; }
+#ask[hidden], #take[hidden] { display: none; }
+#ask { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px 4px 8px; border-radius: 999px; font: 12px/1.2 var(--sans); font-weight: 500; color: #1b1206; background: var(--human); box-shadow: 0 8px 22px -12px var(--shadow); white-space: nowrap; pointer-events: none; }
+#take { display: flex; align-items: center; gap: 10px; padding: 5px 5px 5px 12px; border-radius: 999px; background: var(--panel); border: 1px solid color-mix(in srgb, var(--human) 55%, var(--line)); color: var(--human); white-space: nowrap; font-weight: 500; box-shadow: 0 10px 30px -16px var(--shadow); }
 
 aside { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; overflow: hidden; display: grid; grid-template-rows: auto auto minmax(0, 1fr); max-height: calc(100vh - 110px); min-height: 280px; position: sticky; top: 12px; }
 @media (max-width: 900px) { aside { position: static; max-height: 60vh; } }
@@ -132,6 +131,14 @@ aside { background: var(--panel); border: 1px solid var(--line); border-radius: 
 .now .ic { flex: none; width: 32px; height: 32px; border-radius: 8px; display: grid; place-items: center; color: var(--c); background: color-mix(in srgb, var(--c) 14%, transparent); }
 #now-v { font-weight: 600; font-size: 15px; overflow-wrap: anywhere; }
 #now-t { color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+.now.ask { background: color-mix(in srgb, var(--human) 9%, transparent); box-shadow: inset 3px 0 0 var(--human); }
+.now.ask #now-t { color: var(--fg); }
+#now-d { color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+#now-d:empty { display: none; }
+#now-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+#now-acts[hidden] { display: none; }
+#now-acts .go { background: var(--human); color: #1b1206; border-color: var(--human); font-weight: 500; }
+#now-acts .hint { color: var(--muted); font-size: 12px; }
 .bar8 { height: 6px; display: grid; grid-template-columns: repeat(24, 1fr); gap: 2px; }
 .bar8 i { border-radius: 1px; background: var(--c); opacity: .15; }
 .bar8.run i:nth-child(3n+1) { opacity: .7; }
@@ -148,12 +155,14 @@ aside h2 { margin: 0; padding: 9px 14px; font-size: 12px; font-weight: 500; colo
 #steps li.error, #steps li.stuck { box-shadow: inset 3px 0 0 var(--bad); }
 #steps li.error .meta, #steps li.stuck .meta { color: var(--bad); }
 #steps li.not-run .meta { color: var(--human); }
+#steps li.handed { background: color-mix(in srgb, var(--human) 9%, transparent); }
 #steps li.pause, #steps li.resume { background: color-mix(in srgb, var(--human) 9%, transparent); }
 #steps li.think { color: var(--muted); font-size: 12px; padding-block: 5px; }
 #steps li.sep { display: block; padding: 5px 14px; font: 11px/1.4 var(--mono); color: var(--muted); background: var(--sunk); overflow-wrap: anywhere; }
 #steps li.empty { display: block; color: var(--muted); }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 footer { color: var(--muted); font-size: 13px; }
+.calm *, .calm *::before, .calm *::after { transition: none !important; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
 `;
 
@@ -181,7 +190,10 @@ async function post(path, body) {
   } catch (error) { note(String(error)); }
 }
 function byName(by) { return ({ "the live view": T.byView, browser_request_human: T.byStep, "the person's input in the browser window": T.byWindow })[by] || by; }
-function actionOf(tool) { return T.actions[tool] || tool.replace(/^browser_/, "").replace(/_/g, " "); }
+function actionOf(tool) {
+  const name = tool.replace(/^browser_/, "").replace(/_/g, " ");
+  return T.actions[tool] || name.charAt(0).toUpperCase() + name.slice(1);
+}
 function duration(ms) {
   if (ms < 1000) return (ms / 1000).toFixed(1) + " s";
   const s = Math.round(ms / 1000);
@@ -278,6 +290,11 @@ const css = {
     setTimeout(() => d.remove(), 700);
   },
   edge(name) { stageEl.dataset.edge = name || ""; },
+  level(name) {
+    stageEl.classList.toggle("fxoff", name === "off");
+    // Lite and Off also snap what glides (the cursor, the label, the pill): each glide is frames to draw.
+    document.documentElement.classList.toggle("calm", name !== "full");
+  },
 };
 ${stageScript()}
 const FX = createStage({ stage: stageEl, canvas: $("fx"), view, shell, frame: () => geom, reduce, tone, css });
@@ -291,8 +308,12 @@ function pill(text, t, running) {
   setTone($("pill"), t || "muted");
   $("pill").classList.toggle("run", !!running);
 }
-function now(iconName, title, detail, t, running) {
+function now(iconName, title, detail, t, running, ask) {
   setTone($("now"), t || "muted");
+  // The person's turn: the card says what to do and holds the button that hands back.
+  $("now").classList.toggle("ask", !!ask);
+  $("now-acts").hidden = !ask;
+  $("now-d").textContent = ask && ask.detail ? ask.detail : "";
   $("now-ic").replaceChildren(icon(iconName, 18));
   $("now-v").textContent = title;
   $("now-t").textContent = detail || "";
@@ -398,7 +419,14 @@ function endStep(e) {
   if (e.kind === "dialog") $("dim").classList.remove("on");
   if (e.kind === "navigate") navigating(false);
   const title = mine ? stepText(mine.tool, mine.target) : $("now-v").textContent;
-  if (e.outcome === "error") {
+  if (e.outcome === "handed") {
+    // The last-click rule left the click to the person: amber, never red, no error code.
+    if (run.marked === e.step && FX.focused()) FX.focusTone("human");
+    const what = mine && mine.target ? fill(S.handedLine, { what: mine.target }) : S.handedPlain;
+    now("human", what, S.handed, "human", false);
+    if (!paused()) pill(S.handed, "human", false);
+    setTimeout(() => { if (!run.open && !run.human) unfocus(); }, 2500);
+  } else if (e.outcome === "error") {
     // Red where it failed: ripples on the step's box, or a red pulse around the window without one.
     const box = run.marked === e.step ? FX.focused() : null;
     if (box) {
@@ -450,18 +478,21 @@ function humanTurn(e) {
   const title = S.human[e.cue] || S.human.step;
   setMood("human", 0.3, "live");
   FX.edge(0.85, "human");
-  label(null);
+  // The page shows its own banner: the stage keeps only the amber box and a small chip that
+  // points at it; what to do and the button are in the "Now" card.
+  cursorEl.classList.remove("on");
   if (e.box && (!state || e.tab === undefined || e.tab === state.showing)) {
     FX.focus(e.box, e.scroll || null, "human", true);
-    moveCursor({ x: e.box.x + e.box.width / 2, y: e.box.y - 24 }, e.scroll, "human");
-  } else unfocus();
-  $("gate-k").textContent = title;
-  $("gate-what").textContent = e.text || S.humanHint;
-  $("gate-detail").textContent = e.detail || "";
-  $("gate").hidden = false;
+    label(title, "human");
+    $("ask").hidden = true;
+  } else {
+    unfocus();
+    $("ask").replaceChildren(icon("human", 13), document.createTextNode(title));
+    $("ask").hidden = false;
+  }
   $("take").hidden = true;
   pill(title, "human", false);
-  now("human", title, e.text || S.humanHint, "human", false);
+  now("human", title, e.text || S.humanHint, "human", false, { detail: e.detail || "" });
 }
 function takeOver() {
   clearTimeout(run.think); clearTimeout(run.done);
@@ -472,7 +503,7 @@ function takeOver() {
   setMood("human", 0.18, "");
   cursorEl.classList.add("dim");
   $("take").hidden = false;
-  $("gate").hidden = true;
+  $("ask").hidden = true;
   pill(S.takeOver, "human", false);
   now("human", S.takeOver, $("help").textContent, "human", false);
 }
@@ -480,7 +511,7 @@ function handBack(e) {
   run.human = null;
   run.taken = false;
   run.mode = "working";
-  $("gate").hidden = true;
+  $("ask").hidden = true;
   $("take").hidden = true;
   FX.edge(0);
   unfocus();
@@ -518,15 +549,22 @@ function stepLines(s) {
   if (s.kind === "call") {
     const kind = kindOf(s.tool);
     const bad = s.outcome === "error";
-    const li = line(s.outcome + (s.stuck ? " stuck" : ""), s.stuck ? "stuck" : bad ? "error" : kind, bad ? "bad" : s.outcome === "not-run" ? "human" : toneOf(kind));
-    const what = span("what", actionOf(s.tool) + (s.target ? " " : ""));
-    if (s.target) what.append(span("target", s.target));
+    const handed = s.outcome === "handed";
+    const li = line(s.outcome + (s.stuck ? " stuck" : ""), s.stuck ? "stuck" : bad ? "error" : handed ? "human" : kind, bad ? "bad" : s.outcome === "not-run" || handed ? "human" : toneOf(kind));
+    const what = span("what", handed ? "" : actionOf(s.tool) + (s.target ? " " : ""));
+    if (handed) {
+      // "Pay $110.50: the last click is yours", with the button's name in bold.
+      const [before, after] = (s.target ? S.handedLine : S.handedPlain).split("{what}");
+      what.append(before);
+      if (s.target && after !== undefined) what.append(span("target", s.target), after);
+    } else if (s.target) what.append(span("target", s.target));
     what.title = s.tool;
     li.append(what, span("d", duration(s.ms)));
     const parts = [clock(s.at)];
     if (s.waited) parts.push(T.waited);
     if (bad) parts.push(T.failed + (s.detail ? ": " + s.detail : ""));
     if (s.outcome === "not-run") parts.push(T.notRun);
+    if (handed) parts.push(S.handed + (s.detail ? ": " + s.detail : ""));
     if (s.stuck) parts.push(fill(T.stuck, { action: actionOf(s.tool) + (s.target ? " " + s.target : ""), n: s.stuck }));
     if (s.agent) parts.push(s.agent);
     li.append(span("meta", parts.join(" · ")));
@@ -587,8 +625,8 @@ function render(s) {
   const step = s.paused && (s.paused.by === "browser_request_human" || s.paused.by === "a passkey prompt");
   if (s.paused && step && !run.human) humanTurn({ cue: s.paused.by === "a passkey prompt" ? "passkey" : "step" });
   else if (s.paused && !step && !run.taken) takeOver();
-  else if (!s.paused && (run.human || run.taken)) { run.human = null; run.taken = false; $("gate").hidden = true; $("take").hidden = true; FX.edge(0); }
-  if (s.paused) $("now-t").textContent = text;
+  else if (!s.paused && (run.human || run.taken)) { run.human = null; run.taken = false; $("ask").hidden = true; $("take").hidden = true; FX.edge(0); now("navigate", S.idle, "", "muted", false); }
+  if (s.paused && !run.human) $("now-t").textContent = text;
   else if (s.stuck) { FX.edge(0.9, "bad"); pill(S.looksStuck, "bad", false); now("stuck", S.looksStuck, text, "bad", false); }
   else if (!run.human) FX.edge(0);
   if (!s.paused && !s.stuck) {
@@ -610,8 +648,11 @@ function render(s) {
   tabs.append(follow);
   for (const t of s.tabs) {
     const b = document.createElement("button");
-    b.textContent = (t.session ? "[" + t.session + "] " : "") + (t.title || t.url || T.blank);
-    b.title = t.url;
+    // The site and the title; the whole of both in the tooltip.
+    const host = hostOf(t.url);
+    if (host) b.append(span("host", host));
+    b.append(span("title", t.title || (host ? "" : t.url) || T.blank));
+    b.title = [t.title, t.url].filter(Boolean).join("\\n") || T.blank;
     b.className = t.id === s.showing ? "on" : "";
     b.setAttribute("aria-pressed", String(t.id === s.showing));
     b.onclick = () => post("/follow", { tab: t.id });
@@ -645,20 +686,36 @@ events.addEventListener("steps", (e) => {
 });
 events.addEventListener("step", (e) => addSteps([JSON.parse(e.data)], false));
 events.addEventListener("fx", (e) => onFx(JSON.parse(e.data)));
+// The boxes follow their elements as the page scrolls: drawn again only when the picture moved.
+let moved = true;
 events.addEventListener("frame", (e) => {
   const f = JSON.parse(e.data);
   if (!state || !state.view.available || state.hidden) return;
-  geom = { w: f.w, h: f.h, sx: f.sx || 0, sy: f.sy || 0, scale: f.scale || 1, top: f.top || 0 };
+  const next = { w: f.w, h: f.h, sx: f.sx || 0, sy: f.sy || 0, scale: f.scale || 1, top: f.top || 0 };
+  if (Object.keys(next).some((k) => next[k] !== geom[k])) moved = true;
+  geom = next;
   frame.src = "data:image/jpeg;base64," + f.data;
-  // The boxes follow their elements as the page scrolls.
-  if (FX.focused() || cur.at) FX.wake();
 });
-frame.addEventListener("load", () => FX.wake());
+// A picture of another size or scroll moves the effects once it shows; others change only what is under them.
+frame.addEventListener("load", () => { if (moved) { moved = false; FX.wake(); } });
 events.onerror = () => { pill(T.disconnected, "muted", false); announce(T.disconnected); };
 $("pause").onclick = () => post("/pause");
 $("resume").onclick = () => post("/resume");
 $("takeback").onclick = () => post("/resume");
-$("gate-done").onclick = () => post("/resume");
+$("now-done").onclick = () => post("/resume");
+// The viewer's choice of effects, kept in this browser only (storage may be refused: then Full).
+const LEVEL_KEY = "turno-live-effects";
+function setLevel(level, keep) {
+  FX.level(level);
+  for (const b of $("fxlevel").querySelectorAll("button")) b.setAttribute("aria-pressed", String(b.dataset.level === level));
+  if (keep) try { localStorage.setItem(LEVEL_KEY, level); } catch { /* not kept */ }
+}
+let kept = null;
+try { kept = localStorage.getItem(LEVEL_KEY); } catch { /* none */ }
+for (const b of $("fxlevel").querySelectorAll("button")) b.onclick = () => setLevel(b.dataset.level, true);
+if (kept === "full" || kept === "lite" || kept === "off") setLevel(kept, false);
+else if (document.hidden) setLevel("lite", false);
+else if (navigator.getBattery) navigator.getBattery().then((b) => { if (!b.charging) setLevel("lite", false); }).catch(() => {});
 function point(e) {
   const r = frame.getBoundingClientRect();
   return { x: Math.round(((e.clientX - r.left) * geom.w) / r.width), y: Math.round(((e.clientY - r.top) * geom.h) / r.height) };
@@ -723,10 +780,11 @@ export function livePage(nonce: string, locale: UiLocale = "en"): string {
 <body>
 <div class="wrap">
 <header class="bar">
-<div class="brand">turno <span>· ${e(t.heading)}</span></div>
+<div class="brand">${e(t.heading)}</div>
 <span class="chip" id="id"></span>
 <span class="pill" id="pill"><span class="pix" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span><span id="status">${e(t.connecting)}</span></span>
 <span class="spacer"></span>
+<div class="seg" id="fxlevel" role="group" aria-label="${e(t.stage.effects)}"><span class="k" aria-hidden="true">${e(t.stage.effects)}</span><button type="button" data-level="full" aria-pressed="true">${e(t.stage.effectsLevel.full)}</button><button type="button" data-level="lite" aria-pressed="false">${e(t.stage.effectsLevel.lite)}</button><button type="button" data-level="off" aria-pressed="false">${e(t.stage.effectsLevel.off)}</button></div>
 <button class="btn" id="pause" type="button">${e(t.pause)}</button>
 <button class="btn primary" id="resume" type="button" disabled>${e(t.resume)}</button>
 </header>
@@ -744,12 +802,12 @@ export function livePage(nonce: string, locale: UiLocale = "en"): string {
 <div class="over" id="uline" aria-hidden="true"></div>
 <div class="over" id="tag" aria-hidden="true"></div>
 <div class="over" id="cursor" aria-hidden="true"><svg width="18" height="22" viewBox="0 0 18 22"><path d="M1.5 1.5v16.2l4.3-3.9 2.9 6.6 2.9-1.3-2.8-6.4 5.9-.2z"/></svg><span class="who">${e(t.stage.agent)}</span></div>
-<div id="gate" role="group" aria-labelledby="gate-k" hidden><div class="k" id="gate-k"></div><div id="gate-what"></div><div id="gate-detail"></div><div class="acts"><button class="btn go" id="gate-done" type="button">${e(t.stage.humanDone)}</button><span class="hint">${e(t.stage.humanHint)}</span></div></div>
+<div id="ask" aria-hidden="true" hidden></div>
 <div id="take" hidden><span>${e(t.stage.takeOver)}</span><button class="btn" id="takeback" type="button">${e(t.resume)}</button></div>
 </div>
 </main>
 <aside aria-labelledby="steps-title">
-<div class="now" id="now"><div class="k">${e(t.stage.now)}</div><div class="main"><div class="ic" id="now-ic"></div><div><div id="now-v"></div><div id="now-t"></div></div></div><div class="bar8" id="now-bar" aria-hidden="true"></div></div>
+<div class="now" id="now"><div class="k">${e(t.stage.now)}</div><div class="main"><div class="ic" id="now-ic"></div><div><div id="now-v"></div><div id="now-t"></div></div></div><div id="now-d"></div><div id="now-acts" hidden><button class="btn go" id="now-done" type="button">${e(t.stage.humanDone)}</button><span class="hint">${e(t.stage.humanHint)}</span></div><div class="bar8" id="now-bar" aria-hidden="true"></div></div>
 <h2 id="steps-title"><span>${e(t.steps)}</span><span id="count">0</span></h2>
 <ol id="steps" aria-live="polite" aria-relevant="additions"><li class="empty">${e(t.noSteps)}</li></ol>
 </aside>

@@ -109,7 +109,7 @@ export type StageEvent =
       at: number;
       ms: number;
       kind: ActionKind;
-      outcome: "ok" | "error" | "not-run";
+      outcome: "ok" | "error" | "not-run" | "handed";
       /** The stable code of a failure (`ELEMENT_COVERED`), when its message starts with one. */
       code?: string;
       /** The n-th failure in a row of the same call on the same target. */
@@ -231,7 +231,7 @@ interface EndedCall {
   tool: string;
   at: number;
   ms: number;
-  outcome: "ok" | "error" | "not-run";
+  outcome: "ok" | "error" | "not-run" | "handed";
   detail: string;
   stuck?: number;
 }

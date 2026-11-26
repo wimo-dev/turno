@@ -31,6 +31,7 @@ precision highp float;
 out vec4 outColor;
 uniform float uCell, uTime, uAmb, uBoxAmt, uScan, uDis, uEdge, uStill;
 uniform vec4 uView, uShell, uBox;
+uniform float uCalm;
 uniform vec3 uTone, uBoxTone, uScanTone, uDisTone, uEdgeTone;
 uniform vec4 uRip[8];
 uniform vec3 uRipTone[8];
@@ -77,7 +78,7 @@ void main() {
   }
   if (uEdge > 0.001) {
     float band = exp(-abs(toShell - 1.2 * uCell) / (1.5 * uCell));
-    float pulse = uStill > 0.5 ? 0.85 : 0.62 + 0.38 * sin(t * 4.2);
+    float pulse = uStill + uCalm > 0.5 ? 0.85 : 0.62 + 0.38 * sin(t * 4.2);
     take(uEdge * band * pulse, uEdgeTone, best, color);
   }
   for (int i = 0; i < 8; i++) {
@@ -93,7 +94,7 @@ void main() {
     float d = boxDistance(mid, uBox);
     float edge = exp(-pow(d / (1.1 * uCell), 2.0));
     float glow = 0.3 * exp(-max(d, 0.0) / (4.0 * uCell)) * step(0.0, d);
-    float march = uStill > 0.5 ? 1.0 : 0.72 + 0.28 * sin((mid.x + mid.y) / (16.0 * uCell / 7.0) - t * 6.0);
+    float march = uStill + uCalm > 0.5 ? 1.0 : 0.72 + 0.28 * sin((mid.x + mid.y) / (16.0 * uCell / 7.0) - t * 6.0);
     take(uBoxAmt * (edge * march + glow), uBoxTone, best, color);
   }
   if (uScan > -0.5 && onPicture) {
@@ -134,6 +135,12 @@ function createStage(o) {
     scan: null, dis: null, edge: 0, edgeT: 0, edgeTone: o.tone("human"),
   };
   let gl = null, U = {}, W = 1, H = 1, dpr = 1, raf = 0;
+  /**
+   * How much the viewer wants: "full" (everything), "lite" (still boxes and the click ripples, no
+   * ambient field and no loop between actions: close to a view without effects) or "off".
+   */
+  let level = "full";
+  const mooded = { amb: 0.2, live: false, breathe: false };
   const t0 = performance.now();
   const clock = () => (performance.now() - t0) / 1000;
   const stats = { frames: 0, ms: 0 };
@@ -164,7 +171,7 @@ function createStage(o) {
       const at = gl.getAttribLocation(prog, "aPos");
       gl.enableVertexAttribArray(at);
       gl.vertexAttribPointer(at, 2, gl.FLOAT, false, 0, 0);
-      for (const n of ["uCell", "uTime", "uAmb", "uBoxAmt", "uScan", "uDis", "uEdge", "uStill", "uView", "uShell", "uBox", "uTone", "uBoxTone", "uScanTone", "uDisTone", "uEdgeTone", "uRip", "uRipTone"])
+      for (const n of ["uCell", "uTime", "uAmb", "uBoxAmt", "uScan", "uDis", "uEdge", "uStill", "uView", "uShell", "uBox", "uCalm", "uTone", "uBoxTone", "uScanTone", "uDisTone", "uEdgeTone", "uRip", "uRipTone"])
         U[n] = gl.getUniformLocation(prog, n);
       gl.enable(gl.BLEND);
       gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
@@ -212,11 +219,11 @@ function createStage(o) {
    * pulses, which changes a few cells a second; "" when nothing moves, which stops it.
    */
   function pace(now) {
-    if (reduce) return "";
+    if (reduce || level === "off") return "";
     if (fx.scan || fx.dis || fx.rips.some((r) => now - r.t < 1.4)) return "fast";
     if (fx.focus && now - fx.focus.t < 0.5) return "fast";
     if (!near(fx.boxAmt, fx.boxAmtT) || !near(fx.edge, fx.edgeT) || fx.tone.some((c, i) => !near(c, fx.toneT[i]))) return "fast";
-    if (fx.live || fx.breathe || fx.edgeT > 0.01 || fx.focus) return "slow";
+    if (level === "full" && (fx.live || fx.breathe || fx.edgeT > 0.01 || fx.focus)) return "slow";
     return near(fx.amb, fx.ambT) ? "" : "fast";
   }
   function draw() {
@@ -225,7 +232,8 @@ function createStage(o) {
     // Eases by time, not by frame: the same at 10 frames a second as at 30.
     const dt = Math.min(0.25, Math.max(0, now - (last || now)));
     last = now;
-    const ease = (rate) => (reduce ? 1 : 1 - Math.pow(1 - rate, dt * 60));
+    // Reduced motion and Lite put boxes and colors in place at once; Lite still runs the ripples.
+    const ease = (rate) => (reduce || level !== "full" ? 1 : 1 - Math.pow(1 - rate, dt * 60));
     const k = ease(0.08);
     fx.amb = lerp(fx.amb, fx.ambT * (fx.breathe && !reduce ? 0.72 + 0.28 * Math.sin(now * 2.4) : 1), k);
     fx.boxAmt = lerp(fx.boxAmt, fx.boxAmtT, ease(0.16));
@@ -235,13 +243,14 @@ function createStage(o) {
     const view = o.view();
     const box = focusRect(now);
     o.css.place(box);
-    if (!gl) return;
+    if (!gl || level === "off") return;
     gl.viewport(0, 0, W, H);
     gl.clearColor(0, 0, 0, 0);
     gl.clear(gl.COLOR_BUFFER_BIT);
     gl.uniform1f(U.uCell, CELL * dpr);
     gl.uniform1f(U.uTime, now);
     gl.uniform1f(U.uStill, reduce ? 1 : 0);
+    gl.uniform1f(U.uCalm, level === "full" ? 0 : 1);
     gl.uniform1f(U.uAmb, fx.amb);
     gl.uniform3fv(U.uTone, fx.tone);
     gl.uniform4fv(U.uView, view.w ? stageToCanvas(view, dpr, H) : [0, 0, 0, 0]);
@@ -292,7 +301,8 @@ function createStage(o) {
     // At most 30 frames a second: on a Mac each frame Chrome composites costs the same whatever
     // the shader does (measured: the canvas at half the pixels cost as much), so fewer frames is
     // what saves. Steps of 7 px cells look the same at 30 frames as at 60.
-    if (at - drawn < FAST_MS - 2) { raf = requestAnimationFrame(loop); return; }
+    // Lite draws a ripple at 15 frames a second: half the frames to composite.
+    if (at - drawn < (level === "full" ? FAST_MS : 2 * FAST_MS) - 2) { raf = requestAnimationFrame(loop); return; }
     drawn = at;
     draw();
     // Without WebGL the CSS fallback animates itself: one placement per wake is enough.
@@ -318,15 +328,31 @@ function createStage(o) {
     /** The ambient field: its tone, how strong, whether it drifts (live) or breathes (thinking). */
     mood(tone, amb, how) {
       fx.toneT = o.tone(tone);
-      fx.ambT = amb;
-      fx.live = how === "live";
-      fx.breathe = how === "breathe";
+      mooded.amb = amb;
+      mooded.live = how === "live";
+      mooded.breathe = how === "breathe";
+      const full = level === "full";
+      fx.ambT = full ? amb : 0;
+      fx.live = full && mooded.live;
+      fx.breathe = full && mooded.breathe;
+      wake();
+    },
+    /** The viewer's choice of effects: "full", "lite" or "off" (see \`level\`). */
+    level(next) {
+      level = next === "lite" || next === "off" ? next : "full";
+      o.css.level(level);
+      const full = level === "full";
+      fx.ambT = full ? mooded.amb : 0;
+      fx.live = full && mooded.live;
+      fx.breathe = full && mooded.breathe;
+      if (!full) { fx.scan = null; if (fx.dis && fx.dis.mid) fx.dis.mid(); fx.dis = null; }
+      if (level === "off") { fx.rips = []; fx.amb = 0; }
       wake();
     },
     /** A box on the target, in page coordinates with its scroll; null takes it away. */
     focus(box, scroll, tone, converge) {
       if (!box) { fx.boxAmtT = 0; fx.focus = null; o.css.ring(null); wake(); return; }
-      fx.focus = { box, scroll, t: clock(), converge: converge !== false };
+      fx.focus = { box, scroll, t: clock(), converge: converge !== false && level === "full" };
       fx.boxAmtT = 1;
       fx.boxTone = o.tone(tone);
       o.css.ring(tone);
@@ -336,17 +362,17 @@ function createStage(o) {
     focused() { return fx.focus; },
     /** A ripple from a page point (at, scroll), or from a place on the picture (u, v: 0 to 1). */
     ripple(r, tone, speed) {
-      if (reduce) return;
+      if (reduce || level === "off") return;
       const item = { at: r.at || null, scroll: r.scroll || null, u: r.u || 0, v: r.v || 0, t: clock(), tone: o.tone(tone), speed: speed || 240 };
       if (!gl) { const p = ripplePoint(item); if (p) o.css.ripple(p, tone); return; }
       fx.rips.push(item);
       if (fx.rips.length > 8) fx.rips.shift();
       wake();
     },
-    scan(seconds) { if (reduce) return; fx.scan = { t: clock(), s: seconds || 1.1 }; wake(); },
+    scan(seconds) { if (reduce || level !== "full") return; fx.scan = { t: clock(), s: seconds || 1.1 }; wake(); },
     /** The picture dissolves; \`mid\` runs halfway (or at once without the effect). */
     dissolve(mid) {
-      if (reduce || !gl) { if (mid) mid(); return; }
+      if (reduce || !gl || level !== "full") { if (mid) mid(); return; }
       fx.dis = { t: clock(), s: 0.8, mid: mid || null };
       wake();
     },

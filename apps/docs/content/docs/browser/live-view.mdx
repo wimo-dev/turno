@@ -49,16 +49,21 @@ tell at a glance what the agent does without reading the timeline:
 | uploads or downloads a file | pixels that flow into the picture, or out of it | blue |
 | answers a dialog | the picture dims until it is done | blue |
 | fails | the box turns red with a shake, and the code of the failure (`ELEMENT_COVERED`) when it has one | red |
+| leaves you the last click (it would buy, send, publish or delete) | the box turns amber and the step says "Handed to you" with the button: not a failure | amber |
 | looks stuck | a red band around the window | red |
-| waits for you (a person step, the last click, a passkey, a captcha) | an amber band, a box on the target and a card that says what to do, with an "I am done" button | amber |
+| waits for you (a person step, the last click, a passkey, a captcha) | an amber band, a box on the target with a small chip; the "Now" card says what to do and has the "I am done" button, so nothing covers the page's own banner | amber |
 | gives you the controls (you took over, or pressed Pause) | a softer amber band and a chip with Hand back | amber |
 | ends a run (no call for 20 seconds) | a green ripple and how many steps it took | green |
 
-![The live view while the agent waits for the person: an amber band, a box on the Pay button and a card that says the last click is yours](/browser-live-view-panel-dark.png)
+![The live view while the agent waits for the person: an amber band, a box on the Pay button, and the "Now" card that says the last click is yours, with the "I am done" button](/browser-live-view-panel-dark.png)
 
 What it is made of: the view's own WebGL2 shader (no library), drawn only while something moves and
 only while the view is visible, at most 30 frames a second, 5 while only the field around the
-window drifts. When your system asks for reduced motion, the boxes and colors stay and nothing
+window drifts. The Effects control in the header sets how much it draws, for this browser only:
+Full (the default), Lite (the boxes stay still and only a click's ripple moves, with no field
+around the window and nothing drawn between actions) or Off (plain rings, no layer of pixels). A
+view that opens in a background window, or on a laptop that runs on battery, starts in Lite until
+you choose. When your system asks for reduced motion, the boxes and colors stay and nothing
 moves; without WebGL2 the view draws plain rings with CSS. It follows your system's light or dark
 theme. The effects come from what turno already measures for [the agent cursor](/docs/browser/agent-cursor) (the
 element's box, the click point, the page's scroll): no extra script runs in the agent's page for
@@ -78,6 +83,8 @@ your default browser.
 Each call of the agent is a line with an icon and a color for its kind: the time, what it did in a
 few words ("Click", "Type into", "Open"), the element or address it worked on, how long it took,
 and whether it failed (with the first line of the error) or was not run after you changed the page.
+A click that [the last-click rule](#the-last-click-is-yours) leaves to you is an amber line, "Pay
+$110.50: the last click is yours", with what the page says the click does.
 Pauses, your turns and each hand-back are lines too, with what changed while you had the browser.
 A gap between two calls shows as "Thought for 4 s", and a line with the site's host marks where the
 agent moved to another site. It keeps the last 200 steps.

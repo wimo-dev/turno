@@ -1,3 +1,4 @@
+import { handedClick } from "./last-click.js";
 import type { Redactor } from "./redact.js";
 import type { ToolResult } from "./upstream.js";
 
@@ -25,7 +26,9 @@ type StepOutcome =
   /** The call ran and failed, or was refused. */
   | "error"
   /** The call waited for the person, and was not run because the browser changed meanwhile. */
-  | "not-run";
+  | "not-run"
+  /** A click the last-click rule left to the person (`last-click.ts`): expected, not a failure. */
+  | "handed";
 
 /** One entry of the timeline, as the view shows it. */
 export type TimelineEntry =
@@ -42,7 +45,7 @@ export type TimelineEntry =
       tool: string;
       target: string;
       outcome: StepOutcome;
-      /** Why it failed or was not run, in a line; "" when it worked. */
+      /** Why it failed or was not run, in a line; for "handed", what the click does; else "". */
       detail: string;
       /** The call waited for the person first (a pause or a person step). */
       waited: boolean;
@@ -218,8 +221,12 @@ export class Timeline {
   /** A call ended. */
   call(r: CallRecord): TimelineEntry {
     const target = this.targetOf(r.tool, r.args);
-    const outcome: StepOutcome = r.held && !r.held.ran ? "not-run" : r.result.isError ? "error" : "ok";
-    const detail = outcome === "ok" ? "" : this.clean(failureLine(r.result), MAX_DETAIL);
+    const line = r.result.isError ? failureLine(r.result) : "";
+    const handed = r.result.isError ? handedClick(line) : undefined;
+    const outcome: StepOutcome =
+      r.held && !r.held.ran ? "not-run" : handed !== undefined ? "handed" : r.result.isError ? "error" : "ok";
+    const detail =
+      outcome === "ok" ? "" : this.clean(handed ?? (outcome === "not-run" ? failureLine(r.result) : line), MAX_DETAIL);
     const entry: TimelineEntry = {
       kind: "call",
       id: this.nextId++,

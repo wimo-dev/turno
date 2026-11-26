@@ -75,7 +75,7 @@ export interface UiStrings {
     tookOverEntry: string;
     resumedEntry: string;
     nothingChanged: string;
-    /** What the timeline calls each tool; a tool missing here shows its own name. */
+    /** What the timeline and the "Now" card call each tool; a tool missing here shows its own name. */
     actions: Record<string, string>;
     /** The stage over the picture, the state pill and the "Now" card. */
     stage: {
@@ -115,6 +115,14 @@ export interface UiStrings {
       /** `{code}`: a failure's stable code. */
       failedCode: string;
       failedPlain: string;
+      /** A click the last-click rule left to the person: not a failure. */
+      handed: string;
+      /** `{what}`: the button or what the click does ("Pay $110.50"). */
+      handedLine: string;
+      handedPlain: string;
+      /** The header's effects control, remembered per viewer. */
+      effects: string;
+      effectsLevel: Record<"full" | "lite" | "off", string>;
       /** The cursor's name tag when the agent sent none. */
       agent: string;
       /** A step's tab is not the one shown. */
@@ -244,6 +252,28 @@ export const UI_STRINGS: Record<UiLocale, UiStrings> = {
         browser_extract: "Read",
         browser_observe: "Look for",
         browser_solve_captcha: "Solve a captcha",
+        browser_navigate_forward: "Go forward",
+        browser_reload: "Reload",
+        browser_read: "Read",
+        browser_find: "Locate an element",
+        browser_generate_locator: "Locate an element",
+        browser_verify_element_visible: "Check an element",
+        browser_verify_list_visible: "Check a list",
+        browser_verify_text_visible: "Check a text",
+        browser_verify_value: "Check a value",
+        browser_mouse_click_xy: "Click at a point",
+        browser_mouse_down: "Press the mouse button",
+        browser_mouse_up: "Release the mouse button",
+        browser_mouse_move_xy: "Move the pointer",
+        browser_mouse_wheel: "Scroll",
+        browser_mouse_drag_xy: "Drag",
+        browser_press_sequentially: "Type into",
+        browser_keydown: "Hold a key",
+        browser_keyup: "Release a key",
+        browser_check: "Check",
+        browser_uncheck: "Uncheck",
+        browser_drop: "Drop a file",
+        browser_run_code_unsafe: "Run code",
       },
       stage: {
         now: "Now",
@@ -295,6 +325,11 @@ export const UI_STRINGS: Record<UiLocale, UiStrings> = {
         looksStuck: "Looks stuck",
         failedCode: "Failed: {code}",
         failedPlain: "Failed",
+        handed: "Handed to you",
+        handedLine: "{what}: the last click is yours",
+        handedPlain: "The last click is yours",
+        effects: "Effects",
+        effectsLevel: { full: "Full", lite: "Lite", off: "Off" },
         agent: "agent",
         otherTab: "in another tab",
       },
@@ -415,6 +450,28 @@ export const UI_STRINGS: Record<UiLocale, UiStrings> = {
         browser_extract: "Leer",
         browser_observe: "Buscar",
         browser_solve_captcha: "Resolver un captcha",
+        browser_navigate_forward: "Avanzar",
+        browser_reload: "Recargar",
+        browser_read: "Leer",
+        browser_find: "Localizar un elemento",
+        browser_generate_locator: "Localizar un elemento",
+        browser_verify_element_visible: "Comprobar un elemento",
+        browser_verify_list_visible: "Comprobar una lista",
+        browser_verify_text_visible: "Comprobar un texto",
+        browser_verify_value: "Comprobar un valor",
+        browser_mouse_click_xy: "Clic en un punto",
+        browser_mouse_down: "Presionar el botón del mouse",
+        browser_mouse_up: "Soltar el botón del mouse",
+        browser_mouse_move_xy: "Mover el puntero",
+        browser_mouse_wheel: "Desplazar",
+        browser_mouse_drag_xy: "Arrastrar",
+        browser_press_sequentially: "Escribir en",
+        browser_keydown: "Mantener una tecla",
+        browser_keyup: "Soltar una tecla",
+        browser_check: "Marcar",
+        browser_uncheck: "Desmarcar",
+        browser_drop: "Soltar un archivo",
+        browser_run_code_unsafe: "Ejecutar código",
       },
       stage: {
         now: "Ahora",
@@ -466,6 +523,11 @@ export const UI_STRINGS: Record<UiLocale, UiStrings> = {
         looksStuck: "Parece atorado",
         failedCode: "Falló: {code}",
         failedPlain: "Falló",
+        handed: "En tus manos",
+        handedLine: "{what}: el último clic es tuyo",
+        handedPlain: "El último clic es tuyo",
+        effects: "Efectos",
+        effectsLevel: { full: "Completos", lite: "Ligeros", off: "Apagados" },
         agent: "agente",
         otherTab: "en otra pestaña",
       },

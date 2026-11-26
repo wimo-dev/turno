@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { lastClickRefusal } from "../src/last-click.js";
 import { STUCK_AFTER, Timeline } from "../src/live-timeline.js";
 import { Redactor } from "../src/redact.js";
 import type { ToolResult } from "../src/upstream.js";
@@ -73,6 +74,20 @@ describe("Timeline", () => {
     expect(t.stuck).toMatchObject({ session: "s1", tool: "browser_click", target: "Buy now", count: STUCK_AFTER });
     expect(t.list().at(-1)).toMatchObject({ stuck: STUCK_AFTER });
     t.call(call("browser_click", { element: "Buy now" }, ok));
+    expect(t.stuck).toBeUndefined();
+  });
+
+  it("shows a click the last-click rule refused as handed to the person, with what it does, not as failed", () => {
+    const { t } = timeline();
+    const refusal = lastClickRefusal({
+      click: { kind: "purchase", consequence: ["Total: $110.50"] },
+      target: "e9",
+      element: "Pay $110.50",
+    });
+    t.call(call("browser_click", { element: "Pay $110.50", ref: "e9" }, failed(refusal)));
+    t.call(call("browser_click", { element: "Pay $110.50", ref: "e9" }, failed(refusal)));
+    t.call(call("browser_click", { element: "Pay $110.50", ref: "e9" }, failed(refusal)));
+    expect(t.list().at(-1)).toMatchObject({ target: "Pay $110.50", outcome: "handed", detail: "Total: $110.50" });
     expect(t.stuck).toBeUndefined();
   });
 });
