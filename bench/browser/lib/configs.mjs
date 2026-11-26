@@ -35,6 +35,11 @@ export const BUILTIN = [
     description: "TURNO_BROWSER_SNAPSHOT=full: page snapshots as upstream writes them, not compacted",
     env: { TURNO_BROWSER_SNAPSHOT: "full" },
   },
+  {
+    name: "snapshot-compact",
+    description: "TURNO_BROWSER_SNAPSHOT=compact: compact snapshots, no changes on an action's result",
+    env: { TURNO_BROWSER_SNAPSHOT: "compact" },
+  },
   { name: "settle-100", description: 'identity.json "settle": "100ms"', identity: { settle: "100ms" } },
   {
     name: "settle-0",

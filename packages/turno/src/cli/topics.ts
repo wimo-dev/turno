@@ -47,7 +47,7 @@ const ENVIRONMENT: readonly { title: string; rows: readonly (readonly [string, s
       ["TURNO_BROWSER_IDLE", "turno-browser closes Chrome after this long without a tool call (default: 15m)"],
       [
         "TURNO_BROWSER_SNAPSHOT",
-        "full: turno-browser returns page snapshots as Playwright writes them (default: compact, a table of contents for a long page)",
+        "full: turno-browser returns page snapshots as Playwright writes them; compact: no changes on an action's result (default: compact, a table of contents for a long page, and an action that stays on the page answers with what changed)",
       ],
       [
         "TURNO_BROWSER_BACKGROUND_IDLE",

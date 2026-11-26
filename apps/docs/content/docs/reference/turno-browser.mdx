@@ -906,10 +906,12 @@ Playwright MCP flags --browser and --executable-path win over identity.json for 
   TURNO_BROWSER_IDLE=15m   close Chrome after this long without a tool call (headed too); the
                            next call opens it again with the same profile. "0" keeps it open.
                            --idle-timeout <ms> and a --config of your own take precedence.
-  TURNO_BROWSER_SNAPSHOT=full
-                           page snapshots as Playwright writes them, not compacted (default:
-                           compact, and a table of contents for a long page; browser_read
-                           reads a part, or the whole page with full: true)
+  TURNO_BROWSER_SNAPSHOT=full|compact
+                           full: page snapshots as Playwright writes them, not compacted;
+                           compact: no changes on an action's result (default: compact, a
+                           table of contents for a long page, and an action that stays on the
+                           page answers with what changed; browser_read reads a part, or the
+                           whole page with full: true)
 
 Tabs (these flags win over the identity's identity.json):
   --max-tabs <n>           most pages open at once, the least recently used closes past it

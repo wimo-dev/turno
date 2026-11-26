@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
 import { readFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -130,7 +130,8 @@ import {
   parseArguments,
 } from "./tools.js";
 import { DEFAULT_STEP_WAIT_MS, type OpenStep, StepTable } from "./step-wait.js";
-import { type SnapshotForm, compactResultText, snapshotForm } from "./snapshot-compact.js";
+import { type SnapshotForm, compactResultText, compactSnapshot, snapshotForm } from "./snapshot-compact.js";
+import { SnapshotDeltas } from "./snapshot-delta.js";
 import { type Tuning, type TuningFlags, resolveTuning } from "./tuning.js";
 import { type UiLocale, uiLocale, uiStrings } from "./ui-strings.js";
 import { vaultHasSites } from "./vault.js";
@@ -225,7 +226,7 @@ export interface HostOptions {
   live?: LiveFlags;
   /** Reads the memory pressure for `resources: "auto"` (tests inject one); default: turno-core's. */
   memory?: PressureProbe;
-  /** How page snapshots leave the server; default: `TURNO_BROWSER_SNAPSHOT`, else compact. */
+  /** How page snapshots leave the server; default: `TURNO_BROWSER_SNAPSHOT`, else delta. */
   snapshot?: SnapshotForm;
 }
 
@@ -519,6 +520,8 @@ class SessionBackend extends EventEmitter implements ServerBackend {
   private readonly recorders = new Map<string, FlowRecorder>();
   /** The agent name each client session's calls came with (mcpd, a shared host), for the cursor. */
   private readonly clients = new Map<string, string>();
+  /** The last whole snapshot each client session was given, for the deltas after its actions. */
+  private readonly deltas = new SnapshotDeltas();
   /** When the sensitive fields of a page were last read (a snapshot reads them too). */
   private readonly fieldsRead = new WeakMap<Page, number>();
   /** Open dialogs (alert, confirm, prompt) per page: a page runs no script while one is open. */
@@ -979,7 +982,12 @@ class SessionBackend extends EventEmitter implements ServerBackend {
       );
     let result = await this.callLive(name, args, signal, session, sample, progress, trace);
     // Every page snapshot leaves compact; browser_read returns its part as it was asked for.
-    if (this.host.snapshotForm === "compact" && name !== "browser_read") result = compactResult(result);
+    if (this.host.snapshotForm !== "full" && name !== "browser_read") result = compactResult(result);
+    if (this.host.snapshotForm === "delta") {
+      // A failed call may have changed the page all the same: the next action answers whole.
+      if (result.isError) this.deltas.forget(session ?? DIRECT_SESSION);
+      else result = this.withChanges(session, name, args, result);
+    }
     if (this.touchesBrowser(name)) {
       // A person step is the person's time, not the agent's run.
       if (name === HUMAN_STEP_TOOL) this.runs.reset();
@@ -2002,12 +2010,43 @@ class SessionBackend extends EventEmitter implements ServerBackend {
     };
   }
 
+  /**
+   * An action that stayed on the page answers with what changed since the page the session's
+   * model holds (`snapshot-delta.ts`); every result keeps that page up to date.
+   */
+  private withChanges(
+    session: string | undefined,
+    name: string,
+    args: Record<string, unknown>,
+    result: ToolResult,
+  ): ToolResult {
+    const key = session ?? DIRECT_SESSION;
+    const i = result.content.findIndex((part) => part.type === "text");
+    if (i < 0) return result;
+    const text = (result.content[i] as { text: string }).text;
+    const changed = this.deltas.afterAction(key, name, text, (path) => {
+      try {
+        const yaml = readFileSync(isAbsolute(path) ? path : resolve(this.info().cwd, path), "utf8");
+        return this.host.redactor.text(compactSnapshot(yaml));
+      } catch {
+        return undefined;
+      }
+    });
+    const whole = name !== "browser_read" || (!args.target && args.full !== true);
+    this.deltas.saw(key, name, changed, whole);
+    if (changed === text) return result;
+    const content = [...result.content];
+    content[i] = { ...content[i], text: changed } as ToolResult["content"][number];
+    return { ...result, content };
+  }
+
   /** mcpd said a client session ended: with `"sharing": "tabs"` its tabs are free at once. */
   async endSession(session: string): Promise<void> {
     // A flow the session was recording and never stopped is dropped with it.
     this.recorders.get(session)?.cancel();
     this.recorders.delete(session);
     this.clients.delete(session);
+    this.deltas.forget(session);
     const current = this.current;
     if (!current) return;
     const running = await current.catch(() => undefined);
