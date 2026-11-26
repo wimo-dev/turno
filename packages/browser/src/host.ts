@@ -1239,7 +1239,8 @@ class SessionBackend extends EventEmitter implements ServerBackend {
     const running = await this.current?.catch(() => undefined);
     if (!running?.passkeyProbe || !running.launched.isOpen()) return undefined;
     const page = await this.currentPageOf(key);
-    if (!page) return undefined;
+    // Behind an open dialog the page runs no script: wrapping would wait until it is answered.
+    if (!page || this.dialogs.get(page)) return undefined;
     return await running.passkeyProbe.arm(page).catch(() => undefined);
   }
 
