@@ -30,6 +30,11 @@ export const BUILTIN = [
     description: 'identity.json "cursor": "on": the agent cursor drawn as elements in the page',
     identity: { cursor: "on" },
   },
+  {
+    name: "snapshot-full",
+    description: "TURNO_BROWSER_SNAPSHOT=full: page snapshots as upstream writes them, not compacted",
+    env: { TURNO_BROWSER_SNAPSHOT: "full" },
+  },
   { name: "settle-100", description: 'identity.json "settle": "100ms"', identity: { settle: "100ms" } },
   {
     name: "settle-0",

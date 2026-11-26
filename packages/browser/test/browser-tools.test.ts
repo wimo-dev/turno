@@ -63,6 +63,18 @@ async function call(client: Client, name: string, args: Record<string, unknown> 
   return textOf(res);
 }
 
+/** Roles an action targets (the refs a compact snapshot must keep). */
+const INTERACTIVE_ROLES = new Set([
+  "button",
+  "checkbox",
+  "combobox",
+  "link",
+  "listbox",
+  "radio",
+  "searchbox",
+  "textbox",
+]);
+
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /**
@@ -149,6 +161,21 @@ async function site(): Promise<{
       <a id="file" href="/api/file">Export</a>
       <button id="ask" onclick="if (confirm('Delete it?')) document.title = 'confirmed'">Delete</button>
       <script>new MutationObserver(() => { document.title = "mutated"; }).observe(document.body, { subtree: true, childList: true, attributes: true, characterData: true });</script>`,
+    // Every kind of element a snapshot shows: wrappers, a table, a list, a nameless link, a
+    // clickable div, names with colons and quotes, form fields.
+    "/mixed": `<title>mixed</title><header><nav aria-label="Main"><a href="/a">Home</a> | <a href="/b">Docs</a></nav></header>
+      <main><h1>Orders</h1><div><div><div><span>Open orders: 3</span></div></div></div>
+      <table><tr><td>1.</td><td><a href="/a?id=1">Order "A": shipped</a></td><td><button>Cancel</button></td></tr>
+        <tr><td>2.</td><td><a href="/a?id=2">Order B</a></td><td><button>Cancel</button></td></tr></table>
+      <ul><li><a href="/b"><img src="data:," alt=""></a></li><li><div style="cursor:pointer" onclick="1">Expand</div></li></ul>
+      <label>Search: <input type="search"></label><label><input type="radio" name="r">Fast</label>
+      <select aria-label="Sort"><option>New</option></select><textarea aria-label="Note"></textarea></main>`,
+    // A page longer than a compact snapshot shows: its snapshot is a table of contents.
+    "/long": `<title>long</title><h1>Guide</h1><p>Intro text.</p>${Array.from(
+      { length: 12 },
+      (_, i) =>
+        `<h2>Chapter ${i + 1}</h2>${Array.from({ length: 80 }, (_, j) => `<p>Chapter ${i + 1} line ${j + 1} with <a href="/a?c=${i}&l=${j}">a link</a>.</p>`).join("")}`,
+    ).join("")}`,
     "/res": `<title>resources</title><link rel="stylesheet" href="/static/app.css"><link rel="stylesheet" href="/static/nostore.css">
       <script src="/static/cookie.js"></script><script src="/promo/ad.js"></script><img src="/static/logo.svg" alt="logo"><h1>Resources</h1>`,
     // Timer ticks in each of the last whole seconds (oldest first, the running second left out),
@@ -360,6 +387,34 @@ describe.skipIf(reason !== undefined)(
       expect(textOf(failed)).toMatch(
         /^### Error\nAction 2 of 3 \(browser_click #save\) failed; the last action did not run\.\nELEMENT_COVERED: Could not click button "Save"/,
       );
+    }, 90_000);
+
+    it("returns compact snapshots that keep every interactive ref, a table of contents for a long page, and parts by ref", async () => {
+      const web = await site();
+      onTestFinished(() => web.close());
+      const client = await start("compact");
+      const refs = (text: string) =>
+        [...text.matchAll(/^\s*- '?(\w+)(?: "(?:[^"\\]|\\.)*")?[^\n]*?\[ref=(\w+)\]([^\n]*)$/gm)]
+          .filter((m) => INTERACTIVE_ROLES.has(m[1]!) || m[0].includes("[cursor=pointer]"))
+          .map((m) => m[2]);
+      await call(client, "browser_navigate", { url: `${web.url}/mixed` });
+      const compact = await call(client, "browser_snapshot");
+      const full = await call(client, "browser_read", { full: true });
+      expect(refs(full).length).toBeGreaterThan(8);
+      expect(refs(compact).sort()).toEqual(refs(full).sort());
+      expect(compact.length).toBeLessThan(full.length);
+      // The click works on a ref the compact snapshot shows.
+      const cancel = /button "Cancel" \[ref=(\w+)\]/.exec(compact)?.[1];
+      await call(client, "browser_click", { target: cancel! });
+
+      await call(client, "browser_navigate", { url: `${web.url}/long` });
+      const toc = await call(client, "browser_snapshot");
+      expect(toc).toContain("table of contents");
+      expect(toc).not.toContain("Chapter 7 line 30");
+      const chapter = /heading "Chapter 7" \[level=2\] \[ref=(\w+)\]/.exec(toc)?.[1];
+      const part = await call(client, "browser_read", { target: chapter! });
+      expect(part).toContain("Chapter 7 line 30");
+      expect(part).not.toContain("Chapter 8 line 1 ");
     }, 90_000);
 
     it("waits after an action only until the page is done with it, and for the request it started", async () => {

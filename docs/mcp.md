@@ -269,6 +269,10 @@ popups that open while no tool call runs are closed, and a page unused for 5 min
 about:blank (15 minutes: closed); `tabs` in the identity's identity.json or the server's
 `--max-tabs`, `--popups`, `--park-after` and `--close-after` flags change that.
 
+Page snapshots are compact: every element an agent can act on keeps its ref, and wrappers, link
+destinations and repeated rows are left out (40 to 70% fewer tokens on the pages measured). A
+page still long once compact comes back as a table of contents, and `browser_read` reads a part by
+ref, or the whole page with `full: true`; `TURNO_BROWSER_SNAPSHOT=full` turns this off.
 Next to the stock Playwright MCP tools, turno-browser lists `browser_batch`, which runs several
 of them in order in one call and returns one line per action and at most one snapshot. An action
 can carry checks (`expect`: text shown or gone, a part of the URL, a field's value); the first

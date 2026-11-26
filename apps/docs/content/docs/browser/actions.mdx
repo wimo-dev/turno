@@ -1,7 +1,36 @@
 ---
 title: "Actions and the shell"
-description: "Batch actions, errors that say what is in the way, driving an identity from a shell, and human-like input."
+description: "Compact snapshots, batch actions, errors that say what is in the way, driving an identity from a shell, and human-like input."
 ---
+
+## Snapshots
+
+A page snapshot a tool returns inline (`browser_snapshot`, a batch's last snapshot, the snapshot
+attached to an error) is compact; after a navigation or an action, Playwright writes the
+snapshot to a file and links it. It keeps every element the agent can act on with its ref, and the text a reader needs
+(headings, paragraphs, table cells, labels), and leaves out what only adds tokens: wrappers
+without a name, the link destination under a named link, separators, text that repeats the name
+of the button or link next to it, and refs on elements nobody acts on. Three or more identical
+rows without refs become the first one and a count. Refs are Playwright's own, so a ref from a
+compact snapshot works in every tool.
+
+A page that is still long once compact (about 15,000 tokens) comes back as a table of contents:
+its landmarks and headings with their refs and sizes, and its text fields. `browser_read` with
+the ref of a heading or landmark reads that part (a heading's part runs to the next heading of
+its level); `browser_read` without a ref reads the whole page, compact, and with `full: true` as
+Playwright wrote it, every wrapper, ref and link destination included.
+`TURNO_BROWSER_SNAPSHOT=full` in the server's environment turns compaction off.
+
+Measured with `pnpm bench:snapshot --public` on 2026-11-25 (tokens are bytes / 4; every page kept
+every interactive ref, and the same questions got the same answers from the full snapshot and
+from what the agent gets):
+
+| Page | Full | Compact | What the agent gets |
+|---|---|---|---|
+| Hacker News front page | 12,238 | 3,786 | 3,786 (-69%) |
+| GitHub repository page | 18,879 | 7,721 | 7,721 (-59%) |
+| Wikipedia search results | 5,842 | 3,040 | 3,040 (-48%) |
+| Wikipedia article (Python) | 128,673 | 72,984 | a table of contents of 849 (-99%), then about 2,200 per part read |
 
 ## Actions
 

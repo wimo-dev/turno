@@ -383,9 +383,10 @@ describe("idle limit", () => {
 describe("turno tool registry", () => {
   const stock = () => upstream().tools.browserTools;
 
-  it("ships browser_batch, browser_login, the flow tools and browser_request_human, after the stock tools", () => {
+  it("ships browser_batch, browser_read, browser_login, the flow tools and browser_request_human, after the stock tools", () => {
     const names = [
       "browser_batch",
+      "browser_read",
       "browser_login",
       "browser_record",
       "browser_replay",

@@ -142,6 +142,9 @@ trabaja dentro de las sesiones que tú iniciaste a mano.
 - **Menos idas y vueltas.** `browser_batch` corre hasta 20 acciones en una sola llamada, y una
   acción que falla dice qué elemento tapa el objetivo, o si está oculto, deshabilitado o ya no
   existe.
+- **Snapshots más chicos.** El snapshot de la página conserva cada elemento con el que el agente
+  actúa y deja fuera el resto del marcado: entre 40 y 70% menos tokens, y un índice para una
+  página muy larga, que se lee por partes.
 - **Credenciales que el agente nunca ve.** `turno browser vault add` guarda usuario, contraseña
   y un secreto TOTP opcional por sitio en el almacén de secretos del sistema, y la herramienta
   `browser_login` los escribe en la página de inicio de sesión de ese sitio. Una contraseña o
