@@ -117,6 +117,8 @@ describe("the live view server", () => {
     expect(anonymous.status).toBe(401);
     expect(anonymous.body).toContain("turno-browser live work");
     expect((await http(port, "GET", "/state")).status).toBe(401);
+    // The stream of frames, steps and effects needs the cookie too.
+    expect((await http(port, "GET", "/events")).status).toBe(401);
     expect((await http(port, "GET", "/?code=not-a-code")).status).toBe(403);
 
     const link = new URL(await liveLink("work", sb.env));
@@ -135,6 +137,10 @@ describe("the live view server", () => {
     const nonce = /script-src 'nonce-([^']+)'/.exec(csp)?.[1];
     expect(nonce).toBeTruthy();
     expect(page.body).toContain(`<script nonce="${nonce}">`);
+    // The page's script (the effects engine included) parses.
+    const open = `<script nonce="${nonce}">`;
+    const script = page.body.slice(page.body.indexOf(open) + open.length, page.body.lastIndexOf("</script>"));
+    expect(() => new Function(script)).not.toThrow();
     expect(csp).toContain("frame-ancestors 'none'");
     expect(page.headers["cache-control"]).toBe("no-store");
     expect((await http(port, "GET", "/state", { cookie: `${cookie}x` })).status).toBe(401);

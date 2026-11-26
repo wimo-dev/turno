@@ -258,6 +258,12 @@ describe.skipIf(reason)(`live view and take-over with a real Chrome${reason ? ` 
       .map((e) => JSON.parse(e.data) as Record<string, unknown>);
     expect(steps.map((e) => e.kind)).toEqual(["pause", "resume", "call"]);
     expect(steps[2]).toMatchObject({ tool: "browser_snapshot", outcome: "ok", waited: true });
+    // And the effects: the person took over from the view, handed back, then the held call ran.
+    const fx = stream.list.filter((e) => e.event === "fx").map((e) => JSON.parse(e.data) as Record<string, unknown>);
+    expect(fx.map((e) => e.type)).toEqual(["take-over", "hand-back", "start", "end"]);
+    expect(fx[0]).toMatchObject({ by: "view" });
+    expect(fx[2]).toMatchObject({ kind: "read", tool: "browser_snapshot" });
+    expect(fx[3]).toMatchObject({ step: fx[2]!.step, outcome: "ok" });
   }, 90_000);
 
   it("fails a held call after the wait, and does not hold a tool that needs no browser", async () => {
@@ -305,6 +311,18 @@ describe.skipIf(reason)(`live view and take-over with a real Chrome${reason ? ` 
     expect(first.data.startsWith("/9j/")).toBe(true); // a JPEG
     expect(first.w).toBeGreaterThan(0);
 
+    // The cursor Chrome draws measured the field it clicked: its box and the click point, with the scroll.
+    const form = (await call(client, "browser_snapshot")).text;
+    await call(client, "browser_click", { element: "Email", target: ref(form, "textbox", "Email") });
+    const marks = stream.list
+      .filter((e) => e.event === "fx" && e.data.includes('"type":"mark"'))
+      .map((e) => JSON.parse(e.data) as { mark: string; box?: { width: number }; scroll?: object });
+    expect(marks.find((m) => m.mark === "box")).toMatchObject({
+      box: { width: expect.any(Number) },
+      scroll: { x: 0, y: 0 },
+    });
+    expect(marks.some((m) => m.mark === "click")).toBe(true);
+
     const before = stream.list.length;
     const filled = await call(client, "browser_login", { site: "local" });
     expect(filled.error, filled.text).toBe(false);
@@ -322,6 +340,11 @@ describe.skipIf(reason)(`live view and take-over with a real Chrome${reason ? ` 
     // The timeline has the sign-in, and nothing of the stream (frames, state, steps) has the password.
     expect(stream.list.some((e) => e.event === "step" && e.data.includes('"tool":"browser_login"'))).toBe(true);
     expect(stream.list.map((e) => e.data).join("\n")).not.toContain(PASSWORD);
+
+    // The sign-in's effect says it is from the vault, with no length and no value.
+    const login = stream.list.find((e) => e.event === "fx" && e.data.includes('"tool":"browser_login"'));
+    expect(JSON.parse(login!.data)).toMatchObject({ type: "start", kind: "type", vault: true });
+    expect(login!.data).not.toContain('"chars"');
 
     const snap = (await call(client, "browser_snapshot")).text;
     await call(client, "browser_click", { element: "Sign in", target: ref(snap, "button", "Sign in") });

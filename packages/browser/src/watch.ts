@@ -26,8 +26,8 @@ export interface BrowserWatch {
   idOf(page: Page): number;
   /** The tabs now, as the notes compare them. */
   tabStates(): Promise<TabState[]>;
-  /** An agent call starts; returns what to call when it ends. */
-  begin(): () => void;
+  /** An agent call starts (`call` says which, for the live view's effects); returns what to call when it ends. */
+  begin(call?: { tool: string; args: Record<string, unknown>; session: string; agent?: string }): () => void;
   /** Starts a pause (false when one is on); `front` brings the shown tab to the front. */
   pause(by: string, front?: boolean, hold?: PauseHold): Promise<boolean>;
   /** Ends the pause and lets the held calls go; false when there was none. */
@@ -135,7 +135,7 @@ export class PlainWatch implements BrowserWatch {
     const b = this.browser;
     if (b) {
       this.heldBrowser = b;
-      await b.onPause?.().catch(() => {});
+      await b.onPause?.(hold.cue).catch(() => {});
     }
     return true;
   }

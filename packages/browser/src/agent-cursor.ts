@@ -7,6 +7,7 @@ import {
   cursorOverlay,
 } from "./agent-cursor-overlay.js";
 import { HUMANIZED_TOOLS, overlay as override } from "./human-input.js";
+import type { HumanCue, MarkKind } from "./live-effects.js";
 import type { CursorMode } from "./settings.js";
 import { type UiLocale, uiStrings } from "./ui-strings.js";
 import type { UpstreamTool } from "./upstream.js";
@@ -125,6 +126,15 @@ interface Actor {
   color: string;
 }
 
+/** A mark the cursor made, as the live view gets it (`live-effects.ts`): a box, a click point, a field. */
+export interface CursorMark {
+  mark: Exclude<MarkKind, "download">;
+  box?: OverlayBox;
+  point?: Point;
+  /** The page's scroll when the box was read, from the report of the same batch. */
+  scroll?: Point;
+}
+
 export interface AgentCursorOptions {
   /** The client name of the session that launched the browser (its window title). */
   title: string;
@@ -139,6 +149,8 @@ export interface AgentCursorOptions {
    * alone, or the call that answers the dialog would wait on its own page.
    */
   blocked?: (page: Page) => boolean;
+  /** Told each mark the cursor makes on a page (the live view draws it); `key` is the session. */
+  onMark?: (page: Page, key: string, mark: CursorMark) => void;
 }
 
 const defaultSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -283,12 +295,12 @@ export class AgentCursor {
   }
 
   /** The call ended (on this page, which may be a new one): the frame fades after a moment. */
-  async end(page: Page | undefined, key: string): Promise<void> {
+  async end(page: Page | undefined, key: string, failed = false): Promise<void> {
     this.busy.delete(key);
     this.recount(page);
     if (!page) return;
     this.owners.set(page, key);
-    await this.send(page, [{ op: "busy", key, on: false }], key);
+    await this.send(page, [{ op: "busy", key, on: false, ...(failed ? { failed } : {}) }], key);
   }
 
   /** Glides the arrow to `to` and waits for it to arrive. */
@@ -318,23 +330,36 @@ export class AgentCursor {
     this.remember(page, key, to);
   }
 
-  async ring(page: Page, box: OverlayBox | null): Promise<void> {
+  /** Tells `onMark`, with the scroll the page reported in the same batch. */
+  private marked(page: Page, key: string, mark: CursorMark, report: OverlayReport | undefined): void {
+    if (!this.options.onMark) return;
+    this.options.onMark(page, key, report?.scroll ? { ...mark, scroll: report.scroll } : mark);
+  }
+
+  /** Rings the target of an action of this kind (null takes the ring away). */
+  async ring(page: Page, box: OverlayBox | null, kind?: "click" | "hover" | "type" | "drag"): Promise<void> {
     const key = this.ownerOf(page);
-    await this.send(page, [{ op: "ring", key, box }], key);
+    const report = await this.send(page, [{ op: "ring", key, box, ...(kind ? { kind } : {}) }], key);
+    if (box) this.marked(page, key, { mark: kind === "drag" ? "drag" : "box", box }, report);
   }
 
   async ripple(page: Page, at: Point): Promise<void> {
     const key = this.ownerOf(page);
-    await this.send(page, [{ op: "ripple", key, x: at.x, y: at.y }], key);
+    const report = await this.send(page, [{ op: "ripple", key, x: at.x, y: at.y }], key);
+    this.marked(page, key, { mark: "click", point: at }, report);
   }
 
   async typing(page: Page, box: OverlayBox | null): Promise<void> {
     const key = this.ownerOf(page);
-    await this.send(page, [{ op: "typing", key, box }], key);
+    const report = await this.send(page, [{ op: "typing", key, box }], key);
+    if (box) this.marked(page, key, { mark: "type", box }, report);
   }
 
-  /** The live view's pause: every page says the user has the controls. */
-  async setPaused(pages: readonly Page[], on: boolean): Promise<void> {
+  /**
+   * A pause: every page says the user has the controls. `cue` is the person step it is for, when
+   * it is one (the Chrome-drawn cursor marks its target).
+   */
+  async setPaused(pages: readonly Page[], on: boolean, _cue?: HumanCue): Promise<void> {
     this.paused = on;
     await Promise.all(pages.map((page) => this.send(page, [])));
   }
@@ -429,7 +454,7 @@ export class CursorInput {
     if (box && view && !inView(box, view)) box = null; // Playwright scrolls it in: mark it after
     if (box) {
       this.marked.set(page, box);
-      void c.ring(page, box);
+      void c.ring(page, box, kind);
       if (!followed) await c.glideTo(page, centerOf(box));
       if (kind === "type") void c.typing(page, box);
       if (kind === "click" && !followed) void c.ripple(page, centerOf(box));
@@ -439,7 +464,7 @@ export class CursorInput {
       if (kind === "drag" && to) {
         const end = await this.boxOf(to, 200);
         if (end) {
-          void c.ring(page, end);
+          void c.ring(page, end, "drag");
           await c.place(page, centerOf(end));
         }
       } else if (!box || (kind === "click" && followed)) {
@@ -449,7 +474,7 @@ export class CursorInput {
         const at = followed ? (c.pointOf(page) ?? center) : center;
         if (after && !box) {
           this.marked.set(page, after);
-          void c.ring(page, after);
+          void c.ring(page, after, kind);
         }
         if (at) {
           if (!followed) await c.place(page, at);

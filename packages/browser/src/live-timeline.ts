@@ -199,8 +199,13 @@ export class Timeline {
   }
 
   /** Masks what the redactor knows and drops the queries of addresses. */
-  private clean(text: string, max: number): string {
+  clean(text: string, max: number): string {
     return clip(withoutQueries(this.redactor.text(text)), max);
+  }
+
+  /** What a call works on, as its line names it: the element or address, never its input. */
+  targetOf(tool: string, args: Record<string, unknown>): string {
+    return this.clean(stepTarget(tool, args), MAX_TARGET);
   }
 
   private push(entry: TimelineEntry): TimelineEntry {
@@ -212,7 +217,7 @@ export class Timeline {
 
   /** A call ended. */
   call(r: CallRecord): TimelineEntry {
-    const target = this.clean(stepTarget(r.tool, r.args), MAX_TARGET);
+    const target = this.targetOf(r.tool, r.args);
     const outcome: StepOutcome = r.held && !r.held.ran ? "not-run" : r.result.isError ? "error" : "ok";
     const detail = outcome === "ok" ? "" : this.clean(failureLine(r.result), MAX_DETAIL);
     const entry: TimelineEntry = {

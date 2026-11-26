@@ -1,3 +1,4 @@
+import type { ActionKind, HumanCueKind, ScrollDirection } from "./live-effects.js";
 import type { IdentitySettings } from "./settings.js";
 
 /**
@@ -76,6 +77,49 @@ export interface UiStrings {
     nothingChanged: string;
     /** What the timeline calls each tool; a tool missing here shows its own name. */
     actions: Record<string, string>;
+    /** The stage over the picture, the state pill and the "Now" card. */
+    stage: {
+      now: string;
+      /** The chip with the identity's name. `{id}`. */
+      identity: string;
+      /** Before the first step. */
+      waiting: string;
+      waitingHint: string;
+      running: string;
+      thinking: string;
+      thinkingHint: string;
+      /** A gap between two calls in the timeline. `{t}`: how long. */
+      thought: string;
+      idle: string;
+      idleHint: string;
+      done: string;
+      /** `{n}`: steps; `{t}`: how long the run took. */
+      doneHint: string;
+      /** A typing step: `{n}` characters, never which. */
+      typed: string;
+      fromVault: string;
+      scroll: Record<ScrollDirection, string>;
+      /** `{name}`: the file. */
+      download: string;
+      /** The state pill while a step of this kind runs. */
+      kinds: Record<ActionKind, string>;
+      /** The card when the agent waits for the person, by what for. */
+      human: Record<HumanCueKind, string>;
+      humanHint: string;
+      /** The card's button: ends the step and hands the browser back. */
+      humanDone: string;
+      takeOver: string;
+      /** `{t}`: how long the person had the browser. */
+      backAfter: string;
+      looksStuck: string;
+      /** `{code}`: a failure's stable code. */
+      failedCode: string;
+      failedPlain: string;
+      /** The cursor's name tag when the agent sent none. */
+      agent: string;
+      /** A step's tab is not the one shown. */
+      otherTab: string;
+    };
   };
   /** The person step's banner (`human-step.ts`). */
   step: {
@@ -201,6 +245,59 @@ export const UI_STRINGS: Record<UiLocale, UiStrings> = {
         browser_observe: "Look for",
         browser_solve_captcha: "Solve a captcha",
       },
+      stage: {
+        now: "Now",
+        identity: "identity: {id}",
+        waiting: "Waiting for the agent",
+        waitingHint: "Each action shows on the picture, in its own color, and in the steps below.",
+        running: "Running",
+        thinking: "Thinking",
+        thinkingHint: "The model is deciding the next step.",
+        thought: "Thought for {t}",
+        idle: "Idle",
+        idleHint: "The agent is not using the browser now.",
+        done: "Done",
+        doneHint: "{n} steps in {t}.",
+        typed: "typed {n} characters",
+        fromVault: "a value from the vault, never shown",
+        scroll: { up: "up", down: "down", left: "left", right: "right" },
+        download: "Downloaded {name}",
+        kinds: {
+          navigate: "Navigating",
+          read: "Reading the page",
+          locate: "Looking for an element",
+          click: "Clicking",
+          hover: "Pointing",
+          type: "Typing",
+          select: "Choosing",
+          scroll: "Scrolling",
+          drag: "Dragging",
+          upload: "Uploading a file",
+          download: "Downloading",
+          dialog: "Answering a dialog",
+          wait: "Waiting for the page",
+          script: "Running a script",
+          tabs: "Working with tabs",
+          run: "Running steps",
+          human: "Your turn",
+          other: "Working",
+        },
+        human: {
+          step: "Your turn",
+          "last-click": "The last click is yours",
+          passkey: "Use your passkey",
+          captcha: "A captcha for you",
+        },
+        humanHint: "The agent stopped and waits. Act on the picture or in the browser window.",
+        humanDone: "I am done",
+        takeOver: "You have the controls",
+        backAfter: "Back to the agent after {t}",
+        looksStuck: "Looks stuck",
+        failedCode: "Failed: {code}",
+        failedPlain: "Failed",
+        agent: "agent",
+        otherTab: "in another tab",
+      },
     },
     step: {
       title: "Your turn",
@@ -318,6 +415,59 @@ export const UI_STRINGS: Record<UiLocale, UiStrings> = {
         browser_extract: "Leer",
         browser_observe: "Buscar",
         browser_solve_captcha: "Resolver un captcha",
+      },
+      stage: {
+        now: "Ahora",
+        identity: "identidad: {id}",
+        waiting: "Esperando al agente",
+        waitingHint: "Cada acción aparece sobre la imagen, con su color, y en los pasos de abajo.",
+        running: "En curso",
+        thinking: "Pensando",
+        thinkingHint: "El modelo decide el siguiente paso.",
+        thought: "Pensó {t}",
+        idle: "En espera",
+        idleHint: "El agente no está usando el navegador.",
+        done: "Listo",
+        doneHint: "{n} pasos en {t}.",
+        typed: "escribió {n} caracteres",
+        fromVault: "un valor de la bóveda, nunca visible",
+        scroll: { up: "hacia arriba", down: "hacia abajo", left: "a la izquierda", right: "a la derecha" },
+        download: "Descargó {name}",
+        kinds: {
+          navigate: "Navegando",
+          read: "Leyendo la página",
+          locate: "Buscando un elemento",
+          click: "Haciendo clic",
+          hover: "Señalando",
+          type: "Escribiendo",
+          select: "Eligiendo",
+          scroll: "Desplazando",
+          drag: "Arrastrando",
+          upload: "Subiendo un archivo",
+          download: "Descargando",
+          dialog: "Respondiendo un diálogo",
+          wait: "Esperando a la página",
+          script: "Ejecutando un script",
+          tabs: "Usando las pestañas",
+          run: "Ejecutando pasos",
+          human: "Tu turno",
+          other: "Trabajando",
+        },
+        human: {
+          step: "Tu turno",
+          "last-click": "El último clic es tuyo",
+          passkey: "Usa tu passkey",
+          captcha: "Un captcha para ti",
+        },
+        humanHint: "El agente se detuvo y te espera. Actúa sobre la imagen o en la ventana del navegador.",
+        humanDone: "Ya terminé",
+        takeOver: "Tú tienes el control",
+        backAfter: "De vuelta al agente tras {t}",
+        looksStuck: "Parece atorado",
+        failedCode: "Falló: {code}",
+        failedPlain: "Falló",
+        agent: "agente",
+        otherTab: "en otra pestaña",
       },
     },
     step: {

@@ -1,0 +1,7 @@
+---
+"turno-browser": minor
+---
+
+The live view shows each action on a stage: a layer of pixels over the agent's tab, drawn by the view's own WebGL2 shader, gives every kind of action its own look and color. A box converges on the element the agent clicks or types into and a ripple marks where a click lands, a band scans the page while the agent reads it, the picture dissolves as it opens a page, a trail follows a scroll or a drag, and the field around the window breathes while the agent thinks. Typing is violet, reading cyan, a failure red (with its code when it has one), a step that waits for you amber (with a card that says what to do and an "I am done" button), and the end of a run green. The panel has a header with the state, a "Now" card, and a timeline with an icon and a color per kind of step, the time the agent thought between calls and a line for each site it moved to. The effects run only while something moves and the view is visible, at most 30 frames a second; with reduced motion they keep the boxes and colors without moving, and without WebGL2 the view draws plain rings. They never say what the agent typed, only how many characters.
+
+Chrome's own highlight of the element (the default agent cursor) is blue for a click, violet while the agent types and red for a moment when the call fails, and while the agent waits for you the step's target gets an amber box, or the page an amber outline, all drawn by Chrome with nothing in the page.
