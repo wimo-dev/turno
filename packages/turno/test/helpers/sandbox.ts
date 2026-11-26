@@ -20,6 +20,8 @@ export function sandbox(): Sandbox {
     // A Claude Code CLI or Codex on this machine's PATH must not change what turno-browser
     // reports for natural language actions.
     TURNO_BROWSER_ACT_CLI: "off",
+    // A test run shows no notification of the system (`notify.ts`).
+    TURNO_BROWSER_NOTIFY: "off",
   };
   return {
     home,

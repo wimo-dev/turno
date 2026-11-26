@@ -86,6 +86,16 @@ export interface UiStrings {
     /** Under the instruction, without one (the step ends by itself). */
     hintAuto: string;
   };
+  /** The banner of a click turno left to the person (`last-click.ts`): its title and what the click does. */
+  lastClick: {
+    title: string;
+    purchase: string;
+    send: string;
+    publish: string;
+    delete: string;
+    /** Under what the click does. */
+    hint: string;
+  };
   /** The banner of a page's passkey prompt (`passkey.ts`), in place of the step's title and hint. */
   passkey: {
     title: string;
@@ -198,6 +208,14 @@ export const UI_STRINGS: Record<UiLocale, UiStrings> = {
       hintDone: "The agent is waiting for you. Press Done when you have finished.",
       hintAuto: "The agent is waiting for you and goes on by itself once this step is done.",
     },
+    lastClick: {
+      title: "The last click is yours",
+      purchase: "This click places the order or makes the payment.",
+      send: "This click sends it in your name.",
+      publish: "This click publishes it in your name.",
+      delete: "This click deletes it for good.",
+      hint: "Check it, then click it yourself if it is right. The agent goes on once you have.",
+    },
     passkey: {
       title: "Use your passkey",
       instruction: "This page asks for your passkey.",
@@ -307,6 +325,14 @@ export const UI_STRINGS: Record<UiLocale, UiStrings> = {
       done: "Listo",
       hintDone: "El agente te está esperando. Presiona Listo cuando termines.",
       hintAuto: "El agente te está esperando y sigue solo cuando termines este paso.",
+    },
+    lastClick: {
+      title: "El último clic es tuyo",
+      purchase: "Este clic hace el pedido o el pago.",
+      send: "Este clic lo envía a tu nombre.",
+      publish: "Este clic lo publica a tu nombre.",
+      delete: "Este clic lo borra para siempre.",
+      hint: "Revísalo y, si está bien, haz clic tú. El agente sigue cuando lo hagas.",
     },
     passkey: {
       title: "Usa tu passkey",
