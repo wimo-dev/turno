@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { browserPaths as paths, replaceFileSync } from "turno-core/paths";
+import type { Fingerprint } from "./fingerprint.js";
 import { assertIdentityId } from "./ids.js";
 
 /**
@@ -55,6 +56,8 @@ export interface FlowTarget {
   locators: FlowLocator[];
   /** The snapshot ref the element had when it was recorded; never used to replay. */
   ref?: string;
+  /** What the element was (`fingerprint.ts`); replay refuses an element that is not it. */
+  fingerprint?: Fingerprint;
 }
 
 /** A parameter slot inside a step's arguments. */

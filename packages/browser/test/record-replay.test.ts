@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { afterEach, beforeEach, describe, expect, it, onTestFinished } from "vitest";
+import { actionCachePath } from "../src/fingerprint.js";
 import { flowsDir, listFlows, readFlow, writeFlow } from "../src/flows.js";
 import { addIdentity } from "../src/identities.js";
 import { listRecordings, recordingsDir, tracesTmpDir, zipTexts } from "../src/recordings.js";
@@ -109,7 +110,7 @@ function allText(dir: string): string {
   return out;
 }
 
-type Variant = "normal" | "moved" | "renamed";
+type Variant = "normal" | "moved" | "renamed" | "swapped";
 
 /** A sign-in page whose markup a test can change between runs; `posted` keeps form bodies. */
 async function site(): Promise<{ url: string; posted: string[]; variant: { v: Variant }; close(): Promise<void> }> {
@@ -117,11 +118,13 @@ async function site(): Promise<{ url: string; posted: string[]; variant: { v: Va
   const variant = { v: "normal" as Variant };
   const login = () => {
     const button =
-      variant.v === "renamed"
-        ? `<button id="other">Log in</button>`
-        : variant.v === "moved"
-          ? `<div class="wrap"><span>Help</span><button id="submit-2">Sign in</button></div>`
-          : `<button id="go">Sign in</button>`;
+      variant.v === "swapped"
+        ? `<button id="go">Delete account</button>`
+        : variant.v === "renamed"
+          ? `<button id="other">Log in</button>`
+          : variant.v === "moved"
+            ? `<div class="wrap"><span>Help</span><button id="submit-2">Sign in</button></div>`
+            : `<button id="go">Sign in</button>`;
     return `<title>Sign in</title><h1>Sign in</h1>
       <form method="post" action="/session">
         <label>Email <input name="email" type="email" autocomplete="username"></label>
@@ -138,7 +141,10 @@ async function site(): Promise<{ url: string; posted: string[]; variant: { v: Va
       });
       req.on("end", () => {
         posted.push(body);
-        res.end("<title>Welcome</title><h1>Signed in</h1><a href='/login'>again</a>");
+        const email = new URLSearchParams(body).get("email") ?? "";
+        res.end(
+          `<title>Welcome</title><h1>Signed in</h1><button id="account">Account ${email.replace(/[<&]/g, "")}</button><a href='/login'>again</a>`,
+        );
       });
       return;
     }
@@ -234,7 +240,7 @@ describe.skipIf(reason !== undefined)(
         params: { password: "keychain:flow-password" },
       });
       expect(replayed.error, replayed.text).toBe(false);
-      expect(replayed.text).toMatch(/4\. browser_click Sign in button: ok \(found by (generated|role)\)/);
+      expect(replayed.text).toMatch(/4\. browser_click Sign in button: ok \(found by (generated|role), same element\)/);
       expect(leaks(replayed.text, [PASSWORD_2]), "parameter in the result").toBe(0);
       expect(web.posted).toHaveLength(2);
       expect(new URLSearchParams(web.posted[1]).get("password") === PASSWORD_2).toBe(true);
@@ -255,6 +261,23 @@ describe.skipIf(reason !== undefined)(
       expect(failed.text).toMatch(/- css css=#go: no element/);
       expect(failed.text).toMatch(/It was the last step: do it yourself/);
       expect(failed.text).toMatch(/button "Log in"/); // the fresh snapshot
+      expect(web.posted).toHaveLength(2);
+
+      // Another button took the old one's id: the CSS path finds it, and it is not the recorded
+      // element, so neither the replay nor the same selector from the agent clicks it.
+      web.variant.v = "swapped";
+      const swapped = await call(client, "browser_replay", {
+        flow: "sign-in",
+        params: { password: "keychain:flow-password" },
+        wait: 1,
+      });
+      expect(swapped.error).toBe(true);
+      expect(swapped.text).toMatch(
+        /Step 4 of 4 \(browser_click Sign in button\) failed: The element css css=#go finds now is not the one this action was recorded on: its name is "Delete account", not "Sign in"/,
+      );
+      const repeated = await call(client, "browser_click", { target: "#go" });
+      expect(repeated.error).toBe(true);
+      expect(repeated.text).toMatch(/The element #go finds now is not the one this action was recorded on/);
       expect(web.posted).toHaveLength(2);
 
       const listed = await call(client, "browser_flows");
@@ -303,6 +326,12 @@ describe.skipIf(reason !== undefined)(
         target: ref(snap, "button", "Sign in"),
       });
       expect(clicked.error, clicked.text).toBe(false);
+      // The signed-in page shows the vault username in a button the agent clicks.
+      const welcome = (await call(client, "browser_snapshot")).text;
+      // The result shows it redacted; the click works by ref all the same.
+      const account = /button "Account \[vault: local username\]" \[ref=((?:f\d+)?e\d+)\]/.exec(welcome)?.[1];
+      expect(account, welcome).toBeDefined();
+      expect((await call(client, "browser_click", { target: account! })).error).toBe(false);
       // A password the person types is kept out the same way (the agent's own typing is refused).
       await call(client, "browser_navigate", { url: `${web.url}/login` });
       const again = (await call(client, "browser_snapshot")).text;
@@ -332,6 +361,9 @@ describe.skipIf(reason !== undefined)(
       // The refused call is no step of the recording.
       expect(index.steps.find((s) => s.tool === "browser_type")).toBeUndefined();
 
+      const cache = readFileSync(actionCachePath("rec", sb.env), "utf8");
+      expect(cache).toContain("Account [vault: local username]");
+      expect(leaks(cache, [VAULT_PASSWORD, PASSWORD, EMAIL]), "vault values in the action cache").toBe(0);
       const recorded = allText(recordingsDir("rec", sb.env)) + allText(flowsDir("rec", sb.env));
       expect(leaks(recorded, [VAULT_PASSWORD, PASSWORD]), "secrets in recordings or flows").toBe(0);
       expect(recorded).not.toContain(EMAIL); // the vault username was in the form only

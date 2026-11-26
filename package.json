@@ -13,6 +13,7 @@
     "test": "pnpm --filter \"./packages/*\" run test",
     "test:e2e": "pnpm --filter turno-cli run test:e2e",
     "bench:browser": "node bench/browser/eval.mjs",
+    "bench:cache": "node bench/browser/cache.mjs",
     "bench:fingerprint": "node bench/browser/fingerprint.mjs",
     "bench:reputation": "node bench/browser/reputation.mjs",
     "bench:snapshot": "node bench/browser/snapshot.mjs",

@@ -17,6 +17,42 @@ element, the replay stops and reports the step, each locator and why it did not 
 that did not run and a fresh snapshot: the agent does that step itself and calls `browser_replay`
 again with `from` set to the next step.
 
+### The element must be the same one
+
+A locator that still finds one element is not proof that it is the recorded element: a button
+can lose its id to its neighbour, or a field can keep its place under a new label. So each step
+also keeps a fingerprint of its element: its role, accessible name, label and nearest landmark,
+and the URL of the page with ids in the path as `*`. Before a replayed step runs, the element
+its locator found must match it (names compare without case); otherwise the step does not run,
+and the replay stops with what differs (`its name is "Delete account", not "Sign in"`) and a fresh
+snapshot, so the agent decides from what the page shows now.
+
+With `record.flows` (on by default) the identity also keeps an action cache: the fingerprint of
+every element an action worked on, by page and by the selectors that name it, in
+`~/.local/share/turno/browser/action-cache/<id>.json` (mode 600, at most 2,000 entries). A later
+action that names an element by a selector instead of a ref (a step of `browser_batch`, a
+`turno-browser do click '#save'`) is checked against it the same way and refused when the
+element is another one. The cache holds what the page shows about an element, never a value typed
+into it; a vault value the page shows (the signed-in user's name on a button) is stored as its
+mark, and a locator that names an element by one is not kept, in the cache or in a flow.
+
+Measured with `pnpm bench:cache`: a flow recorded by refs (type an email, type a name, click
+Save), then replayed 3 times against each of five variants of the page, and its three actions
+repeated by CSS selector (`#email`, `#name`, `#save`) on each:
+
+| | Before the check | With the check |
+|---|---|---|
+| Replay: steps on the recorded element | 42 of 45 | 33 of 39 (85%) |
+| Replay: steps on another element | 3 (Cancel took Save's id) | 0 |
+| Replay: steps refused | 0 | 6 (15%) |
+| Repeated by selector: on the recorded element | 33 of 45 | 30 of 45 (67%) |
+| Repeated by selector: on another element | 9 (214 per 1,000 that ran) | 0 |
+| Repeated by selector: refused | 0 | 12 (27%) |
+
+The refused steps are the swapped button, the fields whose ids were swapped, and a field whose
+label changed from "Email" to "Work email": the right field, refused because its name changed.
+A refusal costs the agent one look at the page; a wrong element costs a wrong action.
+
 Text typed into a field becomes a parameter, with what was typed as its default. A sensitive one
 keeps no value: a password field, a one-time code or card field, a field named like `password`,
 `otp`, `pin` or `token`, a vault value typed by hand, or any parameter the agent lists in

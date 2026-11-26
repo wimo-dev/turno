@@ -1,3 +1,4 @@
+import { differences, fingerprintOf, refusal } from "./fingerprint.js";
 import { fileURLToPath } from "node:url";
 import { secretStore } from "turno-core/secrets";
 import {
@@ -152,6 +153,7 @@ async function runStep(
   }
   const args = fillParams(step.args, values) as Record<string, unknown>;
   const used: string[] = [];
+  let checked = 0;
   for (const [path, target] of Object.entries(step.targets ?? {})) {
     const found = await findTarget(stock, target, run.waitMs, ctx.signal);
     if ("tried" in found) {
@@ -160,6 +162,19 @@ async function runStep(
         ok: false,
         message: `no locator of ${what} found exactly one visible element within ${run.waitMs / 1000}s:\n${found.tried.map((t) => `- ${t}`).join("\n")}`,
       };
+    }
+    // The selector found one element; it must be the recorded one, or the step does not run.
+    const page = stock.currentPage();
+    const recorded = target.fingerprint ?? (page ? ctx.recorder?.cache.get(page.url(), found.selector) : undefined);
+    if (recorded && page) {
+      // A locator in Playwright's JavaScript syntax cannot be read here: the step runs unchecked.
+      const now = await fingerprintOf(page.locator(found.selector), page.url());
+      if (now) {
+        const diffs = differences(recorded, now);
+        if (!target.fingerprint) ctx.recorder?.cache.count(page.url(), found.selector, diffs.length === 0);
+        if (diffs.length) return { ok: false, message: refusal(`${found.kind} ${found.selector}`, diffs) };
+        checked++;
+      }
     }
     setPath(args, path, found.selector);
     used.push(found.kind);
@@ -186,7 +201,11 @@ async function runStep(
     ...(fromSecretStore ? { fromSecretStore } : {}),
   });
   if (result.isError) return { ok: false, message: sections(textOf(result)).get("Error") ?? textOf(result) };
-  return { ok: true, ...(used.length ? { note: `found by ${used.join(", ")}` } : {}) };
+  const note = [
+    ...(used.length ? [`found by ${used.join(", ")}`] : []),
+    ...(checked ? [checked === used.length ? "same element" : `${checked} same element`] : []),
+  ].join(", ");
+  return { ok: true, ...(note ? { note } : {}) };
 }
 
 async function runSteps(
