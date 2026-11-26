@@ -46,6 +46,10 @@ const ENVIRONMENT: readonly { title: string; rows: readonly (readonly [string, s
       ["TURNO_REGISTRY", "npm registry for update checks (default: npm_config_registry, else registry.npmjs.org)"],
       ["TURNO_BROWSER_IDLE", "turno-browser closes Chrome after this long without a tool call (default: 15m)"],
       [
+        "TURNO_BROWSER_SNAPSHOT",
+        "full: turno-browser returns page snapshots as Playwright writes them (default: compact, a table of contents for a long page)",
+      ],
+      [
         "TURNO_BROWSER_BACKGROUND_IDLE",
         "the background server of a browser identity exits after this long without a request (default: 15m; 0: never)",
       ],

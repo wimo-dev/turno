@@ -11,7 +11,8 @@
       "project": ["src/**/*.ts", "test/**/*.ts"]
     },
     "packages/browser": {
-      "entry": ["src/index.ts", "src/bin/mcp.ts", "src/cli/main.ts", "test/**/*.test.ts"],
+      // bench/browser/snapshot.mjs loads snapshot-compact from dist.
+      "entry": ["src/index.ts", "src/bin/mcp.ts", "src/cli/main.ts", "src/snapshot-compact.ts", "test/**/*.test.ts"],
       "project": ["src/**/*.ts", "test/**/*.ts"],
       // The camoufox engine loads the user's own playwright-core at run time; never a dependency.
       "ignoreDependencies": ["playwright-core"]

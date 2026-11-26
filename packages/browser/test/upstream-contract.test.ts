@@ -67,6 +67,7 @@ const lib = () => upstream().tools;
 /** The turno tools, listed after the stock ones. */
 const TURNO_NAMES = [
   "browser_batch",
+  "browser_read",
   "browser_login",
   "browser_record",
   "browser_replay",

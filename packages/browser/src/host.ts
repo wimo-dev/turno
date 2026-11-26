@@ -130,6 +130,7 @@ import {
   parseArguments,
 } from "./tools.js";
 import { DEFAULT_STEP_WAIT_MS, type OpenStep, StepTable } from "./step-wait.js";
+import { type SnapshotForm, compactResultText, snapshotForm } from "./snapshot-compact.js";
 import { type Tuning, type TuningFlags, resolveTuning } from "./tuning.js";
 import { type UiLocale, uiLocale, uiStrings } from "./ui-strings.js";
 import { vaultHasSites } from "./vault.js";
@@ -224,6 +225,8 @@ export interface HostOptions {
   live?: LiveFlags;
   /** Reads the memory pressure for `resources: "auto"` (tests inject one); default: turno-core's. */
   memory?: PressureProbe;
+  /** How page snapshots leave the server; default: `TURNO_BROWSER_SNAPSHOT`, else compact. */
+  snapshot?: SnapshotForm;
 }
 
 export interface Host {
@@ -559,6 +562,8 @@ class SessionBackend extends EventEmitter implements ServerBackend {
       engineFlags: EngineFlags;
       /** The memory pressure now, for `resources: "auto"`. */
       pressure: () => Promise<PressureLevel>;
+      /** How page snapshots leave the server (`snapshot-compact.ts`). */
+      snapshotForm: SnapshotForm;
       /** The server's own `--caps`, when given: then it is the whole list. */
       caps?: readonly string[];
       /** What the environment offers natural language actions (`act-chain.ts`). */
@@ -973,6 +978,8 @@ class SessionBackend extends EventEmitter implements ServerBackend {
         this.host.redactor.result(errorResult(refused, !!(args._meta as { json?: boolean } | undefined)?.json)),
       );
     let result = await this.callLive(name, args, signal, session, sample, progress, trace);
+    // Every page snapshot leaves compact; browser_read returns its part as it was asked for.
+    if (this.host.snapshotForm === "compact" && name !== "browser_read") result = compactResult(result);
     if (this.touchesBrowser(name)) {
       // A person step is the person's time, not the agent's run.
       if (name === HUMAN_STEP_TOOL) this.runs.reset();
@@ -2262,6 +2269,7 @@ export function createHost(options: HostOptions): Host {
     tabLocks: options.tabLocks ?? {},
     engineFlags,
     pressure: options.memory ?? memoryPressureProbe(),
+    snapshotForm: options.snapshot ?? snapshotForm(),
     ...(given ? { caps: given } : {}),
     ...(live ? { live } : {}),
     ...(options.identity ? { identity: options.identity } : {}),
@@ -2648,4 +2656,18 @@ export function unseenReason(live: { viewerCount: number } | undefined, id: stri
     ? `\`${b} set ${id} --live true\` and a new session, then \`${b} live ${id}\``
     : "an identity with the live view on";
   return `Chrome runs without a window here (--headless) and the live view is off, so the person cannot see the page. Ask the person to run the browser with a window (start turno-browser-mcp without --headless), or to turn the live view on (${start}), then call ${HUMAN_STEP_TOOL} again.`;
+}
+
+/** A result with the page snapshot of each of its text parts compacted (`snapshot-compact.ts`). */
+function compactResult(result: ToolResult): ToolResult {
+  let changed = false;
+  const content = result.content.map((part) => {
+    if (part.type !== "text") return part;
+    const text = (part as { text: string }).text;
+    const compact = compactResultText(text);
+    if (compact === text) return part;
+    changed = true;
+    return { ...part, text: compact };
+  });
+  return changed ? { ...result, content } : result;
 }

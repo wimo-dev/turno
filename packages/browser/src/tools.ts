@@ -7,6 +7,7 @@ import { type CaptchaSolver, solveCaptchaTool } from "./captcha.js";
 import type { CliSpawn } from "./cli-model.js";
 import { requestHumanTool } from "./human-step.js";
 import { type VaultAccess, loginTool } from "./login-tool.js";
+import { readTool } from "./read-tool.js";
 import { type FlowRecorder, recordTool } from "./recorder.js";
 import { flowsTool, replayTool } from "./replay.js";
 import {
@@ -116,6 +117,7 @@ export interface TurnoTool {
 /** The tools turno adds to every session. */
 export const TURNO_TOOLS: readonly TurnoTool[] = [
   batchTool(),
+  readTool(),
   loginTool(),
   recordTool(),
   replayTool(),

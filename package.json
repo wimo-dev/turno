@@ -15,6 +15,7 @@
     "bench:browser": "node bench/browser/eval.mjs",
     "bench:fingerprint": "node bench/browser/fingerprint.mjs",
     "bench:reputation": "node bench/browser/reputation.mjs",
+    "bench:snapshot": "node bench/browser/snapshot.mjs",
     "typecheck": "pnpm --filter \"./packages/*\" run typecheck",
     "lint": "biome check && knip",
     "format": "biome format --write",
