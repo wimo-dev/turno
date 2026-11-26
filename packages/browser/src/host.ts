@@ -1621,6 +1621,7 @@ class SessionBackend extends EventEmitter implements ServerBackend {
         const key = session ?? DIRECT_SESSION;
         await running.cursor?.begin(page, key, this.clients.get(key));
         result =
+          (pending?.refused ? errorResult(pending.refused, json) : undefined) ??
           (launched.engine === "lightpanda" ? undefined : await coveredBeforeCall(page, name, args, json)) ??
           (await this.withCursor(running, name, page, () => backend.callTool(name, args, signal)));
         result = await afterOwnClose(backend, page, name, args, result);
@@ -1703,6 +1704,7 @@ class SessionBackend extends EventEmitter implements ServerBackend {
             const acted = tabs.current();
             await running.cursor?.begin(acted, key, this.clients.get(key));
             result =
+              (pending?.refused ? errorResult(pending.refused, json) : undefined) ??
               (running.launched.engine === "lightpanda"
                 ? undefined
                 : await coveredBeforeCall(acted, name, args, json)) ??

@@ -18,6 +18,7 @@ import {
   writeFlow,
 } from "./flows.js";
 import { existsSync } from "node:fs";
+import { ActionCache, actionCachePath, differences, fingerprintOf, redactFingerprint, refusal } from "./fingerprint.js";
 import type { Redactor } from "./redact.js";
 import { secretField } from "./sensitive.js";
 import type { TurnoTool } from "./tools.js";
@@ -207,6 +208,8 @@ async function captureTarget(
     if (info.css) out.locators.push({ kind: "css", selector: `${frame}css=${info.css}` });
   }
   out.locators = out.locators.filter((l, i) => out.locators.findIndex((m) => m.selector === l.selector) === i);
+  const fingerprint = await fingerprintOf(locator, page.url());
+  if (fingerprint) out.fingerprint = fingerprint;
   const label = aria?.name ?? info?.name ?? description;
   return { target: out, ...(info ? { info } : {}), ...(label ? { label } : {}) };
 }
@@ -224,6 +227,8 @@ export interface Slot {
 export interface PendingStep {
   step: FlowStep;
   slots: Slot[];
+  /** Why the action must not run: a selector the cache knows finds another element now. */
+  refused?: string;
 }
 
 /** A parameter name from a field's label: "E-mail address" is `e_mail_address`. */
@@ -306,12 +311,17 @@ export class FlowRecorder {
   private auto: Draft | undefined;
   private suspended = 0;
 
+  /** The fingerprints of what the identity's actions worked on (`fingerprint.ts`). */
+  readonly cache: ActionCache;
+
   constructor(
     private readonly identity: IdentityRef,
     private readonly redactor: Redactor,
     /** identity.json `record.flows`: record every session as `auto-<time>`. */
     private readonly autoFlows: () => boolean,
-  ) {}
+  ) {
+    this.cache = ActionCache.for(actionCachePath(identity.id, identity.env), redactor);
+  }
 
   /** True when a step would be kept now. */
   get active(): boolean {
@@ -391,6 +401,7 @@ export class FlowRecorder {
       endTarget: args.endElement as string | undefined,
     };
     const infos: Record<string, { info?: ElementInfo; label?: string }> = {};
+    let refused: string | undefined;
     for (const path of paths) {
       const value = getPath(args, path);
       if (typeof value !== "string" || !page) return undefined;
@@ -399,6 +410,19 @@ export class FlowRecorder {
         : undefined;
       const captured = await captureTarget(page, value, describedBy[path] ?? fieldName);
       if (!captured) return undefined;
+      const fp = captured.target.fingerprint;
+      if (fp) captured.target.fingerprint = redactFingerprint(fp, this.redactor);
+      // A locator that names the element by a vault value (a signed-in user's name on a button)
+      // is not kept: the flow and the action cache never hold one.
+      captured.target.locators = captured.target.locators.filter((l) => !this.redactor.covers(l.selector));
+      // A selector the agent wrote (a repeated step from a batch or a shell): the element it
+      // finds now must be the one the cache saw an action work on under that selector.
+      const known = REF.test(value) ? undefined : this.cache.get(page.url(), value);
+      if (known && captured.target.fingerprint) {
+        const diffs = differences(known, captured.target.fingerprint);
+        this.cache.count(page.url(), value, diffs.length === 0);
+        if (diffs.length) refused = refusal(value, diffs);
+      }
       step.targets ??= {};
       step.targets[path] = captured.target;
       infos[path] = { ...(captured.info ? { info: captured.info } : {}), label: fieldName ?? captured.label };
@@ -439,12 +463,21 @@ export class FlowRecorder {
     }
     const url = page ? plainUrl(page.url()) : undefined;
     if (url) step.url = url;
-    return { step, slots };
+    return { step, slots, ...(refused ? { refused } : {}) };
   }
 
-  /** Keeps a captured step after its tool worked. */
+  /** Keeps a captured step after its tool worked, and what each of its targets was. */
   commit(pending: PendingStep): void {
     if (!this.active) return;
+    for (const target of Object.values(pending.step.targets ?? {}))
+      if (target.fingerprint)
+        // A CSS path also under its plain form: the selector an agent or a shell writes again.
+        this.cache.remember(
+          target.fingerprint,
+          target.locators.flatMap((l) =>
+            l.kind === "css" && l.selector.startsWith("css=") ? [l.selector, l.selector.slice(4)] : [l.selector],
+          ),
+        );
     this.named?.add(pending);
     if (this.autoFlows()) this.commitAuto(pending);
   }

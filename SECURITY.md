@@ -211,6 +211,11 @@ traces and screenshots are under the identity's state folder, capped in size.
   refused on write and on read. A vault sign-in is kept as `browser_login` with the site name.
   At replay a sensitive value is given again, or read from the secret store as
   `keychain:<item>`; it then joins the redactor.
+- With flows recorded, the identity keeps an action cache (`action-cache/<id>.json`, mode 600):
+  the role, accessible name, label and landmark of each element an action worked on, by page and
+  selector, never a value typed into it. Text the redactor knows (a vault value the page shows)
+  is stored as its mark, and a locator that holds such a value is kept neither there nor in a
+  flow.
 - Before a vault fill, a value typed into a secret field, or a sensitive parameter at replay,
   the trace is stopped and saved; it starts again only after every page holding the value has
   navigated, and no screenshot is taken of such a page. Each saved trace is then searched for
