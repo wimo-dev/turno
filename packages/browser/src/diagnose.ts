@@ -13,6 +13,8 @@ import type { ToolResult } from "./upstream.js";
  * a moment later, the call does not run and the agent hears which element is in the way at
  * once, instead of after the 5 second action timeout. That check costs one look at the target
  * per call and never scrolls the page.
+ *
+ * Every message starts with a stable code (`FailureCode`), and the JSON form carries it as `code`.
  */
 
 /** The stock tools whose failures are diagnosed, with the verb for the message. */
@@ -199,12 +201,44 @@ async function diagnoseTarget(page: Page, target: string): Promise<Diagnosis | u
   }
 }
 
+/**
+ * The stable code of a diagnosed failure, the first word of its message and the `code` of its JSON
+ * form: an agent or a script can branch on it without reading the prose, which may change.
+ */
+type FailureCode =
+  | "ELEMENT_COVERED"
+  | "ELEMENT_HIDDEN"
+  | "ELEMENT_DISABLED"
+  | "ELEMENT_READONLY"
+  | "ELEMENT_GONE"
+  | "ELEMENT_NOT_STABLE";
+
+function failureCode(d: Diagnosis | undefined): FailureCode {
+  if (!d) return "ELEMENT_GONE";
+  switch (d.state) {
+    case "covered":
+      return "ELEMENT_COVERED";
+    case "hidden":
+      return "ELEMENT_HIDDEN";
+    case "disabled":
+      return "ELEMENT_DISABLED";
+    case "readonly":
+      return "ELEMENT_READONLY";
+    case "ok":
+      return "ELEMENT_NOT_STABLE";
+  }
+}
+
 function named(e: ElementInfo): string {
   return `${e.role}${e.name ? ` "${e.name}"` : ""} (${e.selector})`;
 }
 
-/** The agent-facing message for a diagnosed failure. */
+/** The agent-facing message for a diagnosed failure: its code, what is wrong, and the next step. */
 export function failureMessage(tool: string, target: string, d: Diagnosis | undefined, original: string): string {
+  return `${failureCode(d)}: ${explanation(tool, target, d, original)}`;
+}
+
+function explanation(tool: string, target: string, d: Diagnosis | undefined, original: string): string {
   const verb = DIAGNOSED_TOOLS[tool] ?? "act on";
   const first = original.split("\n").find((l) => l.trim()) ?? original;
   const detail = original.startsWith("the call did not run") ? `turno: ${first.trim()}` : `Playwright: ${first.trim()}`;
@@ -255,50 +289,62 @@ export function failureMessage(tool: string, target: string, d: Diagnosis | unde
 /** How long a cover must stay before the call is refused: an overlay fading out is let through. */
 const COVER_STABLE_MS = 300;
 
-/** The error result of a stock call, in the shape the call asked for. */
-function errorOf(message: string, json: boolean): ToolResult {
-  return {
-    isError: true,
-    content: [
-      {
-        type: "text",
-        text: json ? JSON.stringify({ isError: true, error: message }, null, 2) : `### Error\n${message}`,
-      },
-    ],
-  };
+/**
+ * The error text of a diagnosed call, in the shape the call asked for. The JSON form carries the
+ * code and, for a covered target, the element in the way.
+ */
+function errorText(message: string, d: Diagnosis | undefined, json: boolean): string {
+  if (!json) return `### Error\n${message}`;
+  const cover = d?.state === "covered" ? { cover: d.cover } : {};
+  return JSON.stringify({ isError: true, code: failureCode(d), error: message, ...cover }, null, 2);
+}
+
+/** The target of a diagnosed call, as its arguments name it. */
+function targetOf(args: Record<string, unknown>): string {
+  return String(args.target ?? args.startTarget ?? "");
+}
+
+/** One look at a target; undefined when it is not exactly one element or the look fails. */
+async function lookAt(page: Page, target: string): Promise<Diagnosis | undefined> {
+  try {
+    const locator = locatorOf(page, target);
+    if ((await locator.count()) !== 1) return undefined;
+    return await locator.evaluate(inspect, false, { timeout: 500 });
+  } catch {
+    return undefined;
+  }
+}
+
+const defaultWait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+function coveredError(tool: string, target: string, d: Diagnosis, why: string, json: boolean): ToolResult {
+  const message = failureMessage(tool, target, d, why);
+  return { isError: true, content: [{ type: "text", text: errorText(message, d, json) }] };
 }
 
 /**
- * Before a diagnosed call: when its target is in view and another element covers it, now and
- * `COVER_STABLE_MS` later, the error that names that element; undefined (run the call) otherwise.
- * Anything this check cannot tell (a target not found yet, out of view, in a frame) is left to
- * Playwright and the diagnosis after it.
+ * Before a diagnosed call: when another element covers its target, now and `COVER_STABLE_MS`
+ * later, the error that names that element; undefined (run the call) otherwise. It never
+ * scrolls: humanize scrolls to a target out of view with the wheel, as a person would, so such a
+ * target, like anything else this check cannot tell (a target not found yet, in a frame), is left
+ * to Playwright and the diagnosis after it.
  */
 export async function coveredBeforeCall(
   page: Page | undefined,
   tool: string,
   args: Record<string, unknown>,
   json: boolean,
-  wait: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms)),
+  wait: (ms: number) => Promise<void> = defaultWait,
 ): Promise<ToolResult | undefined> {
   if (!page || !(tool in DIAGNOSED_TOOLS)) return undefined;
-  const target = String(args.target ?? args.startTarget ?? "");
+  const target = targetOf(args);
   if (!target) return undefined;
-  const look = async (): Promise<Diagnosis | undefined> => {
-    try {
-      const locator = locatorOf(page, target);
-      if ((await locator.count()) !== 1) return undefined;
-      return await locator.evaluate(inspect, false, { timeout: 500 });
-    } catch {
-      return undefined;
-    }
-  };
-  const first = await look();
+  const first = await lookAt(page, target);
   if (first?.state !== "covered") return undefined;
   await wait(COVER_STABLE_MS);
-  const again = await look();
+  const again = await lookAt(page, target);
   if (again?.state !== "covered" || again.cover.selector !== first.cover.selector) return undefined;
-  return errorOf(failureMessage(tool, target, again, "the call did not run: the target is covered"), json);
+  return coveredError(tool, target, again, "the call did not run: the target is covered", json);
 }
 
 /**
@@ -325,17 +371,9 @@ export async function explainFailure(
     }
   }
   if (!isActionabilityFailure(original)) return result;
-  const target = String(args.target ?? args.startTarget ?? "");
+  const target = targetOf(args);
   if (!target) return result;
-  const message = failureMessage(tool, target, await diagnoseTarget(page, target), original);
-  return {
-    ...result,
-    content: [
-      {
-        type: "text",
-        text: json ? JSON.stringify({ isError: true, error: message }, null, 2) : `### Error\n${message}`,
-      },
-      ...result.content.slice(1),
-    ],
-  };
+  const d = await diagnoseTarget(page, target);
+  const message = failureMessage(tool, target, d, original);
+  return { ...result, content: [{ type: "text", text: errorText(message, d, json) }, ...result.content.slice(1)] };
 }

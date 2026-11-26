@@ -1,0 +1,7 @@
+---
+"turno-browser": patch
+---
+
+The wait after a click, key press or typed text now ends as soon as the page is done with the action: the requests it started have answered (or none started within 100 ms), a navigation has reached DOMContentLoaded, and nothing on the page changed for two animation frames, checked in an isolated world the page cannot see. Playwright's fixed wait (`settle`, 500 ms by default, twice when the action made requests) is now only the limit. On the local evaluation suite a click went from 860 ms to 413 ms at the median (1,432 to 552 ms at p95), with the agent cursor's glide in both. Camoufox and read mode keep Playwright's wait.
+
+Action errors that name what is in the way start with a stable code (`ELEMENT_COVERED`, `ELEMENT_HIDDEN`, `ELEMENT_DISABLED`, `ELEMENT_READONLY`, `ELEMENT_GONE`, `ELEMENT_NOT_STABLE`), which JSON results carry as `code` with the covering element as `cover`. A click that opens a `confirm()` or `alert()` dialog no longer hangs until the client's timeout, and `browser_handle_dialog` answers it while the agent cursor draws (it waited on the page the dialog holds) and without a step screenshot waiting out its 5 seconds. A page that closes its own tab right after an action returns the tab now current instead of an error.

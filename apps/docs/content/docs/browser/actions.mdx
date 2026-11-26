@@ -12,11 +12,23 @@ in one call costs the agent one round trip instead of one per field.
 
 When a click or a type fails because of the page, the error says why: the element that covers
 the target (a cookie banner, a dialog) with its buttons, or that the target is hidden or
-disabled, and the next step. A target in view that another element covers before the call, and
-still covers it 300 ms later, is named at once: the call does not run, instead of waiting out
-Playwright's 5 second action timeout. Playwright waits 500 ms after each action for the work it started;
-`"settle": "100ms"` in `identity.json` (`turno-browser set school --settle 100ms`)
-shortens that wait (Playwright's own `--timeout-settle` wins over it).
+disabled, and the next step. The message starts with a code that stays the same from release to
+release: `ELEMENT_COVERED`, `ELEMENT_HIDDEN`, `ELEMENT_DISABLED`, `ELEMENT_READONLY`,
+`ELEMENT_GONE` or `ELEMENT_NOT_STABLE` (in a JSON result, `code`, and `cover` for the element in
+the way). A target in view that another element covers before the call, and still covers it
+300 ms later, is named at once: the call does not run, instead of waiting out Playwright's 5
+second action timeout.
+
+After an action, turno waits only until the page is done with it: the requests the action
+started have finished (or none started within 100 ms), a navigation of the page has reached
+`DOMContentLoaded`, and nothing on the page changed for two animation frames. On a page that
+reacts at once that takes a few frames, not Playwright's fixed 500 ms. Playwright's own wait is
+the most it can take: `settle` (500 ms by default), plus up to 5 s for the requests (10 s after a
+navigation) and `settle` again when there were any. `"settle": "100ms"` in `identity.json`
+(`turno-browser set school --settle 100ms`) lowers that limit (Playwright's own
+`--timeout-settle` wins over it). A change a page makes later on a timer, with no request, may
+not be in the result yet: wait for it with `browser_wait_for`. Camoufox and read mode keep
+Playwright's wait.
 
 ## From the shell
 

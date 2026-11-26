@@ -15,7 +15,7 @@ import { type Sandbox, sandbox, expectMode } from "./helpers/sandbox.js";
 /**
  * The browser tools against a real Google Chrome, through the built server: the tab
  * governor (popups, cap, parking), background throttling, the click diagnosis, browser_batch
- * and the settle setting. Every Chrome runs on a profile in
+ * and the wait after an action. Every Chrome runs on a profile in
  * the test's sandbox HOME; cleanup only signals processes whose command line names it.
  *
  * Skipped, with the reason in the suite name, when Chrome is missing or cannot start (or with
@@ -143,7 +143,12 @@ async function site(): Promise<{
         <button id="submit">Save</button>
       </form><p id="out"></p>`,
     "/api/save": "{}",
-    "/later": `<title>before</title><button id="go" onclick="setTimeout(() => { document.title = 'after'; }, 1500)">Go</button>`,
+    // The page notes any change to its body in the title: the wait after an action must not make one.
+    "/still": `<title>quiet</title><button id="noop">Noop</button>
+      <button id="load" onclick="fetch('/api/slow').then((r) => r.text()).then((t) => { document.title = t; })">Load</button>
+      <a id="file" href="/api/file">Export</a>
+      <button id="ask" onclick="if (confirm('Delete it?')) document.title = 'confirmed'">Delete</button>
+      <script>new MutationObserver(() => { document.title = "mutated"; }).observe(document.body, { subtree: true, childList: true, attributes: true, characterData: true });</script>`,
     "/res": `<title>resources</title><link rel="stylesheet" href="/static/app.css"><link rel="stylesheet" href="/static/nostore.css">
       <script src="/static/cookie.js"></script><script src="/promo/ad.js"></script><img src="/static/logo.svg" alt="logo"><h1>Resources</h1>`,
     // Timer ticks in each of the last whole seconds (oldest first, the running second left out),
@@ -166,6 +171,16 @@ async function site(): Promise<{
   const server: Server = createServer((req, res) => {
     requested.set(req.url ?? "/", Date.now());
     count.set(req.url ?? "/", (count.get(req.url ?? "/") ?? 0) + 1);
+    if (req.url === "/api/file") {
+      res.writeHead(200, { "content-type": "text/csv", "content-disposition": 'attachment; filename="export.csv"' });
+      res.end("a,b\n");
+      return;
+    }
+    if (req.url === "/api/slow") {
+      // Answers a while after the click that asked for it, as a busy API does.
+      setTimeout(() => res.end("loaded"), 1200);
+      return;
+    }
     const file = STATIC[req.url ?? ""];
     if (file) {
       res.writeHead(200, { "content-type": file.type, ...file.headers });
@@ -274,7 +289,7 @@ describe.skipIf(reason !== undefined)(
       expect(res.isError).toBe(true);
       const text = textOf(res);
       expect(text).toContain(
-        '### Error\nCould not click button "Save" (button#save), #save: dialog "We use cookies" (div.cookie-banner) covers it and would get the click instead.',
+        '### Error\nELEMENT_COVERED: Could not click button "Save" (button#save), #save: dialog "We use cookies" (div.cookie-banner) covers it and would get the click instead.',
       );
       expect(text).toContain('Next: close or answer that element first (it has "Accept all", "Reject")');
       // Named before the call ran, not after Playwright's action timeout.
@@ -288,11 +303,11 @@ describe.skipIf(reason !== undefined)(
 
       await call(client, "browser_navigate", { url: `${web.url}/disabled` });
       expect(textOf(await client.callTool({ name: "browser_click", arguments: { target: "#go" } }))).toContain(
-        'Could not click button "Continue" (button#go), #go: it is disabled.',
+        'ELEMENT_DISABLED: Could not click button "Continue" (button#go), #go: it is disabled.',
       );
       await call(client, "browser_navigate", { url: `${web.url}/hidden` });
       expect(textOf(await client.callTool({ name: "browser_click", arguments: { target: "#settings" } }))).toContain(
-        'Could not click link "Settings" (a#settings), #settings: it is not visible (navigation "Menu" (nav.menu) hides it).',
+        'ELEMENT_HIDDEN: Could not click link "Settings" (a#settings), #settings: it is not visible (navigation "Menu" (nav.menu) hides it).',
       );
 
       // JSON results keep their shape.
@@ -301,9 +316,13 @@ describe.skipIf(reason !== undefined)(
         name: "browser_click",
         arguments: { target: "#save", _meta: { json: true } },
       });
-      const payload = JSON.parse(textOf(json)) as { isError: boolean; error: string };
-      expect(payload.isError).toBe(true);
-      expect(payload.error).toMatch(/^Could not click button "Save" .* covers it/);
+      const payload = JSON.parse(textOf(json)) as { isError: boolean; code: string; error: string; cover: unknown };
+      expect(payload).toMatchObject({
+        isError: true,
+        code: "ELEMENT_COVERED",
+        cover: { role: "dialog", name: "We use cookies", selector: "div.cookie-banner" },
+      });
+      expect(payload.error).toMatch(/^ELEMENT_COVERED: Could not click button "Save" .* covers it/);
     }, 60_000);
 
     it("runs a batch of actions in one call, with one snapshot at the end", async () => {
@@ -339,23 +358,43 @@ describe.skipIf(reason !== undefined)(
       });
       expect(failed.isError).toBe(true);
       expect(textOf(failed)).toMatch(
-        /^### Error\nAction 2 of 3 \(browser_click #save\) failed; the last action did not run\.\nCould not click button "Save"/,
+        /^### Error\nAction 2 of 3 \(browser_click #save\) failed; the last action did not run\.\nELEMENT_COVERED: Could not click button "Save"/,
       );
     }, 90_000);
 
-    it("waits the identity's settle after an action before it reads the page", async () => {
+    it("waits after an action only until the page is done with it, and for the request it started", async () => {
       const web = await site();
       onTestFinished(() => web.close());
-      // The click changes the title 1.5 s later: the result shows the new title only when the
-      // settle after the click is longer than that.
-      const after = async (id: string, settle: string) => {
-        writeIdentitySettings(id, { settle }, sb.env);
-        const client = await start(id);
-        await call(client, "browser_navigate", { url: `${web.url}/later` });
-        return call(client, "browser_click", { target: "#go" });
+      // A settle of 3 s: a fixed wait would hold every click at least that long.
+      writeIdentitySettings("adaptive", { settle: "3s" }, sb.env);
+      const client = await start("adaptive");
+      await call(client, "browser_navigate", { url: `${web.url}/still` });
+      const elapsed = async (target: string) => {
+        const t0 = performance.now();
+        const text = await call(client, "browser_click", { target });
+        return { text, ms: performance.now() - t0 };
       };
-      expect(await after("settle-long", "3s")).toContain("- Page Title: after");
-      expect(await after("settle-zero", "0")).toContain("- Page Title: before");
+      const { text: quick, ms } = await elapsed("#noop");
+      expect(ms).toBeLessThan(2500);
+      // The wait looked at the page without changing it.
+      expect(quick).toContain("- Page Title: quiet");
+      // The request the click started answers 1.2 s later; the result shows what it brought.
+      expect(await call(client, "browser_click", { target: "#load" })).toContain("- Page Title: loaded");
+      // A link that downloads a file navigates nowhere: its request never finishes as a page.
+      expect((await elapsed("#file")).ms).toBeLessThan(2500);
+    }, 90_000);
+
+    it("answers a dialog a click opened while the agent cursor draws and steps are recorded", async () => {
+      const web = await site();
+      onTestFinished(() => web.close());
+      // The page runs no script while the dialog is open: nothing may wait on it until it is answered.
+      writeIdentitySettings("asks", { cursor: "on", record: { screenshots: true } }, sb.env);
+      const client = await start("asks");
+      await call(client, "browser_navigate", { url: `${web.url}/still` });
+      const t0 = performance.now();
+      expect(await call(client, "browser_click", { target: "#ask" })).toContain('"confirm" dialog');
+      expect(performance.now() - t0).toBeLessThan(4000);
+      expect(await call(client, "browser_handle_dialog", { accept: true })).toContain("- Page Title: confirmed");
     }, 90_000);
 
     it("blocks what identity.json lists and serves cacheable static files from the identity's own disk cache", async () => {

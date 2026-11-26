@@ -11,6 +11,7 @@ import type { SecretStore } from "turno-core/secrets";
 import { CallToolRequestSchema, type CallToolResult, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { type ActFallback, type ActKey, actListed, resolveActFallback } from "./act-chain.js";
 import type { Sampler } from "./act-model.js";
+import { installAdaptiveWait } from "./action-wait.js";
 import { captchaKeyOf, captchaSourceLabel, resolveCaptchaSource } from "./captcha.js";
 import { refuseWhileBackground } from "./background-state.js";
 import { coveredBeforeCall, explainFailure } from "./diagnose.js";
@@ -488,6 +489,8 @@ class SessionBackend extends EventEmitter implements ServerBackend {
   private readonly clients = new Map<string, string>();
   /** When the sensitive fields of a page were last read (a snapshot reads them too). */
   private readonly fieldsRead = new WeakMap<Page, number>();
+  /** Open dialogs (alert, confirm, prompt) per page: a page runs no script while one is open. */
+  private readonly dialogs = new WeakMap<Page, number>();
   /** The challenge check of each page's last load, until a result reports it. */
   private readonly challenges = new WeakMap<Page, Promise<Omit<ChallengeEvent, "ts"> | undefined>>();
   /** The pause gate and the tabs of this browser: the live server, or a plain watch without it. */
@@ -678,7 +681,12 @@ class SessionBackend extends EventEmitter implements ServerBackend {
         live: this.host.live !== undefined,
         engine: launched.engine,
       })
-        ? new AgentCursor({ title, locale, ...(identity ? { identity: identity.id } : {}) })
+        ? new AgentCursor({
+            title,
+            locale,
+            ...(identity ? { identity: identity.id } : {}),
+            blocked: (page) => (this.dialogs.get(page) ?? 0) > 0,
+          })
         : undefined;
       // With humanize off too, a click lands inside its element rather than on its exact center,
       // at no cost (`HumanInput.offCenter`); read mode lays out no page to aim in.
@@ -701,12 +709,15 @@ class SessionBackend extends EventEmitter implements ServerBackend {
         if (masked.has(page)) return;
         masked.add(page);
         maskSnapshots(page, (fields) => this.noteFields(page, fields));
+        // Upstream listens for dialogs on every page already, so these change nothing for the page.
+        page.on("dialog", () => this.dialogs.set(page, (this.dialogs.get(page) ?? 0) + 1));
+        page.on("dialogclosed", () => this.dialogs.set(page, Math.max(0, (this.dialogs.get(page) ?? 1) - 1)));
       };
       for (const page of launched.context.pages()) mask(page);
       launched.context.on("page", mask);
       try {
         await backend.initialize(clientInfo);
-        this.hookUpstream(backend, launched.context);
+        this.hookUpstream(backend, launched.context, launched.engine);
         // After upstream's own routes (--allowed-origins, --blocked-origins), so this one runs
         // first and hands every request it does not block or serve on to them.
         if (identity && profile)
@@ -748,7 +759,7 @@ class SessionBackend extends EventEmitter implements ServerBackend {
             const config = viewConfig(forViews);
             const view = new BrowserBackend(config, launched.context, tools, {});
             await view.initialize(clientInfo);
-            this.hookUpstream(view, launched.context);
+            this.hookUpstream(view, launched.context, launched.engine);
             return { backend: view, config };
           },
         });
@@ -992,7 +1003,8 @@ class SessionBackend extends EventEmitter implements ServerBackend {
   }
 
   private async readFields(page: Page): Promise<void> {
-    if (page.isClosed()) return;
+    // Behind an open dialog the read would wait until someone answers it; the next call reads them.
+    if (page.isClosed() || this.dialogs.get(page)) return;
     this.noteFields(page, await sensitiveFields(page).catch(() => []));
   }
 
@@ -1036,7 +1048,11 @@ class SessionBackend extends EventEmitter implements ServerBackend {
    * redactor before the result leaves (`storage-guard.ts`); the storage tools' own lines are
    * masked, and a mask in a storage write stands for the value it hides.
    */
-  private hookUpstream(backend: BrowserBackendInstance, browserContext: BrowserContext): void {
+  private hookUpstream(
+    backend: BrowserBackendInstance,
+    browserContext: BrowserContext,
+    engine: LaunchedBrowser["engine"],
+  ): void {
     const context = backendContext(backend);
     if (!context || typeof context.redactSecrets !== "function") return;
     const own = context.redactSecrets.bind(context);
@@ -1051,8 +1067,12 @@ class SessionBackend extends EventEmitter implements ServerBackend {
     const storage = this.host.storage;
     storage.patchRestore(browserContext);
     const page = () => context.currentTab()?.page;
+    // The adaptive wait after an action (`action-wait.ts`) needs patchright's utility world:
+    // Camoufox runs on stock Playwright and Lightpanda has no rendering, so they keep upstream's.
+    const adaptive = engine !== "camoufox" && engine !== "lightpanda";
     const call = backend.callTool.bind(backend);
     backend.callTool = async (name, args, signal) => {
+      if (adaptive) for (const tab of context.tabs()) installAdaptiveWait(tab);
       const counted = NETWORK_TOOLS.has(name);
       const saving = name === "browser_storage_state";
       let callArgs = args;
@@ -1219,7 +1239,8 @@ class SessionBackend extends EventEmitter implements ServerBackend {
     const running = await this.current?.catch(() => undefined);
     if (!running?.passkeyProbe || !running.launched.isOpen()) return undefined;
     const page = await this.currentPageOf(key);
-    if (!page) return undefined;
+    // Behind an open dialog the page runs no script: wrapping would wait until it is answered.
+    if (!page || this.dialogs.get(page)) return undefined;
     return await running.passkeyProbe.arm(page).catch(() => undefined);
   }
 
@@ -1416,6 +1437,7 @@ class SessionBackend extends EventEmitter implements ServerBackend {
         result =
           (launched.engine === "lightpanda" ? undefined : await coveredBeforeCall(page, name, args, json)) ??
           (await this.withCursor(running, name, page, () => backend.callTool(name, args, signal)));
+        result = await afterOwnClose(backend, page, name, args, result);
         void running.cursor?.end(backendContext(backend)?.currentTab()?.page, key);
         this.watch.follow(key, backendContext(backend)?.currentTab()?.page);
         if (result.isError)
@@ -1492,12 +1514,14 @@ class SessionBackend extends EventEmitter implements ServerBackend {
                 .current()
                 ?.bringToFront()
                 .catch(() => {});
-            await running.cursor?.begin(tabs.current(), key, this.clients.get(key));
+            const acted = tabs.current();
+            await running.cursor?.begin(acted, key, this.clients.get(key));
             result =
               (running.launched.engine === "lightpanda"
                 ? undefined
-                : await coveredBeforeCall(tabs.current(), name, args, json)) ??
-              (await this.withCursor(running, name, tabs.current(), () => backend.callTool(name, args, signal)));
+                : await coveredBeforeCall(acted, name, args, json)) ??
+              (await this.withCursor(running, name, acted, () => backend.callTool(name, args, signal)));
+            result = await afterOwnClose(backend, acted, name, args, result);
             void running.cursor?.end(tabs.current(), key);
             this.watch.follow(key, tabs.current());
             if (result.isError) result = await explainFailure(tabs.current(), name, args, result, json);
@@ -1611,7 +1635,8 @@ class SessionBackend extends EventEmitter implements ServerBackend {
         element: args.element ?? args.startElement,
         ok: !result.isError,
         ...(page ? { page } : {}),
-        screenshot: true,
+        // Behind an open dialog the page paints nothing: the screenshot would wait out its 5 s.
+        screenshot: !(page && this.dialogs.get(page)),
       });
   }
 
@@ -1806,6 +1831,38 @@ class SessionBackend extends EventEmitter implements ServerBackend {
     this.launched = undefined;
     if (current) await current.then(({ backend }) => backend.dispose()).catch(() => {});
   }
+}
+
+/**
+ * A page that closes its own tab right after an action (an authorization popup that calls
+ * `window.close()` once the person allows access) can close it while upstream reads the snapshot
+ * for the result, and the action, which ran, would come back as "Target page, context or browser
+ * has been closed". The result is then the snapshot of the tab now current, after a note. The
+ * wait after the action ends within a few frames, so this is no longer covered by its 500 ms.
+ */
+async function afterOwnClose(
+  backend: BrowserBackendInstance,
+  page: Page | undefined,
+  name: string,
+  args: Record<string, unknown>,
+  result: ToolResult,
+): Promise<ToolResult> {
+  if (!page || !result.isError || name === "browser_snapshot") return result;
+  const first = result.content[0];
+  const text = first?.type === "text" ? (first as { text: string }).text : "";
+  if (!/ariaSnapshot(JSON)?: Target page, context or browser has been closed/.test(text)) return result;
+  // Upstream moves to a neighbouring tab when it hears of the close.
+  if (!page.isClosed()) await page.waitForEvent("close", { timeout: 2_000 }).catch(() => {});
+  if (!page.isClosed()) return result;
+  const snapshot = await backend.callTool("browser_snapshot", args._meta ? { _meta: args._meta } : {});
+  const head = snapshot.content[0];
+  if (snapshot.isError || head?.type !== "text" || (args._meta as { json?: boolean } | undefined)?.json)
+    return snapshot;
+  const note = "### Note\nThe page closed its own tab after the action; this is the tab now current.\n";
+  return {
+    ...snapshot,
+    content: [{ ...head, text: note + (head as { text: string }).text }, ...snapshot.content.slice(1)],
+  };
 }
 
 /**

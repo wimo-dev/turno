@@ -272,8 +272,10 @@ about:blank (15 minutes: closed); `tabs` in the identity's identity.json or the 
 Next to the stock Playwright MCP tools, turno-browser lists `browser_batch`, which runs several
 of them in order in one call (stopping at the first failure) and returns one line per action and
 at most one snapshot. A click, hover, type, select or drag that fails because of the element says
-which element covers it, or whether it is hidden or disabled, and what to do next. `settle` in
-identity.json (like `"100ms"`) shortens Playwright's 500 ms wait after each action.
+which element covers it, or whether it is hidden or disabled, and what to do next, after a stable
+code such as `ELEMENT_COVERED`. After each action the server waits only until the page is done
+with it (its requests answered, nothing changed for two animation frames), with Playwright's own
+wait as the limit; `settle` in identity.json (like `"100ms"`) lowers that limit.
 Blocking ads, trackers or heavy resource types (`block`) and an on-disk cache of static files
 (`cache`) are opt-in per identity in identity.json.
 With `--identity`, `browser_login <site>` fills a sign-in form from the identity's credential

@@ -133,6 +133,11 @@ export interface AgentCursorOptions {
   maxGlideMs?: number;
   /** The language of the badge (`ui-strings.ts`); English without it. */
   locale?: UiLocale;
+  /**
+   * Whether a page runs no script now (an alert, confirm or prompt is open): the overlay leaves it
+   * alone, or the call that answers the dialog would wait on its own page.
+   */
+  blocked?: (page: Page) => boolean;
 }
 
 const defaultSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -214,7 +219,7 @@ export class AgentCursor {
     commands: OverlayCommand[],
     key: string = this.ownerOf(page),
   ): Promise<OverlayReport | undefined> {
-    if (page.isClosed()) return undefined;
+    if (page.isClosed() || this.options.blocked?.(page)) return undefined;
     // The direct session's key is "" (`DIRECT_SESSION`): every key, that one too, is an actor.
     const a = this.actor(key);
     const { working, workingAs, paused } = this.text;
