@@ -146,6 +146,9 @@ export const SETTINGS_FLAGS: FlagSpec = {
   "no-proxy": { type: "boolean" },
   // The agent cursor (format 12): auto, on or off.
   cursor: { type: "string" },
+  // Notifications and the last click (format 14): true or false.
+  notify: { type: "string" },
+  "last-click": { type: "string" },
   // The low-resource preset (format 13): normal or low.
   resources: { type: "string" },
   // What the identity may do (format 13): allowed hosts, disabled features, auto submit.
@@ -173,6 +176,8 @@ const KEY_FLAGS: readonly (readonly [string, string])[] = [
   ["humanize.level", "--humanize"],
   ["sharing", "--sharing"],
   ["cursor", "--cursor"],
+  ["notify", "--notify"],
+  ["lastClick", "--last-click"],
   ["resources", "--resources"],
   ["browser", "--browser"],
   ["tabLocks.wait", "--tab-lock-wait"],
@@ -476,6 +481,10 @@ function tuningPatch(
   // Checked by the package too: an unknown value comes back as `--cursor must be ...`.
   const cursor = value("cursor");
   if (cursor !== undefined) patch.cursor = cursor as IdentitySettings["cursor"] | null;
+  const notify = value("notify");
+  if (notify !== undefined) patch.notify = notify === null ? null : booleanValue("--notify", notify);
+  const lastClick = value("last-click");
+  if (lastClick !== undefined) patch.lastClick = lastClick === null ? null : booleanValue("--last-click", lastClick);
   // And this one: `--resources must be ...`.
   const resources = value("resources");
   if (resources !== undefined) patch.resources = resources as IdentitySettings["resources"] | null;
@@ -755,6 +764,9 @@ export function show(c: Ctx, id: string, args: string[], io: Io): number {
       ]);
     if (settings.sharing === "tabs") rows.push(["sharing", "every agent session at once, each in its own tabs"]);
     rows.push(["agent cursor", CURSOR_TEXT[settings.cursor ?? "auto"] ?? String(settings.cursor)]);
+    if (settings.notify === false) rows.push(["notifications", "off (--notify false)"]);
+    if (settings.lastClick === false)
+      rows.push(["last click", "the agent may buy, send, publish and delete itself (--last-click false)"]);
     if (settings.browser !== undefined) rows.push(["browser", m.browserLabel(settings.browser)]);
     if (settings.tabLocks)
       rows.push([
@@ -841,7 +853,7 @@ const SET_FLAGS: FlagSpec = {
 export const SET_SYNOPSIS =
   "[--timezone <zone>] [--locale <tag>] [--languages <tag,...>] [--region <CC>] [--health-url <url>] [--health-text <text>] [--health-selector <css>] [--health off] [--no-health] " +
   "[--tabs-max <n>] [--tabs-popups close|keep] [--tabs-park <duration>] [--tabs-close <duration>] [--no-tabs] [--background-throttling true|false] [--settle <duration>] [--resources normal|low|auto] " +
-  "[--block-trackers true|false] [--block-types image,media,font] [--block-patterns <host|glob>,...] [--no-block] [--cache] [--cache-max-size <size>] [--no-cache] [--humanize auto|off|light|full|adaptive] [--cursor auto|on|off] [--sharing session|tabs] [--tab-lock-wait <duration>] [--tab-lock-release <duration>] " +
+  "[--block-trackers true|false] [--block-types image,media,font] [--block-patterns <host|glob>,...] [--no-block] [--cache] [--cache-max-size <size>] [--no-cache] [--humanize auto|off|light|full|adaptive] [--cursor auto|on|off] [--notify true|false] [--last-click true|false] [--sharing session|tabs] [--tab-lock-wait <duration>] [--tab-lock-release <duration>] " +
   "[--engine chrome|lightpanda] [--attach auto|<dir>|<url>] [--record-flows true|false] [--record-traces true|false] [--record-screenshots true|false] [--record-max-size <size>] [--no-record] " +
   "[--act] [--act-sampling true|false] [--act-provider chat-completions] [--act-endpoint <url>] [--act-model <name>] [--act-key keychain:<item>] [--act-max-steps <n>] [--act-max-tokens <n>] [--act-timeout <duration>] [--no-act] " +
   "[--captcha-provider task-api] [--captcha-endpoint <url>] [--captcha-key keychain:<item>] [--captcha-timeout <duration>] [--no-captcha] [--live true|false|auto] [--live-wait <duration>] [--no-live] " +
@@ -900,6 +912,12 @@ Input:
                                   on: an arrow with the agent's name that glides to what it acts
                                   on, a ring, click ripples and a frame with a badge, drawn as an
                                   element in each page that a page script can see. off: neither
+  --notify true|false             the system's notifications when the agent waits for you (a
+                                  person step, a passkey, a captcha) or is done after a long
+                                  run. true (default); TURNO_BROWSER_NOTIFY=off also turns them off
+  --last-click true|false         true (default): a click that buys, sends, publishes or deletes
+                                  is yours: the agent fills in the rest and asks you with
+                                  browser_request_human. false lets the agent click it
 
 Which engine runs this identity (all off by default):
   --engine lightpanda             read mode: Lightpanda instead of Chrome, for reading pages;

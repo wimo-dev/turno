@@ -81,6 +81,8 @@ export interface DefaultsContext {
   serverProxy?: boolean;
   /** The system's proxy (`system-proxy.ts`); null: it sets none; undefined: not read. */
   systemProxy?: SystemProxy | null;
+  /** `TURNO_BROWSER_NOTIFY` turns the system's notifications off (`notify.ts`). */
+  notifyOff?: boolean;
 }
 
 /** turno-browser-mcp's flags that win over identity.json. */
@@ -117,6 +119,8 @@ export interface EffectiveSettings {
   act: Effective<boolean>;
   captcha: Effective<boolean>;
   proxy: Effective<boolean>;
+  notify: Effective<boolean>;
+  lastClick: Effective<boolean>;
 }
 
 const file = <T>(value: T): Effective<T> => ({ value, origin: { from: "file" } });
@@ -327,6 +331,20 @@ function proxy(s: IdentitySettings | undefined, ctx: DefaultsContext): Effective
   return auto(true, `the system's: ${describeSystemProxy(ctx.systemProxy)}`);
 }
 
+/** The system's notifications (`notify.ts`): on unless identity.json or the environment turns them off. */
+function notify(s: IdentitySettings | undefined, ctx: DefaultsContext): Effective<boolean> {
+  if (s?.notify !== undefined) return file(s.notify);
+  if (ctx.notifyOff) return auto(false, "TURNO_BROWSER_NOTIFY is off");
+  return byDefault(true);
+}
+
+/** A click that buys, sends, publishes or deletes is the person's (`last-click.ts`). */
+function lastClick(s: IdentitySettings | undefined, ctx: DefaultsContext): Effective<boolean> {
+  if (s?.lastClick !== undefined) return file(s.lastClick);
+  if (ctx.engine === "lightpanda") return auto(false, "read mode has no person to hand a click to");
+  return byDefault(true);
+}
+
 /** Every effective value of an identity in this context. */
 export function resolveDefaults(
   settings: IdentitySettings | undefined,
@@ -352,6 +370,8 @@ export function resolveDefaults(
     act: act(settings, ctx),
     captcha: captcha(settings, ctx),
     proxy: proxy(settings, ctx),
+    notify: notify(settings, ctx),
+    lastClick: lastClick(settings, ctx),
   };
 }
 
@@ -410,6 +430,8 @@ export function effectiveEntries(e: EffectiveSettings): [string, Effective<unkno
     ["act", e.act],
     ["captcha", e.captcha],
     ["proxy", e.proxy],
+    ["notify", e.notify],
+    ["lastClick", e.lastClick],
   ];
 }
 

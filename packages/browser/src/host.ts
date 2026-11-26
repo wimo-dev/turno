@@ -64,6 +64,8 @@ import {
   viewRefusal,
 } from "./live.js";
 import { LiveServer } from "./live-server.js";
+import { type LastClick, classifyClick, clickTargetOf, lastClickRefusal } from "./last-click.js";
+import { Notifier, RunWatch, notifyOffByEnv } from "./notify.js";
 import { MemoryWatch } from "./memory.js";
 import { PageActivity } from "./page-activity.js";
 import { names } from "./names.js";
@@ -373,6 +375,15 @@ function challengeNote(event: Omit<ChallengeEvent, "ts">, solver: string | undef
   return `This page (${event.site}) shows ${what}. ${who} should handle it: ask them to (with browser_request_human, if this server offers it), and go on once they are done.`;
 }
 
+/** The host of an address, or the address when it has none. */
+function hostOf(url: string): string {
+  try {
+    return new URL(url).host || url;
+  } catch {
+    return url;
+  }
+}
+
 /** A result's text parts with credentials replaced (`network-redact.ts`). */
 function redactNetworkResult(result: ToolResult): ToolResult {
   return {
@@ -456,6 +467,8 @@ interface Running {
   devtools: Set<string>;
   /** The person's own input in this Chrome's window, when it has one (`page-activity.ts`). */
   activity?: PageActivity;
+  /** A click that buys, sends, publishes or deletes is the person's (`last-click.ts`). */
+  lastClick: boolean;
 }
 
 /** Input the agent's own action can still cause after its call ends (a focus moving, a scroll easing out). */
@@ -509,6 +522,12 @@ class SessionBackend extends EventEmitter implements ServerBackend {
   private readonly dialogs = new WeakMap<Page, number>();
   /** The challenge check of each page's last load, until a result reports it. */
   private readonly challenges = new WeakMap<Page, Promise<Omit<ChallengeEvent, "ts"> | undefined>>();
+  /** The system's notifications of this session's browser (`notify.ts`), from its launch on. */
+  private notifier: Notifier | undefined;
+  /** Tells the person when the agent is done after a long run of calls. */
+  private readonly runs = new RunWatch((steps, ms) =>
+    this.notify("the agent is done", `It stopped using the browser after ${steps} steps in ${formatPause(ms)}.`),
+  );
   /** The pause gate and the tabs of this browser: the live server, or a plain watch without it. */
   private readonly watch: BrowserWatch;
   /** The person step a call waits for in pieces (`step-wait.ts`), with the watch's pause. */
@@ -604,6 +623,7 @@ class SessionBackend extends EventEmitter implements ServerBackend {
       }
       const settings = identity ? readIdentitySettings(identity.id, identity.env) : undefined;
       const effective = await this.defaults(settings, hostConfig);
+      this.notifier = new Notifier({ enabled: effective.notify.value === true, redactor: this.host.redactor });
       const tuning = resolveTuning(settings, this.host.tuning, effective);
       const locale = uiLocale(settings);
       // The low-resource preset's idle limit, unless the user set one (`resolveTuning`).
@@ -872,6 +892,7 @@ class SessionBackend extends EventEmitter implements ServerBackend {
         ...(seenWindow && (launched.engine === "chrome" || launched.engine === "attach")
           ? { activity: new PageActivity() }
           : {}),
+        lastClick: effective.lastClick.value === true,
       };
     })();
     promise.catch(() => {
@@ -912,6 +933,7 @@ class SessionBackend extends EventEmitter implements ServerBackend {
       serverProxy:
         config.browser.launchOptions.proxy !== undefined || userArgs.some((a) => a.startsWith("--proxy-server")),
       ...(identity && settings?.proxy === undefined ? { systemProxy: cachedSystemProxy() ?? null } : {}),
+      notifyOff: notifyOffByEnv(identity?.env ?? process.env),
     };
     return resolveDefaults(settings, ctx, {
       ...(live ? { live: true } : { live: false }),
@@ -952,6 +974,9 @@ class SessionBackend extends EventEmitter implements ServerBackend {
       );
     let result = await this.callLive(name, args, signal, session, sample, progress, trace);
     if (this.touchesBrowser(name)) {
+      // A person step is the person's time, not the agent's run.
+      if (name === HUMAN_STEP_TOOL) this.runs.reset();
+      else this.runs.call();
       const json = !!(args._meta as { json?: boolean } | undefined)?.json;
       result = await this.afterCall(name, args, result, session, started);
       result = await this.afterPolicy(result, session, started, json);
@@ -1058,7 +1083,13 @@ class SessionBackend extends EventEmitter implements ServerBackend {
         timer = setTimeout(() => r(undefined), CHALLENGE_WAIT_MS);
       }),
     ]).finally(() => clearTimeout(timer));
-    return event ? withTrailer(result, "Challenge", challengeNote(event, this.host.solver), "challenge", json) : result;
+    if (!event) return result;
+    if (event.kind !== "captcha" || !this.host.solver)
+      this.notify(
+        "a person may be needed",
+        `${event.site} shows ${event.kind === "captcha" ? "a captcha" : "a check for a person"}.`,
+      );
+    return withTrailer(result, "Challenge", challengeNote(event, this.host.solver), "challenge", json);
   }
 
   /** Values of a page's sensitive fields join the redactor, shown as `[sensitive field]`. */
@@ -1174,9 +1205,35 @@ class SessionBackend extends EventEmitter implements ServerBackend {
     page: Page | undefined,
     options: { fromSecretStore?: boolean },
   ): Promise<string | undefined> {
-    if (!page || options.fromSecretStore || !TYPING_TOOLS.has(name)) return undefined;
+    if (!page) return undefined;
+    if (name === "browser_click") return await this.refuseLastClick(args, page);
+    if (options.fromSecretStore || !TYPING_TOOLS.has(name)) return undefined;
     const kind = await typesIntoSensitive(page, name, args).catch(() => undefined);
     return kind ? sensitiveRefusal(name, kind) : undefined;
+  }
+
+  /** A click that buys, sends, publishes or deletes is left to the person (`last-click.ts`). */
+  private async refuseLastClick(args: Record<string, unknown>, page: Page): Promise<string | undefined> {
+    const running = await this.current?.catch(() => undefined);
+    if (!running?.lastClick || typeof args.target !== "string") return undefined;
+    const click = await this.lastClickOf(page, args.target);
+    if (!click) return undefined;
+    return lastClickRefusal({
+      click,
+      target: args.target,
+      ...(typeof args.element === "string" ? { element: args.element } : {}),
+      identity: this.host.identity?.id,
+    });
+  }
+
+  private async lastClickOf(page: Page, target: string): Promise<LastClick | undefined> {
+    const read = await clickTargetOf(page, target);
+    return read ? classifyClick(read) : undefined;
+  }
+
+  /** A notification of the system, when they are on (`notify.ts`): "turno · shop: <what>". */
+  private notify(what: string, body: string): void {
+    this.notifier?.send({ title: `turno · ${this.host.identity?.id ?? "browser"}: ${what}`, body });
   }
 
   /** True when a call needs the browser, so a pause holds it. */
@@ -1789,8 +1846,9 @@ class SessionBackend extends EventEmitter implements ServerBackend {
       },
       unseen: () => (headless ? passkeyUnseenReason(this.host.identity?.id) : undefined),
       paused: () => this.watch.gate.paused !== undefined,
-      handoff: async (page, settle) =>
-        await runStep(
+      handoff: async (page, settle) => {
+        this.notify(strings.title.toLowerCase(), `${hostOf(page.url())}: ${strings.instruction}`);
+        return await runStep(
           {
             instruction: strings.instruction,
             urlChanges: false,
@@ -1810,7 +1868,8 @@ class SessionBackend extends EventEmitter implements ServerBackend {
             json: false,
             currentPage: () => (page.isClosed() ? undefined : page),
           },
-        ),
+        );
+      },
     });
     return { watch: passkeys, probe };
   }
@@ -1858,9 +1917,21 @@ class SessionBackend extends EventEmitter implements ServerBackend {
     const { launched } = running;
     const headless = this.host.config.browser?.launchOptions?.headless === true && !launched.userBrowser;
     const unseen = headless ? unseenReason(this.host.live, this.host.identity?.id) : undefined;
+    // The click the person makes for a purchase, a message, a post or a deletion: the banner
+    // says what it does, whatever words the agent chose.
+    const click =
+      params.requireHumanClick && params.target
+        ? await this.lastClickOf(page, params.target).catch(() => undefined)
+        : undefined;
+    const said = uiStrings(running.locale).lastClick;
+    const banner = click
+      ? { title: said.title, hint: [said[click.kind], ...click.consequence.map((c) => `${c}.`), said.hint].join(" ") }
+      : undefined;
+    if (!unseen) this.notify(click ? said.title.toLowerCase() : "your turn", params.instruction);
     // The step runs on its own: a call that stops waiting leaves it up for the next one.
     const stop = new AbortController();
     const run = runStep(params, {
+      ...(banner ? { banner } : {}),
       page,
       watch: this.watch,
       guard: this.host.guard,
@@ -1939,6 +2010,7 @@ class SessionBackend extends EventEmitter implements ServerBackend {
   async dispose(): Promise<void> {
     if (this.disposed) return;
     this.disposed = true;
+    this.runs.dispose();
     const current = this.current;
     this.current = undefined;
     this.live = undefined;

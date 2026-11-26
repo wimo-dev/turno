@@ -193,6 +193,61 @@ that tells you to use your passkey in that window:
   settled. A passkey request a page makes on its own, outside the agent's actions, is not seen:
   you still get Chrome's window, and the agent is not told. Read mode and Camoufox do not have it.
 
+### The last click is yours
+
+A click that buys, sends, publishes or deletes is yours to make. When the agent's `browser_click`
+would place an order, make a payment, send a message or money, publish a post, or confirm a
+deletion, turno does not click. The agent is told what the click would do and to fill in
+everything else, then ask you with `browser_request_human`, `target` set to that button and
+`requireHumanClick: true`. The banner then says what the click does, from the page itself: the
+order's total, the amount of a transfer, who a message goes to, the first line of a deletion's
+dialog. You check it and click; the result tells the agent whether your own click landed on it.
+
+The check is conservative, because a wrong stop is a harmless click that waits for you. A button
+counts only when its accessible name says the act outright ("Place order", "Pay $95.50",
+"Confirm and pay", "Publish", "Realizar pedido"), or when it says a word that also names a harmless
+step and the page agrees:
+
+| The button says | It counts only when |
+| --- | --- |
+| Buy now, Pay (with no amount), Book, Subscribe, Comprar, Pagar | the page is a checkout with an amount (its address, or a payment method or order summary on it) |
+| Send, Reply, Enviar | a message is being written next to it (a filled text area or editor) or a recipient is filled in |
+| Transfer, Send money | the page shows an amount and a recipient |
+| Post, Tweet | a post is being written next to it |
+| Delete, Eliminar | it is in a dialog that warns it cannot be undone |
+| Delete account, Delete repository | it is in a dialog, or the page warns it cannot be undone |
+
+Steps on the way never count: "Add to cart", "Proceed to checkout", "Continue to payment",
+"Send code", "Send link again", "Save draft", "Preview", "Remove", "Cancel", and links in a menu.
+On the fixtures in turno's tests (14 acts in English and Spanish, and 23 harmless clicks that share
+their words) every act is caught and no harmless click is stopped.
+
+What it does not see: a key press that submits a form, and a click through the script tools
+(`browser_evaluate`, `browser_run_code_unsafe`). A click that `browser_batch` or `browser_act`
+makes goes through the same check. `turno-browser set <id> --last-click false` lets the agent
+make these clicks for that identity; read mode does not check.
+
+## Notifications
+
+turno tells you through your system's notifications when the agent waits for you, so you do not
+have to watch the terminal:
+
+- a person step (`browser_request_human`), with its instruction;
+- a page's passkey prompt, with the site;
+- a captcha or a check for a person that no solver answers, with the site;
+- the end of a long run: when the agent made calls for at least a minute and then made none for
+  20 seconds, with how many steps it took and how long.
+
+They use what your system has, with nothing to install: `osascript` on macOS, `notify-send` on
+Linux (when it is there; without it there are none) and a toast through PowerShell on Windows.
+The text goes through the same redaction as the agent's results, so a vault value or a password
+shows as its placeholder, and it is passed as the command's arguments (on Windows, in its
+environment), never as a script. The same notification is not shown again within a minute. On
+macOS, the first one may ask whether Script Editor may show notifications.
+
+They are on by default. `turno-browser set <id> --notify false` turns them off for an identity,
+and `TURNO_BROWSER_NOTIFY=off` in the server's environment for every identity.
+
 With the other settings:
 
 - Attach mode: you already see the agent's tabs in your own Chrome, and a view would stream your

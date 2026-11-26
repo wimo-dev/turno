@@ -75,9 +75,12 @@ import { parseDuration, parseSize } from "./units.js";
  * - `browser` (format 13): which Chromium-based browser opens the profile (`browsers.ts`):
  *   `"chrome"` (the default), `"edge"`, `"brave"`, `"chromium"`, `"chrome-for-testing"`, or the
  *   absolute path of another one. A server's `--browser` or `--executable-path` wins over it.
- * - Format 14 adds values, not keys: `"auto"` for `live.enabled`, `resources`, `humanize.level`
- *   and `userAgent` (the default, said out loud), and an explicit `false` for the keys that had no
+ * - Format 14 adds values: `"auto"` for `live.enabled`, `resources`, `humanize.level` and
+ *   `userAgent` (the default, said out loud), and an explicit `false` for the keys that had no
  *   off value: `act`, `cache`, `captcha`, `proxy`, `health`, `userAgent` and `locale`.
+ * - `notify`, `lastClick` (format 14): the system's notifications when the agent waits on the
+ *   person or is done (`notify.ts`), and leaving a click that buys, sends, publishes or deletes to
+ *   the person (`last-click.ts`). Both on by default; `false` turns one off.
  *
  * A key that is not in the file takes the default the code resolves at launch (`defaults.ts`),
  * from the context: headless or windowed, the live view, memory pressure, the engine, the policy.
@@ -151,6 +154,9 @@ const FORMAT_12_KEYS = ["cursor"] as const;
 
 /** The keys format 13 added. */
 const FORMAT_13_KEYS = ["resources", "policy", "browser"] as const;
+
+/** The keys format 14 added, besides its values (`usesFormat14`). */
+const FORMAT_14_KEYS = ["notify", "lastClick"] as const;
 
 /**
  * The values of `resources`: the defaults, the low-resource preset (`tuning.ts`), or `"auto"`
@@ -287,6 +293,10 @@ export interface IdentitySettings {
   policy?: IdentityPolicy;
   /** The Chromium-based browser that opens the profile; default `"chrome"` (`browsers.ts`). */
   browser?: BrowserChoice;
+  /** The system's notifications when the agent waits on the person or is done; default on. */
+  notify?: boolean;
+  /** A click that buys, sends, publishes or deletes is the person's (`last-click.ts`); default on. */
+  lastClick?: boolean;
   /** ISO dates. */
   created: string;
   updated: string;
@@ -311,7 +321,8 @@ export type SettingsPatch = {
     | (typeof FORMAT_10_KEYS)[number]
     | (typeof FORMAT_11_KEYS)[number]
     | (typeof FORMAT_12_KEYS)[number]
-    | (typeof FORMAT_13_KEYS)[number]]?: IdentitySettings[K] | null;
+    | (typeof FORMAT_13_KEYS)[number]
+    | (typeof FORMAT_14_KEYS)[number]]?: IdentitySettings[K] | null;
 };
 
 const KEYS = new Set([
@@ -333,6 +344,7 @@ const KEYS = new Set([
   ...FORMAT_11_KEYS,
   ...FORMAT_12_KEYS,
   ...FORMAT_13_KEYS,
+  ...FORMAT_14_KEYS,
   "created",
   "updated",
 ]);
@@ -422,6 +434,8 @@ function browserProblems(v: Record<string, unknown>, out: string[]): void {
     out.push('sharing must be "tabs" (the default, each agent session in its own tabs) or "session" (one at a time)');
   if (v.cursor !== undefined && !(CURSOR_MODES as readonly unknown[]).includes(v.cursor))
     out.push('cursor must be "auto" (the default, when the browser can be seen), "on" or "off"');
+  for (const key of FORMAT_14_KEYS)
+    if (v[key] !== undefined && typeof v[key] !== "boolean") out.push(`${key} must be true or false`);
   if (v.resources !== undefined && !(RESOURCE_MODES as readonly unknown[]).includes(v.resources))
     out.push(
       'resources must be "auto" (the default: the low-resource preset while memory is short), "normal" or "low"',
@@ -593,10 +607,10 @@ function validTimezone(tz: string): boolean {
 }
 
 /**
- * True when the file uses a value format 14 added: `"auto"` for `live.enabled`, `resources`,
- * `humanize.level` or `userAgent`, or `false` for a key that had no off value. Only then is the
- * file written as format 14, so a turno-browser that predates these values refuses it instead
- * of misreading it, and every other file keeps its format.
+ * True when the file uses what format 14 added: `"auto"` for `live.enabled`, `resources`,
+ * `humanize.level` or `userAgent`, `false` for a key that had no off value, or a key of
+ * `FORMAT_14_KEYS`. Only then is the file written as format 14, so a turno-browser that
+ * predates them refuses it instead of misreading it, and every other file keeps its format.
  */
 function usesFormat14(v: Record<string, unknown>): boolean {
   const level = isObject(v.humanize) ? v.humanize.level : undefined;
@@ -606,7 +620,8 @@ function usesFormat14(v: Record<string, unknown>): boolean {
     v.resources === "auto" ||
     level === "auto" ||
     v.userAgent === "auto" ||
-    FALSE_KEYS.some((k) => v[k] === false)
+    FALSE_KEYS.some((k) => v[k] === false) ||
+    FORMAT_14_KEYS.some((k) => v[k] !== undefined)
   );
 }
 

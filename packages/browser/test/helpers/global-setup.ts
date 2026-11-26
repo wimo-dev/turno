@@ -57,6 +57,8 @@ export default function setup(): () => void {
   mkdirSync(home);
   for (const key of Object.keys(process.env)) if (LIVE.test(key) && !KEEP.has(key)) delete process.env[key];
   process.env.HOME = home;
+  // No notification of the system from a host a test runs in process (`notify.ts`).
+  process.env.TURNO_BROWSER_NOTIFY = "off";
   process.env.XDG_CONFIG_HOME = join(home, ".config");
   process.env.XDG_STATE_HOME = join(home, ".local", "state");
   process.env.XDG_DATA_HOME = join(home, ".local", "share");

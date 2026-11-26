@@ -43,6 +43,7 @@ This page lists every environment variable turno reads. `turno help environment`
 | `TURNO_BROWSER_ACT_CLI` | off: natural language actions never run the Claude Code CLI or Codex (MCP sampling and API keys still count) |
 | `TURNO_BROWSER_CAPTCHA_ENDPOINT` | a task-api captcha solver's URL, for identities without a captcha group (with TURNO_BROWSER_CAPTCHA_KEY) |
 | `TURNO_BROWSER_CAPTCHA_KEY` | that solver's account key, hidden from every result |
+| `TURNO_BROWSER_NOTIFY` | off: turno-browser shows no notification of the system, for any identity |
 
 ## Set by turno for the agents it starts (read them, do not set them)
 
@@ -137,6 +138,8 @@ How turno behaves:
                              without a captcha group (with
                              TURNO_BROWSER_CAPTCHA_KEY)
   TURNO_BROWSER_CAPTCHA_KEY  that solver's account key, hidden from every result
+  TURNO_BROWSER_NOTIFY       off: turno-browser shows no notification of the
+                             system, for any identity
 
 Set by turno for the agents it starts (read them, do not set them):
   TURNO_PROFILE            the profile a launcher opened

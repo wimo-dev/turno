@@ -27,21 +27,22 @@ Usage:
       [--block-trackers true|false] [--block-types image,media,font]
       [--block-patterns <host|glob>,...] [--no-block] [--cache]
       [--cache-max-size <size>] [--no-cache] [--humanize
-      auto|off|light|full|adaptive] [--cursor auto|on|off] [--sharing
-      session|tabs] [--tab-lock-wait <duration>] [--tab-lock-release <duration>]
-      [--engine chrome|lightpanda] [--attach auto|<dir>|<url>] [--record-flows
-      true|false] [--record-traces true|false] [--record-screenshots true|false]
-      [--record-max-size <size>] [--no-record] [--act] [--act-sampling
-      true|false] [--act-provider chat-completions] [--act-endpoint <url>]
-      [--act-model <name>] [--act-key keychain:<item>] [--act-max-steps <n>]
-      [--act-max-tokens <n>] [--act-timeout <duration>] [--no-act]
-      [--captcha-provider task-api] [--captcha-endpoint <url>] [--captcha-key
-      keychain:<item>] [--captcha-timeout <duration>] [--no-captcha] [--live
-      true|false|auto] [--live-wait <duration>] [--no-live] [--user-agent
-      coherent|auto|off] [--proxy-server <url>|off] [--proxy-username
-      <name|keychain:item>] [--proxy-password keychain:<item>] [--no-proxy]
-      [--policy-file <file>] [--allowed-domains <host,...>] [--disable
-      <feature,...>] [--auto-submit true|false] [--no-policy] [--browser
+      auto|off|light|full|adaptive] [--cursor auto|on|off] [--notify true|false]
+      [--last-click true|false] [--sharing session|tabs] [--tab-lock-wait
+      <duration>] [--tab-lock-release <duration>] [--engine chrome|lightpanda]
+      [--attach auto|<dir>|<url>] [--record-flows true|false] [--record-traces
+      true|false] [--record-screenshots true|false] [--record-max-size <size>]
+      [--no-record] [--act] [--act-sampling true|false] [--act-provider
+      chat-completions] [--act-endpoint <url>] [--act-model <name>] [--act-key
+      keychain:<item>] [--act-max-steps <n>] [--act-max-tokens <n>]
+      [--act-timeout <duration>] [--no-act] [--captcha-provider task-api]
+      [--captcha-endpoint <url>] [--captcha-key keychain:<item>]
+      [--captcha-timeout <duration>] [--no-captcha] [--live true|false|auto]
+      [--live-wait <duration>] [--no-live] [--user-agent coherent|auto|off]
+      [--proxy-server <url>|off] [--proxy-username <name|keychain:item>]
+      [--proxy-password keychain:<item>] [--no-proxy] [--policy-file <file>]
+      [--allowed-domains <host,...>] [--disable <feature,...>] [--auto-submit
+      true|false] [--no-policy] [--browser
       chrome|edge|brave|chromium|chrome-for-testing|<path>] [--force]
       [--dry-run] [--json]
                                 change a browser identity's identity.json:
@@ -131,21 +132,22 @@ Usage:
       [--block-trackers true|false] [--block-types image,media,font]
       [--block-patterns <host|glob>,...] [--no-block] [--cache]
       [--cache-max-size <size>] [--no-cache] [--humanize
-      auto|off|light|full|adaptive] [--cursor auto|on|off] [--sharing
-      session|tabs] [--tab-lock-wait <duration>] [--tab-lock-release <duration>]
-      [--engine chrome|lightpanda] [--attach auto|<dir>|<url>] [--record-flows
-      true|false] [--record-traces true|false] [--record-screenshots true|false]
-      [--record-max-size <size>] [--no-record] [--act] [--act-sampling
-      true|false] [--act-provider chat-completions] [--act-endpoint <url>]
-      [--act-model <name>] [--act-key keychain:<item>] [--act-max-steps <n>]
-      [--act-max-tokens <n>] [--act-timeout <duration>] [--no-act]
-      [--captcha-provider task-api] [--captcha-endpoint <url>] [--captcha-key
-      keychain:<item>] [--captcha-timeout <duration>] [--no-captcha] [--live
-      true|false|auto] [--live-wait <duration>] [--no-live] [--user-agent
-      coherent|auto|off] [--proxy-server <url>|off] [--proxy-username
-      <name|keychain:item>] [--proxy-password keychain:<item>] [--no-proxy]
-      [--policy-file <file>] [--allowed-domains <host,...>] [--disable
-      <feature,...>] [--auto-submit true|false] [--no-policy] [--browser
+      auto|off|light|full|adaptive] [--cursor auto|on|off] [--notify true|false]
+      [--last-click true|false] [--sharing session|tabs] [--tab-lock-wait
+      <duration>] [--tab-lock-release <duration>] [--engine chrome|lightpanda]
+      [--attach auto|<dir>|<url>] [--record-flows true|false] [--record-traces
+      true|false] [--record-screenshots true|false] [--record-max-size <size>]
+      [--no-record] [--act] [--act-sampling true|false] [--act-provider
+      chat-completions] [--act-endpoint <url>] [--act-model <name>] [--act-key
+      keychain:<item>] [--act-max-steps <n>] [--act-max-tokens <n>]
+      [--act-timeout <duration>] [--no-act] [--captcha-provider task-api]
+      [--captcha-endpoint <url>] [--captcha-key keychain:<item>]
+      [--captcha-timeout <duration>] [--no-captcha] [--live true|false|auto]
+      [--live-wait <duration>] [--no-live] [--user-agent coherent|auto|off]
+      [--proxy-server <url>|off] [--proxy-username <name|keychain:item>]
+      [--proxy-password keychain:<item>] [--no-proxy] [--policy-file <file>]
+      [--allowed-domains <host,...>] [--disable <feature,...>] [--auto-submit
+      true|false] [--no-policy] [--browser
       chrome|edge|brave|chromium|chrome-for-testing|<path>] [--force]
       [--dry-run] [--json]
     change a browser identity's identity.json: place, languages, health check,
@@ -200,6 +202,12 @@ Input:
                                   on: an arrow with the agent's name that glides to what it acts
                                   on, a ring, click ripples and a frame with a badge, drawn as an
                                   element in each page that a page script can see. off: neither
+  --notify true|false             the system's notifications when the agent waits for you (a
+                                  person step, a passkey, a captcha) or is done after a long
+                                  run. true (default); TURNO_BROWSER_NOTIFY=off also turns them off
+  --last-click true|false         true (default): a click that buys, sends, publishes or deletes
+                                  is yours: the agent fills in the rest and asks you with
+                                  browser_request_human. false lets the agent click it
 
 Which engine runs this identity (all off by default):
   --engine lightpanda             read mode: Lightpanda instead of Chrome, for reading pages;

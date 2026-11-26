@@ -342,8 +342,14 @@ describe("auto and off values (format 14)", () => {
     expect(writeIdentitySettings("school", cleared, sb.env).version).toBe(1);
   });
 
-  it("writes format 14 for one auto or off value alone, so an older turno-browser refuses the file", () => {
-    const patches = [{ resources: "auto" as const }, { act: false as const }, { health: false as const }];
+  it("writes format 14 for one auto or off value, or notify or lastClick, alone, so an older turno-browser refuses the file", () => {
+    const patches = [
+      { resources: "auto" as const },
+      { act: false as const },
+      { health: false as const },
+      { notify: false },
+      { lastClick: true },
+    ];
     patches.forEach((patch, i) => expect(writeIdentitySettings(`one-${i}`, patch, sb.env).version).toBe(14));
     expect(writeIdentitySettings("low", { resources: "low" }, sb.env).version).toBe(13);
   });

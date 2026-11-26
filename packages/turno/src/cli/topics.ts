@@ -75,6 +75,7 @@ const ENVIRONMENT: readonly { title: string; rows: readonly (readonly [string, s
         "a task-api captcha solver's URL, for identities without a captcha group (with TURNO_BROWSER_CAPTCHA_KEY)",
       ],
       ["TURNO_BROWSER_CAPTCHA_KEY", "that solver's account key, hidden from every result"],
+      ["TURNO_BROWSER_NOTIFY", "off: turno-browser shows no notification of the system, for any identity"],
     ],
   },
   {
