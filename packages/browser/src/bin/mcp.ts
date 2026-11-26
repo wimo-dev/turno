@@ -69,11 +69,11 @@ Input (wins over the identity's identity.json):
                            light, and full on a site that showed a challenge page; auto is off
                            on localhost and for reading, light to act, and full on sign-in,
                            payment and support pages and on challenged sites
-  --cursor <auto|on|off>   the agent cursor: a named arrow that glides to what the agent acts
-                           on, a ring, click ripples and a frame with a badge while it works.
-                           auto (default): when the browser can be seen (a window, or the live
-                           view). It is an element in each page, which a page script can see:
-                           off leaves pages as they are
+  --cursor <auto|on|off>   the agent cursor. auto (default): when the browser can be seen (a
+                           window, or the live view), Chrome highlights what the agent acts on
+                           and shows its clicks, with nothing in the page. on: a named arrow,
+                           a ring, click ripples and a frame with a badge, as an element in
+                           each page that a page script can see. off: neither
 
 Engines (these flags win over the identity's identity.json; all off by default):
   --engine lightpanda      read mode: Lightpanda instead of Chrome, for reading pages

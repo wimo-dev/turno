@@ -194,11 +194,12 @@ Input:
                                   keys typed with human delays), full (plus overshoot, reading
                                   pauses, wheel scrolling) or adaptive (light, full after a
                                   challenge page)
-  --cursor auto|on|off            the agent cursor: an arrow with the agent's name that glides to
-                                  what it acts on, a ring, click ripples, and a frame with a badge
-                                  while it works. auto (default): when the browser can be seen (a
-                                  window, or the live view). It is an element in each page that a
-                                  page script can see: off leaves pages exactly as they are
+  --cursor auto|on|off            the agent cursor. auto (default): when the browser can be seen
+                                  (a window, or the live view), Chrome itself highlights what the
+                                  agent acts on and shows its clicks; nothing goes into the page.
+                                  on: an arrow with the agent's name that glides to what it acts
+                                  on, a ring, click ripples and a frame with a badge, drawn as an
+                                  element in each page that a page script can see. off: neither
 
 Which engine runs this identity (all off by default):
   --engine lightpanda             read mode: Lightpanda instead of Chrome, for reading pages;

@@ -25,6 +25,11 @@ import { dirname, isAbsolute, resolve } from "node:path";
 export const BUILTIN = [
   { name: "default", description: "the server as installed, no identity.json keys" },
   { name: "headed", description: "a visible Chrome window (the default outside tests)", headed: true },
+  {
+    name: "cursor-in-page",
+    description: 'identity.json "cursor": "on": the agent cursor drawn as elements in the page',
+    identity: { cursor: "on" },
+  },
   { name: "settle-100", description: 'identity.json "settle": "100ms"', identity: { settle: "100ms" } },
   {
     name: "settle-0",

@@ -16,7 +16,7 @@ const NONCE = "turno-probe";
 const PROBE_SCRIPT = String.raw`
 (() => {
   const run = new URLSearchParams(location.search).get('run') || 'unnamed';
-  const report = { run, static: null, events: [], traps: [], legacyRuntimeLeak: false, boxes: {} };
+  const report = { run, static: null, events: [], traps: [], foreignNodes: [], legacyRuntimeLeak: false, boxes: {} };
   const post = window.fetch.bind(window);
   const stringify = JSON.stringify;
   const rectOf = Element.prototype.getBoundingClientRect;
@@ -38,6 +38,18 @@ const PROBE_SCRIPT = String.raw`
   trap(Element.prototype, 'querySelector', 'Element.querySelector');
   trap(Element.prototype, 'querySelectorAll', 'Element.querySelectorAll');
   trap(Element.prototype, 'getBoundingClientRect', 'Element.getBoundingClientRect');
+
+  // Elements no page script made, added next to <head> and <body>: where an automation tool's
+  // overlay (a cursor, a banner) goes when it keeps out of the page's own content. Any page can
+  // watch for them with a MutationObserver, as this one does.
+  new MutationObserver((records) => {
+    for (const r of records)
+      for (const node of r.addedNodes)
+        if (node.nodeType === 1 && node !== document.head && node !== document.body && report.foreignNodes.length < 20) {
+          report.foreignNodes.push({ tag: node.tagName.toLowerCase(), t: Math.round(performance.now()) });
+          schedule();
+        }
+  }).observe(document.documentElement, { childList: true });
 
   // The classic Runtime.enable side effect: a client that serializes console arguments reads
   // the error's stack. V8 changed this in 2025, so a clean result here proves little.

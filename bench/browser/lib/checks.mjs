@@ -301,6 +301,17 @@ function protocolChecks(report) {
       : check("main-world-calls", "protocol", "pass", 0),
   );
   out.push(
+    report.foreignNodes?.length
+      ? check(
+          "page-nodes",
+          "protocol",
+          "warn",
+          report.foreignNodes.length,
+          `elements no page script made, under <html>: ${[...new Set(report.foreignNodes.map((n) => n.tag))].join(", ")}`,
+        )
+      : check("page-nodes", "protocol", "pass", 0),
+  );
+  out.push(
     report.legacyRuntimeLeak
       ? check("legacy-runtime-leak", "protocol", "fail", true, "console arguments were serialized (Runtime.enable)")
       : check("legacy-runtime-leak", "protocol", "pass", false, "V8 changed this signal in 2025; a pass proves little"),

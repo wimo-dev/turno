@@ -12,8 +12,9 @@ import { type UiLocale, uiStrings } from "./ui-strings.js";
 import type { UpstreamTool } from "./upstream.js";
 
 /**
- * The agent cursor: while an agent drives a browser someone can see (a headed Chrome window, or
- * any browser with the live view on), each page shows who is at work and where. A Figma-like
+ * The agent cursor drawn in the page (`cursor: "on"`, and the fallback of the one Chrome draws,
+ * `agent-cursor-cdp.ts`): while an agent drives a browser someone can see (a headed Chrome
+ * window, or any browser with the live view on), each page shows who is at work and where. A Figma-like
  * arrow with the agent's name glides to each element it acts on, a ring marks the element, a
  * click leaves a ripple, a field being typed into gets a typing bubble, and a thin frame with a
  * badge ("turno · Claude Code at work", "paused · you have the controls") goes around the page
