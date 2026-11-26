@@ -8,6 +8,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { afterEach, beforeEach, describe, expect, it, onTestFinished } from "vitest";
 import { POPUP_GRACE_MS } from "../src/governor.js";
 import { identityStateDir } from "../src/ids.js";
+import { type SnapNode, parseSnapshot, refOf, renderSnapshot } from "../src/snapshot-compact.js";
 import { writeIdentitySettings } from "../src/settings.js";
 import { chromeUnavailable, stopSandboxProcesses } from "./helpers/chrome.js";
 import { type Sandbox, sandbox, expectMode } from "./helpers/sandbox.js";
@@ -161,6 +162,13 @@ async function site(): Promise<{
       <a id="file" href="/api/file">Export</a>
       <button id="ask" onclick="if (confirm('Delete it?')) document.title = 'confirmed'">Delete</button>
       <script>new MutationObserver(() => { document.title = "mutated"; }).observe(document.body, { subtree: true, childList: true, attributes: true, characterData: true });</script>`,
+    // A page whose actions change it in place: a field, a section shown, an item removed.
+    "/changes": `<title>changes</title><main><h1>Changes</h1>
+      <label>Name <input id="name"></label>
+      <button onclick="document.getElementById('more').hidden = false">Show details</button>
+      <button onclick="document.getElementById('i3').remove()">Remove item 3</button>
+      <section id="more" hidden aria-label="Details"><h2>Details</h2><a href="/d">Read the details</a></section>
+      <ul>${Array.from({ length: 30 }, (_, i) => `<li id="i${i + 1}"><a href="/i/${i + 1}">Item ${i + 1}</a> costs $${i + 10}</li>`).join("")}</ul></main>`,
     // Every kind of element a snapshot shows: wrappers, a table, a list, a nameless link, a
     // clickable div, names with colons and quotes, form fields.
     "/mixed": `<title>mixed</title><header><nav aria-label="Main"><a href="/a">Home</a> | <a href="/b">Docs</a></nav></header>
@@ -417,6 +425,28 @@ describe.skipIf(reason !== undefined)(
       expect(part).not.toContain("Chapter 8 line 1 ");
     }, 90_000);
 
+    it("answers an action that stays on the page with its changes, which rebuild the page exactly", async () => {
+      const web = await site();
+      onTestFinished(() => web.close());
+      const client = await start("delta");
+      const yaml = (text: string) => /```yaml\n([\s\S]*?)\n?```/.exec(text)?.[1] ?? "";
+      await call(client, "browser_navigate", { url: `${web.url}/changes` });
+      const page = yaml(await call(client, "browser_snapshot"));
+      const ref = (role: string, name: string) =>
+        new RegExp(`${role} "${name}"[^\\n]*\\[ref=(\\w+)\\]`).exec(page)![1]!;
+      // Typing answers as upstream does, with no page: its change comes with the next action's.
+      expect(yaml(await call(client, "browser_type", { target: ref("textbox", "Name"), text: "Alice" }))).toBe("");
+      const changes = yaml(await call(client, "browser_click", { target: ref("button", "Show details") }));
+      const now = yaml(await call(client, "browser_read"));
+      expect(changes).toMatch(/^# Changes since the last snapshot of this page/);
+      expect(changes.length).toBeLessThan(now.length / 2);
+      expect(applyDelta(page, changes)).toBe(now);
+      // A change inside the long list is most of the page, and a navigation is another page: both
+      // answer as upstream does.
+      expect(yaml(await call(client, "browser_click", { target: ref("button", "Remove item 3") }))).toBe("");
+      expect(yaml(await call(client, "browser_navigate", { url: `${web.url}/mixed` }))).toBe("");
+    }, 90_000);
+
     it("waits after an action only until the page is done with it, and for the request it started", async () => {
       const web = await site();
       onTestFinished(() => web.close());
@@ -543,3 +573,66 @@ describe.skipIf(reason !== undefined)(
     }, 60_000);
   },
 );
+
+/**
+ * What a model does with a delta: the page it had, each changed or added element put in place
+ * (a ref shown without what is inside it keeps its content), the removed ones taken out.
+ */
+function applyDelta(base: string, delta: string): string {
+  let roots = parseSnapshot(base);
+  const byRef = new Map<string, { node: SnapNode; parent: SnapNode | undefined }>();
+  const index = (nodes: SnapNode[], parent: SnapNode | undefined) => {
+    for (const n of nodes) {
+      const r = n.parsed ? refOf(n) : undefined;
+      if (r) byRef.set(r, { node: n, parent });
+      index(n.children, n);
+    }
+  };
+  index(roots, undefined);
+  const siblings = (parent: SnapNode | undefined) => (parent ? parent.children : roots);
+  const fill = (n: SnapNode) => {
+    n.children = n.children.map((c) => {
+      const r = c.parsed ? refOf(c) : undefined;
+      if (r && c.children.length === 0 && byRef.has(r)) return byRef.get(r)!.node;
+      fill(c);
+      return c;
+    });
+  };
+  for (const section of delta.split(/^# /m).filter(Boolean)) {
+    const [head = "", ...rest] = section.split("\n");
+    const nodes = parseSnapshot(rest.join("\n"));
+    if (head.startsWith("Removed")) {
+      for (const n of nodes) {
+        const e = byRef.get(refOf(n)!);
+        if (!e) continue;
+        const list = siblings(e.parent);
+        list.splice(list.indexOf(e.node), 1);
+      }
+      continue;
+    }
+    const top: SnapNode[] = [];
+    for (const n of nodes) {
+      const r = n.parsed ? refOf(n) : undefined;
+      const e = r ? byRef.get(r) : undefined;
+      if (!e) {
+        top.push(n);
+        continue;
+      }
+      fill(n);
+      const list = siblings(e.parent);
+      list[list.indexOf(e.node)] = n;
+      index([n], e.parent);
+    }
+    // Text outside every element with a ref: the page's top level again.
+    if (top.length) {
+      roots = top.map((n) => {
+        const r = n.parsed ? refOf(n) : undefined;
+        if (r && n.children.length === 0 && byRef.has(r)) return byRef.get(r)!.node;
+        fill(n);
+        return n;
+      });
+      index(roots, undefined);
+    }
+  }
+  return renderSnapshot(roots);
+}

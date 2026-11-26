@@ -99,7 +99,7 @@ const REF_ATTR = /^\[ref=((?:f\d+)?e\d+)\]$/;
 const CURSOR_ATTR = "[cursor=pointer]";
 
 /** One line of a snapshot and the lines below it. */
-interface SnapNode {
+export interface SnapNode {
   /** The line as upstream wrote it, without its indent and `- `; kept for lines that are not elements. */
   raw: string;
   /** False for a line this module does not understand: it is kept as it was. */
@@ -221,14 +221,14 @@ function keyOf(node: SnapNode): string {
   return key;
 }
 
-function lineOf(node: SnapNode): string {
+export function lineOf(node: SnapNode): string {
   if (!node.parsed) return node.raw;
   const colon = node.value !== undefined ? `: ${node.value}` : node.children.length ? ":" : "";
   return `${keyOf(node)}${colon}`;
 }
 
 /** The YAML of a tree, two spaces per level. */
-function renderSnapshot(nodes: readonly SnapNode[], depth = 0, out: string[] = []): string {
+export function renderSnapshot(nodes: readonly SnapNode[], depth = 0, out: string[] = []): string {
   for (const node of nodes) {
     out.push(node.item === false ? node.raw : `${"  ".repeat(depth)}- ${lineOf(node)}`);
     renderSnapshot(node.children, depth + 1, out);
@@ -237,7 +237,7 @@ function renderSnapshot(nodes: readonly SnapNode[], depth = 0, out: string[] = [
 }
 
 /** The ref of a node, when it has one. */
-function refOf(node: SnapNode): string | undefined {
+export function refOf(node: SnapNode): string | undefined {
   for (const a of node.attrs) {
     const m = REF_ATTR.exec(a);
     if (m) return m[1];
@@ -505,15 +505,20 @@ export function shortenPart(compact: string): string {
   return [lead, "# The rest of this part is long; read its parts by ref:", ...toc].join("\n");
 }
 
-/** How snapshots leave the server. */
-export type SnapshotForm = "compact" | "full";
+/**
+ * How snapshots leave the server: "delta" (the default) is compact, and after an action that
+ * stays on the page only what changed (`snapshot-delta.ts`); "compact" is always the whole
+ * compact page; "full" is the snapshot as upstream writes it.
+ */
+export type SnapshotForm = "delta" | "compact" | "full";
 
-/** `TURNO_BROWSER_SNAPSHOT=full` keeps upstream's snapshots as they are. */
+/** `TURNO_BROWSER_SNAPSHOT`: full, compact, or delta when unset. */
 export function snapshotForm(env: NodeJS.ProcessEnv = process.env): SnapshotForm {
-  return env.TURNO_BROWSER_SNAPSHOT?.trim().toLowerCase() === "full" ? "full" : "compact";
+  const v = env.TURNO_BROWSER_SNAPSHOT?.trim().toLowerCase();
+  return v === "full" || v === "compact" ? v : "delta";
 }
 
-const YAML_BLOCK = /(### Snapshot\n```yaml\n)([\s\S]*?)(\n?```)/;
+export const YAML_BLOCK = /(### Snapshot\n```yaml\n)([\s\S]*?)(\n?```)/;
 
 /** The snapshot YAML of a result text, when it carries one inline. */
 export function snapshotYaml(text: string): string | undefined {

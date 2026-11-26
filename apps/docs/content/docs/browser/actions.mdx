@@ -21,6 +21,27 @@ its level); `browser_read` without a ref reads the whole page, compact, and with
 Playwright wrote it, every wrapper, ref and link destination included.
 `TURNO_BROWSER_SNAPSHOT=full` in the server's environment turns compaction off.
 
+After an action that stays on the page (a click, a key, a selection, a drag), the result carries
+what changed since the last snapshot the agent was given, by ref: the elements changed or added,
+each with what is inside it, and the refs removed. Playwright writes the snapshot after an action
+to a file and links it; without the changes, an agent that wants to see what its click did calls
+`browser_snapshot` and reads the whole page again. The changes come only when they are safe and
+smaller: the same session and the same URL as the last whole snapshot, and less than half the
+compact page. A navigation, another tab, a long page's table of contents, or a change that is
+most of the page leave the result as Playwright writes it, and `browser_snapshot` always returns
+the whole page. The changes applied to the last snapshot give the compact page exactly.
+`TURNO_BROWSER_SNAPSHOT=compact` turns them off.
+
+Playwright MCP had an incremental snapshot mode and removed it (microsoft/playwright#39777):
+it marked the changed nodes inside the whole tree, which saved little. Here the changes replace
+the page, and only on the result of an action that had no inline snapshot before.
+
+| Action (`pnpm bench:browser` tasks, then GitHub) | Changes | `browser_snapshot` after it |
+|---|---|---|
+| Open the "Code" menu on a GitHub repository page | 262 tokens | 7,683 tokens |
+| A click on the bench's small fixture pages (6 of 38 actions) | 82 tokens (median) | 109 tokens |
+| The other 32 actions: another page or tab, a change over half the page, or no snapshot | none | |
+
 Measured with `pnpm bench:snapshot --public` on 2026-11-25 (tokens are bytes / 4; every page kept
 every interactive ref, and the same questions got the same answers from the full snapshot and
 from what the agent gets):
