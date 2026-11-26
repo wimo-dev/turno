@@ -9,7 +9,7 @@ understand). The view listens on 127.0.0.1 behind a cookie of its own, and nothi
 ask for it:
 
 ```sh
-# status, and opens the view in your default browser
+# status, and opens the view as an app window next to the agent's Chrome
 turno-browser live school
 # the agent's next call waits for you
 turno-browser pause school
@@ -21,11 +21,57 @@ turno-browser resume school
 changes how long a paused call waits (identity.json `"live": { "enabled": false, "wait": "2m" }`;
 from `"5s"` to `"30m"`, 2 minutes by default). `"enabled": "auto"` says the same as leaving it out.
 
-The view is a page with the agent's tab as a picture (a screencast over CDP, sent only while a view
-is open), a list of tabs with "Follow the agent" (the tab of the latest call) as the default, and
-Pause and Resume buttons. While the agent is paused, your clicks, keys and scrolls on the picture go
-to that tab. In a headed Chrome you can also use the window itself: `turno-browser pause` brings the
-agent's tab to the front.
+The view is a panel: the agent's tab as a picture (a screencast over CDP, sent only while a view
+is open) next to a timeline of the agent's steps, a list of tabs with "Follow the agent" (the tab of
+the latest call) as the default, and Pause and Hand back buttons. Your clicks, keys and scrolls on
+the picture go to that tab. In a headed Chrome you can also use the window itself: `turno-browser
+pause` brings the agent's tab to the front.
+
+![The live view: the agent's tab on the left, its steps on the right](/browser-live-view-panel.png)
+
+`turno-browser live` opens it as an app window (Chrome's `--app`: no tabs, no address bar) of the
+Chromium browser you already use: your default browser when it is Chrome, Brave, Edge, Chromium or
+Vivaldi, else Google Chrome (Microsoft Edge on Windows). The window goes to the browser that runs,
+so it costs a renderer rather than a second browser: on macOS with Chrome 158 it opened in about
+0.4 s and added about 17 MB, where a separate Chrome on a profile of its own took twice as long and
+a whole browser's memory. Without a Chromium browser, or with `--tab`, the view opens in a tab of
+your default browser.
+
+## The timeline
+
+Each call of the agent is a line: the time, what it did in a few words ("Click", "Type into",
+"Open"), the element or address it worked on, how long it took, and whether it failed (with the
+first line of the error) or was not run after you changed the page. Pauses, your turns and each
+hand-back are lines too, with what changed while you had the browser. It keeps the last 200 steps.
+
+What a line never shows: the text the agent typed, the values it filled or selected, the code of a
+script, or the query of an address (only its origin and path). Everything else goes through the
+same redaction as the agent's results, so a vault value or a password shows as `[vault: <name>]`.
+
+When the same call on the same element fails three times in a row, the session looks stuck: the
+line and the status say so, in red, until a call of that session works.
+
+For screen readers, new steps and changes of state (paused, your turn, back to the agent, stuck)
+are announced politely (`aria-live`); the agent cursor in the page stays out of the accessibility
+tree.
+
+## Taking the controls without pausing
+
+You do not have to press Pause first. When you click, type or scroll on the picture while the agent
+works, or in the agent's Chrome window itself, the agent's next call waits for you:
+
+- In the view, your input pauses the agent at once and waits for the call that runs to end, so it
+  never lands in the middle of the agent's own.
+- In the Chrome window, the agent's next call sees your clicks, keys and scrolls since its last
+  call ended, and waits. Moving the mouse alone does not count.
+- The browser goes back to the agent 5 seconds after your last input, or at once when you press
+  Hand back. The waiting call is told that you used the browser and what changed, as after a pause;
+  your input counts as a change, so a call that does more than read gets a fresh snapshot instead.
+  Press Pause during such a hold to keep the controls until you hand back.
+- Input while a call of the agent runs is not seen in the Chrome window (the browser cannot tell
+  your clicks from the agent's then), and neither is input inside a frame of another site that
+  does not move the focus. The listeners live in Playwright's isolated world, so the page's own
+  scripts cannot see them, and they add nothing to the page.
 
 While you can see the browser, [the agent cursor](/docs/browser/agent-cursor) shows where the agent is on the page. During a pause its frame turns dashed and its badge says so:
 
@@ -42,7 +88,7 @@ What a pause does:
 - While you have the browser, the idle limit does not close it, the tab governor parks and closes
   nothing (a popup you open stays), and a trace (if `record.traces` is on) is saved, so what you do
   is not in it.
-- On resume each waiting call starts with a note: how long the pause lasted and what changed (the
+- On resume (Hand back in the view, or `turno-browser resume`) each waiting call starts with a note: how long the pause lasted and what changed (the
   current tab's URL and title, tabs opened and closed, your input in the view). When nothing
   changed the call runs. When something changed, a call that only reads (a snapshot, the tab list,
   `browser_extract`, `browser_observe`) runs; any other call does not, because the refs of the
@@ -91,8 +137,8 @@ or a text message, a second factor, accepting terms or giving consent. For those
   finish first, so no input of the agent's reaches the page while the banner is up.
 - The step ends on the first of: the URL matches `until.url` (a glob like `**/dashboard*`, a
   regular expression written `/.../`, or text the URL contains) or changes (`until.urlChanges`),
-  `until.selector` is visible, you press Done (`until.done: false` hides the button), you resume
-  the agent (Resume in the view, or `turno-browser resume`), or the timeout: 5 minutes by
+  `until.selector` is visible, you press Done (`until.done: false` hides the button), you hand the
+  browser back (Hand back in the view, or `turno-browser resume`), or the timeout: 5 minutes by
   default, up to 10 (`until.timeoutMs`). That is longer than the live wait, because typing a
   password and solving a captcha, or fetching a code from your email, takes minutes.
 - The agent's call waits for the step at most `waitMs`: 50 seconds by default, up to 4 minutes.

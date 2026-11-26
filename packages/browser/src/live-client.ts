@@ -74,7 +74,7 @@ async function ask(
   const live = readLiveFile(id, env);
   if (!live)
     throw new LiveError(
-      `no turno-browser-mcp serves "${id}" with the live view right now. It is off by default: turn it on with ${names().browser} set ${id} --live true, and it starts with the next server (an agent session starts one).`,
+      `no turno-browser-mcp serves "${id}" with the live view right now. It starts with the server (an agent session starts one), unless ${names().browser} set ${id} --live false turned it off.`,
     );
   let out: { status: number; body: unknown };
   try {

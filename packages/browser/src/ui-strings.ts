@@ -56,6 +56,26 @@ export interface UiStrings {
     hiddenInput: string;
     /** The page a browser without the view's cookie gets. `{command}`: the command that opens a new link. */
     denied: string;
+    /** Who took the controls by using the agent's own window (an automatic pause). */
+    byWindow: string;
+    /** An automatic pause: `{by}`; `{s}`: seconds of no input before the agent goes on. */
+    tookOver: string;
+    /** The step timeline next to the picture. */
+    steps: string;
+    noSteps: string;
+    /** `{action}`: a step as the timeline names it; `{n}`: failures in a row. */
+    stuck: string;
+    failed: string;
+    notRun: string;
+    waited: string;
+    /** Timeline lines of the pauses. `{by}` as in `paused`; `{t}`: how long. */
+    pausedEntry: string;
+    stepEntry: string;
+    tookOverEntry: string;
+    resumedEntry: string;
+    nothingChanged: string;
+    /** What the timeline calls each tool; a tool missing here shows its own name. */
+    actions: Record<string, string>;
   };
   /** The person step's banner (`human-step.ts`). */
   step: {
@@ -99,7 +119,7 @@ export const UI_STRINGS: Record<UiLocale, UiStrings> = {
       heading: "turno live",
       connecting: "Connecting...",
       pause: "Pause",
-      resume: "Resume",
+      resume: "Hand back",
       tabs: "Tabs",
       frameAlt: "The agent's tab",
       paused: "Paused ({by}). ",
@@ -118,8 +138,9 @@ export const UI_STRINGS: Record<UiLocale, UiStrings> = {
       hidden: "Hidden: this page holds a vault or sensitive value. It shows again after the page navigates.",
       notStarted: "Nothing to show until the agent opens the browser.",
       helpPaused:
-        "Click, scroll and type on the picture to act on the page. Resume when you are done; the agent is told what changed.",
-      helpRunning: "Pause to take the controls: the agent's next call waits until you resume (up to {s} s per call).",
+        "Click, scroll and type on the picture to act on the page. Press Hand back when you are done; the agent is told what changed.",
+      helpRunning:
+        "Click, scroll or type on the picture to take the controls: the agent waits until you stop or press Hand back. Pause keeps them until you hand back (a call waits up to {s} s).",
       helpNoView: "Pause and resume still work: the agent's next call waits until you resume.",
       disconnected: "Disconnected: the server stopped or restarted. Open the view again with turno-browser live.",
       pauseFirst: "Pause first: your input goes to the page only while the agent waits.",
@@ -128,6 +149,48 @@ export const UI_STRINGS: Record<UiLocale, UiStrings> = {
       noSuchTab: "no such tab (it may have closed)",
       hiddenInput: "This page holds a vault or sensitive value, so the view hides it; use the browser window for it.",
       denied: "This live view needs a fresh link. Run {command}: it opens one that works once.",
+      byWindow: "you, in the browser window",
+      tookOver:
+        "You have the controls ({by}). The agent goes on {s} s after your last input, or when you press Hand back.",
+      steps: "Steps",
+      noSteps: "Each step of the agent shows up here.",
+      stuck: "Looks stuck: {action} failed {n} times in a row.",
+      failed: "failed",
+      notRun: "not run: the page changed while you had it",
+      waited: "after waiting for you",
+      pausedEntry: "Paused ({by})",
+      stepEntry: "Your turn",
+      tookOverEntry: "You took the controls ({by})",
+      resumedEntry: "Back to the agent after {t}",
+      nothingChanged: "Nothing changed in the tabs.",
+      actions: {
+        browser_navigate: "Open",
+        browser_navigate_back: "Go back",
+        browser_click: "Click",
+        browser_type: "Type into",
+        browser_fill_form: "Fill",
+        browser_select_option: "Choose in",
+        browser_press_key: "Press",
+        browser_hover: "Point at",
+        browser_drag: "Drag",
+        browser_snapshot: "Read the page",
+        browser_take_screenshot: "Take a screenshot",
+        browser_tabs: "Tabs:",
+        browser_wait_for: "Wait",
+        browser_file_upload: "Upload a file",
+        browser_handle_dialog: "Answer a dialog",
+        browser_evaluate: "Run a script",
+        browser_close: "Close the tab",
+        browser_resize: "Resize the window",
+        browser_request_human: "Your turn:",
+        browser_login: "Sign in",
+        browser_batch: "Run",
+        browser_replay: "Replay a flow",
+        browser_act: "Do",
+        browser_extract: "Read",
+        browser_observe: "Look for",
+        browser_solve_captcha: "Solve a captcha",
+      },
     },
     step: {
       title: "Your turn",
@@ -164,7 +227,7 @@ export const UI_STRINGS: Record<UiLocale, UiStrings> = {
       heading: "turno en vivo",
       connecting: "Conectando...",
       pause: "Pausar",
-      resume: "Reanudar",
+      resume: "Devolver el control",
       tabs: "Pestañas",
       frameAlt: "La pestaña del agente",
       paused: "En pausa ({by}). ",
@@ -179,14 +242,15 @@ export const UI_STRINGS: Record<UiLocale, UiStrings> = {
       noBrowser: " El navegador no está abierto.",
       follow: "Seguir al agente",
       blank: "(en blanco)",
-      noView: "En este modo la página no se puede ver aquí. Pausar y Reanudar siguen funcionando.",
+      noView: "En este modo la página no se puede ver aquí. Pausar y Devolver el control siguen funcionando.",
       hidden: "Oculta: esta página tiene una contraseña u otro dato privado. Se verá otra vez cuando cambie de página.",
       notStarted: "Aún no hay nada que ver. Aparecerá cuando el agente abra el navegador.",
       helpPaused:
-        "Haz clic, desplázate y escribe sobre la imagen para usar la página. Cuando termines, presiona Reanudar y el agente sabrá qué cambió.",
+        "Haz clic, desplázate y escribe sobre la imagen para usar la página. Cuando termines, presiona Devolver el control y el agente sabrá qué cambió.",
       helpRunning:
-        "Presiona Pausar para tomar el control: el agente espera hasta que presiones Reanudar (hasta {s} s).",
-      helpNoView: "Pausar y Reanudar siguen funcionando: el agente espera hasta que presiones Reanudar.",
+        "Haz clic, desplázate o escribe sobre la imagen para tomar el control: el agente espera hasta que te detengas o presiones Devolver el control. Pausar te deja el control hasta que lo devuelvas (cada acción espera hasta {s} s).",
+      helpNoView:
+        "Pausar y Devolver el control siguen funcionando: el agente espera hasta que le devuelvas el control.",
       disconnected: "Se perdió la conexión. Abre la vista en vivo otra vez.",
       pauseFirst: "Primero presiona Pausar: lo que hagas llega a la página solo mientras el agente espera.",
       busy: "El agente está terminando algo que empezó antes de la pausa. Intenta otra vez en un momento.",
@@ -195,6 +259,48 @@ export const UI_STRINGS: Record<UiLocale, UiStrings> = {
       hiddenInput:
         "Esta página tiene una contraseña u otro dato privado, por eso aquí no se ve. Usa la ventana del navegador.",
       denied: "Este enlace ya no sirve. Pide uno nuevo con {command}: cada enlace funciona una sola vez.",
+      byWindow: "tú, en la ventana del navegador",
+      tookOver:
+        "Tú tienes el control ({by}). El agente sigue {s} s después de lo último que hagas, o cuando presiones Devolver el control.",
+      steps: "Pasos",
+      noSteps: "Aquí aparece cada paso del agente.",
+      stuck: "Parece atorado: {action} falló {n} veces seguidas.",
+      failed: "falló",
+      notRun: "no se hizo: la página cambió mientras la usabas",
+      waited: "después de esperarte",
+      pausedEntry: "En pausa ({by})",
+      stepEntry: "Tu turno",
+      tookOverEntry: "Tomaste el control ({by})",
+      resumedEntry: "De vuelta al agente tras {t}",
+      nothingChanged: "Nada cambió en las pestañas.",
+      actions: {
+        browser_navigate: "Abrir",
+        browser_navigate_back: "Volver",
+        browser_click: "Clic en",
+        browser_type: "Escribir en",
+        browser_fill_form: "Llenar",
+        browser_select_option: "Elegir en",
+        browser_press_key: "Presionar",
+        browser_hover: "Señalar",
+        browser_drag: "Arrastrar",
+        browser_snapshot: "Leer la página",
+        browser_take_screenshot: "Tomar una captura",
+        browser_tabs: "Pestañas:",
+        browser_wait_for: "Esperar",
+        browser_file_upload: "Subir un archivo",
+        browser_handle_dialog: "Responder un diálogo",
+        browser_evaluate: "Ejecutar un script",
+        browser_close: "Cerrar la pestaña",
+        browser_resize: "Cambiar el tamaño",
+        browser_request_human: "Tu turno:",
+        browser_login: "Iniciar sesión",
+        browser_batch: "Ejecutar",
+        browser_replay: "Repetir un flujo",
+        browser_act: "Hacer",
+        browser_extract: "Leer",
+        browser_observe: "Buscar",
+        browser_solve_captcha: "Resolver un captcha",
+      },
     },
     step: {
       title: "Tu turno",

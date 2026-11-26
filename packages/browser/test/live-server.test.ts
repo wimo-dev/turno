@@ -161,7 +161,7 @@ describe("the live view server", () => {
     expect(JSON.parse(ok.body).paused.by).toBe("the live view");
   });
 
-  it("takes input only while the agent is paused, and the link and input never from the wrong side", async () => {
+  it("refuses input with no tab to send it to without pausing, and the link and input never from the wrong side", async () => {
     await startServer();
     const port = (await liveStatus("work", sb.env))!.port;
     const cookie = await signIn(port);
@@ -173,12 +173,11 @@ describe("the live view server", () => {
         { cookie, origin: `http://127.0.0.1:${port}`, "x-turno-live": "1", "content-type": "application/json" },
         JSON.stringify(body),
       );
-    const early = await post("/input", { type: "click", x: 10, y: 10 });
-    expect(early.status).toBe(409);
-    expect(JSON.parse(early.body).error).toMatch(/^Pause first/);
-    await post("/pause", {});
+    // Input takes the controls by itself, but a refused one does not pause the agent.
     const noTab = await post("/input", { type: "click", x: 10, y: 10 });
+    expect(noTab.status).toBe(409);
     expect(JSON.parse(noTab.body).error).toBe("There is no tab to send it to.");
+    expect((await liveStatus("work", sb.env))?.paused).toBeNull();
     // The one-time link comes only from the socket.
     expect((await post("/link", {})).status).toBe(404);
     expect((await post("/pause", [1, 2])).status).toBe(400);
@@ -192,7 +191,7 @@ describe("the live view server", () => {
     expect((await livePause("work", sb.env)).paused).not.toBeNull();
   });
 
-  it("removes live.json and the socket on close, and the client then says how to turn it on", async () => {
+  it("removes live.json and the socket on close, and the client then says how it starts", async () => {
     const server = await startServer();
     const socket = server.socket!;
     await server.close();
@@ -201,7 +200,7 @@ describe("the live view server", () => {
     expect(await liveStatus("work", sb.env)).toBeUndefined();
     const error = await livePause("work", sb.env).catch((e: Error) => e);
     expect(error).toBeInstanceOf(LiveError);
-    expect((error as Error).message).toContain("turno-browser set work --live true");
+    expect((error as Error).message).toContain("It starts with the server");
   });
 
   it("drops a live.json whose server is gone", () => {

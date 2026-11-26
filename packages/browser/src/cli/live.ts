@@ -16,8 +16,9 @@ import { needIdentity } from "./flows.js";
 
 /**
  * `live|pause|resume <id>`: the live view and take-over of the turno-browser-mcp
- * that serves an identity (turno-browser's `live-server.ts`). The view opens in the default
- * browser through a link that works once; the link is never printed.
+ * that serves an identity (turno-browser's `live-server.ts`). The view opens as an app window of
+ * the person's Chromium browser (`--tab`: a tab of the default browser) through a link that
+ * works once; the link is never printed.
  */
 
 type LiveStatus = NonNullable<Awaited<ReturnType<BrowserFunctions["liveStatus"]>>>;
@@ -40,6 +41,7 @@ export const LIVE_JSON = jsonOutput([
   "hidden",
   "viewers",
   "tabs",
+  "stuck",
 ]);
 
 /** `120000` as "2m", `90000` as "90s". */
@@ -49,11 +51,12 @@ function seconds(ms: number): string {
 
 /** Why there is no live view to talk to: off, or no server running now. */
 function notServing(c: Ctx, id: string, io: Io): number {
-  const on = c.api.checkIdentitySettings(id, io.env).settings?.live?.enabled === true;
+  // On unless identity.json turns it off.
+  const on = c.api.checkIdentitySettings(id, io.env).settings?.live?.enabled !== false;
   return fail(
     on
       ? `no turno-browser-mcp serves "${id}" right now. The live view starts with the server (an agent session that uses browser-${id} starts it).`
-      : `the live view is off for "${id}" (the default). Turn it on with ${c.names.browser} set ${id} --live true; it starts with the next turno-browser-mcp for this identity.`,
+      : `the live view is off for "${id}". Turn it on with ${c.names.browser} set ${id} --live true; it starts with the next turno-browser-mcp for this identity.`,
   );
 }
 
@@ -77,7 +80,7 @@ function describe(status: LiveStatus, io: Io): void {
     );
 }
 
-const LIVE_FLAGS: FlagSpec = { "no-open": { type: "boolean" }, ...JSON_FLAG };
+const LIVE_FLAGS: FlagSpec = { "no-open": { type: "boolean" }, tab: { type: "boolean" }, ...JSON_FLAG };
 
 export async function live(c: Ctx, args: string[], io: Io): Promise<number> {
   const mod = c.api;
@@ -92,10 +95,12 @@ export async function live(c: Ctx, args: string[], io: Io): Promise<number> {
   }
   describe(status, io);
   if (!status.view.available || bool(p, "no-open")) return Exit.ok;
-  await open(await mod.liveLink(id, io.env), io);
+  // An app window by default: the view sits next to the agent's Chrome like a side panel.
+  const app = !bool(p, "tab");
+  await open(await mod.liveLink(id, io.env), io, { app });
   io.err(
     style(io).muted(
-      `opened the live view of "${id}" in your browser (the link works once; run this again for a new one)`,
+      `opened the live view of "${id}" ${app ? "in an app window of your browser" : "in your browser"} (the link works once; run this again for a new one)`,
     ),
   );
   return Exit.ok;

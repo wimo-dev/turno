@@ -7,8 +7,19 @@ import { dirname, join } from "node:path";
 import { replaceFileSync } from "turno-core/paths";
 import type { BrowserContext, CDPSession, Page } from "patchright-core";
 import type { IdentityRef } from "./engine.js";
-import { type LiveFile, type LivePolicy, PauseGate, type PauseHold, type TabState, liveFilePath } from "./live.js";
+import {
+  DEFAULT_IDLE_MS,
+  type LiveFile,
+  type LivePolicy,
+  PauseGate,
+  type PauseHold,
+  type TabState,
+  describeChanges,
+  handBackWhenIdle,
+  liveFilePath,
+} from "./live.js";
 import { deniedPage, livePage } from "./live-page.js";
+import { type Stuck, Timeline, type TimelineEntry, plainUrl } from "./live-timeline.js";
 import type { Redactor, VaultGuard } from "./redact.js";
 import { names } from "./names.js";
 import { type UiLocale, fill, uiStrings } from "./ui-strings.js";
@@ -32,9 +43,12 @@ import { type BrowserWatch, titleOf } from "./watch.js";
  *   user picked), taken only while a view is open. A frame of a page that holds a vault or
  *   sensitive value (the vault guard: a `browser_login` fill, a password typed) is never sent;
  *   the view says the page is hidden until it navigates.
- * - While the agent is paused, the user's clicks, keys and scrolls on the picture go to that
- *   tab through Playwright's mouse and keyboard. Never while an agent call runs, and never to a
- *   hidden page. Input is not logged anywhere.
+ * - The user's clicks, keys and scrolls on the picture go to that tab through Playwright's mouse
+ *   and keyboard, never to a hidden page. Input while the agent works first pauses it by itself
+ *   (an automatic pause, `live.ts`) and waits for the call that runs to end; the browser goes back
+ *   to the agent once the input stops, or with Hand back. Input is not logged anywhere.
+ * - Next to the picture, the step timeline (`live-timeline.ts`): each call of the agent, the
+ *   pauses and what changed in them, redacted like every result, and a session that looks stuck.
  */
 
 /** The running browser, as the host gives it to the live server. */
@@ -59,7 +73,8 @@ export interface LiveStatus {
   pid: number;
   port: number;
   started: string;
-  paused: { since: string; by: string } | null;
+  /** `idleMs`: an automatic pause, which ends once the person's input stops that long. */
+  paused: { since: string; by: string; idleMs?: number } | null;
   /** Agent calls waiting for the user. */
   waiting: number;
   /** Agent calls running now. */
@@ -79,6 +94,8 @@ export interface LiveStatus {
   /** Viewers connected now. */
   viewers: number;
   tabs: { id: number; url: string; title: string; session?: string }[];
+  /** A session whose same call on the same target failed again and again; null when none. */
+  stuck: Stuck | null;
 }
 
 export interface LiveServerOptions {
@@ -93,8 +110,12 @@ export interface LiveServerOptions {
   log?(line: string): void;
   /** The language of the page and of its answers to the page (`ui-strings.ts`); English without it. */
   uiLocale?(): UiLocale;
+  /** How long the person's input must stop before an automatic pause ends (default 5 s). */
+  idleMs?: number;
 }
 
+/** How long input from the view waits for a call that runs to end, after it paused the agent. */
+const DRAIN_MS = 10_000;
 /** How long a link's code works. */
 const CODE_MS = 2 * 60_000;
 /** Largest request body accepted. */
@@ -122,15 +143,6 @@ class HttpError extends Error {
     message: string,
   ) {
     super(message);
-  }
-}
-
-function plainUrl(url: string): string {
-  try {
-    const u = new URL(url);
-    return u.protocol === "http:" || u.protocol === "https:" ? `${u.origin}${u.pathname}` : u.protocol;
-  } catch {
-    return "";
   }
 }
 
@@ -176,6 +188,8 @@ const num = (v: unknown, min: number, max: number): number => {
 
 export class LiveServer implements BrowserWatch {
   readonly gate = new PauseGate();
+  /** The steps of the agent, as the view shows them next to the picture. */
+  readonly timeline: Timeline;
   private browser: LiveBrowser | undefined;
   /** The browser `onPause` was called for, so `onResume` goes to the same one. */
   private heldBrowser: LiveBrowser | undefined;
@@ -202,7 +216,17 @@ export class LiveServer implements BrowserWatch {
   private closed = false;
   private readonly onExit = () => this.cleanupFiles();
 
-  constructor(private readonly o: LiveServerOptions) {}
+  constructor(private readonly o: LiveServerOptions) {
+    this.timeline = new Timeline(o.redactor);
+    this.timeline.onEntry((entry) => this.onStep(entry));
+  }
+
+  private onStep(entry: TimelineEntry): void {
+    if (!this.viewers.size) return;
+    this.broadcast("step", JSON.stringify(entry));
+    // A call can make a session stuck or clear it, which the state says.
+    if (entry.kind === "call") this.pushState();
+  }
 
   get paused(): boolean {
     return this.gate.paused !== undefined;
@@ -399,10 +423,13 @@ export class LiveServer implements BrowserWatch {
   /** Pauses the agent. `front`: bring the shown tab to the front of a headed window. */
   async pause(by: string, front = false, hold: PauseHold = {}): Promise<boolean> {
     if (!this.gate.start(by, this.tabStates(), hold)) return false;
+    this.timeline.paused(by, hold.step === true);
     this.o.log?.(
       hold.step
         ? `"${this.o.identity.id}" waits for the person (${by}); every call waits until the step ends`
-        : `"${this.o.identity.id}" paused (${by}); the agent's next call waits up to ${this.o.policy.waitMs / 1000}s`,
+        : hold.idleMs !== undefined
+          ? `"${this.o.identity.id}" held while the person uses it (${by}); it goes back to the agent ${hold.idleMs / 1000}s after their last input`
+          : `"${this.o.identity.id}" paused (${by}); the agent's next call waits up to ${this.o.policy.waitMs / 1000}s`,
     );
     const b = this.browser;
     if (b) {
@@ -416,13 +443,23 @@ export class LiveServer implements BrowserWatch {
   }
 
   resume(): boolean {
+    const was = this.gate.current();
     if (!this.gate.resume()) return false;
     this.o.log?.(`"${this.o.identity.id}" resumed`);
+    if (was) void this.noteHandBack(was);
     const b = this.heldBrowser;
     this.heldBrowser = undefined;
     b?.onResume?.();
     this.pushState();
     return true;
+  }
+
+  /** The timeline's hand-back line: what changed in the tabs while the person had the browser. */
+  private async noteHandBack(was: NonNullable<ReturnType<PauseGate["current"]>>): Promise<void> {
+    const before = await was.before.catch(() => [] as TabState[]);
+    const after = await this.tabStates().catch(() => [] as TabState[]);
+    const { lines } = describeChanges(before, after, undefined, undefined, this.gate.inputsOf(was.since));
+    this.timeline.resumed(was.by, was.step, Date.now() - was.since, lines);
   }
 
   /** The tab the view shows: the one picked, else the agent's latest, else the first. */
@@ -455,7 +492,13 @@ export class LiveServer implements BrowserWatch {
       pid: process.pid,
       port: this.port,
       started: this.started,
-      paused: paused ? { since: new Date(paused.since).toISOString(), by: paused.by } : null,
+      paused: paused
+        ? {
+            since: new Date(paused.since).toISOString(),
+            by: paused.by,
+            ...(paused.idleMs === undefined ? {} : { idleMs: paused.idleMs }),
+          }
+        : null,
       waiting: this.gate.held,
       busy: this.busy,
       wait: this.o.policy.waitMs,
@@ -467,6 +510,7 @@ export class LiveServer implements BrowserWatch {
       hidden: target ? this.o.guard.holds(target) || (this.hidden && this.cast?.page === target) : false,
       viewers: this.viewers.size,
       tabs,
+      stuck: this.timeline.stuck ?? null,
     };
   }
 
@@ -639,7 +683,9 @@ export class LiveServer implements BrowserWatch {
         const body = await readJson(req);
         // The command that paused, as the local client names it; only a short command name is taken.
         const by = typeof body.by === "string" && /^[a-z][a-z -]{0,38} pause$/.test(body.by) ? body.by : undefined;
-        await this.pause(trusted ? (by ?? `${names().browser} pause`) : "the live view", trusted);
+        // Pause during an automatic pause: the person keeps the controls until they hand back.
+        if (this.gate.keep()) this.pushState();
+        else await this.pause(trusted ? (by ?? `${names().browser} pause`) : "the live view", trusted);
         return this.json(res, 200, await this.fullStatus());
       }
       if (route === "POST /resume") {
@@ -685,6 +731,7 @@ export class LiveServer implements BrowserWatch {
       "X-Content-Type-Options": "nosniff",
     });
     res.write("retry: 3000\n\n");
+    res.write(`event: steps\ndata: ${JSON.stringify(this.timeline.list())}\n\n`);
     this.viewers.add(res);
     req.on("close", () => {
       this.viewers.delete(res);
@@ -694,13 +741,11 @@ export class LiveServer implements BrowserWatch {
     this.pushState();
   }
 
-  /** Why input from the view cannot go to the page now. */
+  /** Why input from the view cannot go to the page now (a pause comes first when there is none). */
   private inputRefusal(page: Page | undefined): string | undefined {
     const t = uiStrings(this.locale()).live;
     const reason = this.refusal();
     if (reason) return fill(t.noView, { reason });
-    if (!this.paused) return t.pauseFirst;
-    if (this.busy) return t.busy;
     if (!page) return t.noTab;
     if (this.o.guard.holds(page)) return t.hiddenInput;
     return undefined;
@@ -711,43 +756,72 @@ export class LiveServer implements BrowserWatch {
     return this.o.uiLocale?.() ?? "en";
   }
 
+  /**
+   * The person used the view while the agent works: an automatic pause, which ends once their
+   * input stops. The input waits for the call that runs to end, so it never lands in the middle
+   * of the agent's own.
+   */
+  private async takeOver(): Promise<void> {
+    if (!this.paused) {
+      const idleMs = this.o.idleMs ?? DEFAULT_IDLE_MS;
+      if (await this.pause("the live view", false, { idleMs })) {
+        const since = this.gate.paused?.since;
+        if (since !== undefined) void handBackWhenIdle(this, since);
+      }
+    }
+    const end = Date.now() + DRAIN_MS;
+    while (this.busy > 0 && this.paused && Date.now() < end) await new Promise((r) => setTimeout(r, 25));
+    if (this.busy > 0) throw new HttpError(409, uiStrings(this.locale()).live.busy);
+  }
+
   private async input(body: Record<string, unknown>): Promise<void> {
     const page = this.browser ? this.target() : undefined;
     const why = this.inputRefusal(page);
     if (why) throw new HttpError(409, why);
     const p = page!;
     const xy = () => [num(body.x, 0, 20_000), num(body.y, 0, 20_000)] as const;
+    let act: () => Promise<void>;
     switch (body.type) {
       case "click": {
         const [x, y] = xy();
-        await p.mouse.click(x, y);
+        act = () => p.mouse.click(x, y);
         break;
       }
       case "dblclick": {
         const [x, y] = xy();
-        await p.mouse.dblclick(x, y);
+        act = () => p.mouse.dblclick(x, y);
         break;
       }
       case "wheel": {
         const [x, y] = xy();
-        await p.mouse.move(x, y);
-        await p.mouse.wheel(num(body.dx, -20_000, 20_000), num(body.dy, -20_000, 20_000));
+        const dx = num(body.dx, -20_000, 20_000);
+        const dy = num(body.dy, -20_000, 20_000);
+        act = async () => {
+          await p.mouse.move(x, y);
+          await p.mouse.wheel(dx, dy);
+        };
         break;
       }
       case "text": {
         if (typeof body.text !== "string" || !body.text || body.text.length > 1_000)
           throw new HttpError(400, "text must be 1 to 1000 characters");
-        await p.keyboard.insertText(body.text);
+        const text = body.text;
+        act = () => p.keyboard.insertText(text);
         break;
       }
       case "key": {
         if (typeof body.key !== "string" || !KEYS.has(body.key)) throw new HttpError(400, "unknown key");
-        await p.keyboard.press(body.key);
+        const key = body.key;
+        act = () => p.keyboard.press(key);
         break;
       }
       default:
         throw new HttpError(400, "type must be click, dblclick, wheel, text or key");
     }
+    await this.takeOver();
+    // Before it lands too, so an automatic pause does not end while it runs.
+    this.gate.touch();
+    await act();
     this.gate.noteInput();
   }
 }

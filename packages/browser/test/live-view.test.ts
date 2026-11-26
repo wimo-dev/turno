@@ -220,6 +220,46 @@ describe.skipIf(reason)(`live view and take-over with a real Chrome${reason ? ` 
     expect(read.text).toContain('heading "Page B"');
   });
 
+  it("takes the controls when the person uses the view while the agent works, and hands back once they stop", async () => {
+    const web = await site();
+    onTestFinished(() => web.close());
+    addIdentity("auto", sb.env);
+    const client = await start("auto", ["--live", "--live-wait", "30s"]);
+    expect((await call(client, "browser_navigate", { url: `${web.url}/a` })).error).toBe(false);
+    const { port, cookie } = await signIn("auto");
+    const stream = events(port, cookie);
+    onTestFinished(() => stream.close());
+
+    // No Pause first: a scroll on the picture takes the controls by itself.
+    const scroll = { type: "wheel", x: 100, y: 100, dx: 0, dy: 40 };
+    expect((await post(port, cookie, "/input", scroll)).status).toBe(200);
+    const status = await liveStatus("auto", sb.env);
+    expect(status?.paused).toMatchObject({ by: "the live view", idleMs: 5_000 });
+    const began = Date.now();
+    const held = call(client, "browser_snapshot");
+    // The person keeps scrolling for 4 s: the agent's call waits all along.
+    for (let i = 0; i < 4; i++) {
+      await new Promise((r) => setTimeout(r, 1_000));
+      expect((await liveStatus("auto", sb.env))?.waiting).toBe(1);
+      expect((await post(port, cookie, "/input", scroll)).status).toBe(200);
+    }
+    const out = await held;
+    const lastInput = Date.now() - began;
+    expect(out.error, out.text).toBe(false);
+    expect(out.text).toMatch(/^### The person used the browser\nThe person was using this browser \(the live view\)/);
+    expect(out.text).toContain("- The user clicked, typed or scrolled 5 times through the live view.");
+    expect(out.text).toContain("Your browser_snapshot call ran after the resume");
+    expect(lastInput).toBeGreaterThanOrEqual(4_000 + 4_500);
+    expect((await liveStatus("auto", sb.env))?.paused).toBeNull();
+
+    // The timeline has the take-over, the hand-back and the held call.
+    const steps = stream.list
+      .filter((e) => e.event === "step")
+      .map((e) => JSON.parse(e.data) as Record<string, unknown>);
+    expect(steps.map((e) => e.kind)).toEqual(["pause", "resume", "call"]);
+    expect(steps[2]).toMatchObject({ tool: "browser_snapshot", outcome: "ok", waited: true });
+  }, 90_000);
+
   it("fails a held call after the wait, and does not hold a tool that needs no browser", async () => {
     addIdentity("slow", sb.env);
     const client = await start("slow", ["--live", "--live-wait", "5s"]);
@@ -279,6 +319,8 @@ describe.skipIf(reason)(`live view and take-over with a real Chrome${reason ? ` 
     expect(stream.list.slice(after).filter((e) => e.event === "frame")).toEqual([]);
     const states = stream.list.filter((e) => e.event === "state").map((e) => JSON.parse(e.data) as { hidden: boolean });
     expect(states.at(-1)?.hidden).toBe(true);
+    // The timeline has the sign-in, and nothing of the stream (frames, state, steps) has the password.
+    expect(stream.list.some((e) => e.event === "step" && e.data.includes('"tool":"browser_login"'))).toBe(true);
     expect(stream.list.map((e) => e.data).join("\n")).not.toContain(PASSWORD);
 
     const snap = (await call(client, "browser_snapshot")).text;
