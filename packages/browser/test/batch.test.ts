@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { MAX_BATCH, batchTool } from "../src/batch.js";
+import type { Page } from "patchright-core";
+import { MAX_BATCH, batchTool, errorCode } from "../src/batch.js";
+import { type Diagnosis, failureMessage } from "../src/diagnose.js";
 import { configForSession } from "../src/host.js";
+import { sensitiveRefusal } from "../src/sensitive.js";
 import { type StockAccess, parseArguments } from "../src/tools.js";
 import { resolveTuning } from "../src/tuning.js";
 import { type McpConfig, type ToolResult, upstream } from "../src/upstream.js";
@@ -75,11 +78,25 @@ describe("browser_batch", () => {
     expect(res.text).toContain('### Snapshot\n```yaml\n- button "Save" [ref=e2]');
   });
 
-  it("stops at the first failure and says which actions did not run", async () => {
+  it("stops at the first failure with its code, says which actions did not run, and returns the page", async () => {
+    const save = { role: "button", name: "Save", selector: "#save" };
+    const covered = failureMessage(
+      "browser_click",
+      "e7",
+      {
+        state: "covered",
+        target: save,
+        cover: { role: "dialog", name: "Cookies", selector: "#cookies" },
+        buttons: ["Accept"],
+      },
+      "Timeout 5000ms exceeded.",
+    );
     const { stock, calls } = fakeStock({
-      browser_click: () => ({
-        content: [{ type: "text", text: '### Error\nCould not click button "Save": dialog covers it' }],
-        isError: true,
+      browser_click: () => ({ content: [{ type: "text", text: `### Error\n${covered}` }], isError: true }),
+      browser_snapshot: () => ({
+        content: [
+          { type: "text", text: '### Page\n- Page URL: u\n### Snapshot\n```yaml\n- dialog "Cookies" [ref=e9]\n```' },
+        ],
       }),
     });
     const res = await run(stock, {
@@ -89,15 +106,82 @@ describe("browser_batch", () => {
         { tool: "browser_press_key", arguments: { key: "Enter" } },
         { tool: "browser_press_key", arguments: { key: "Tab" } },
       ],
-      snapshot: true,
     });
     expect(res.isError).toBe(true);
-    expect(calls.map((c) => c.name)).toEqual(["browser_type", "browser_click"]);
+    expect(calls.map((c) => c.name)).toEqual(["browser_type", "browser_click", "browser_snapshot"]);
     expect(res.text).toMatch(
-      /^### Error\nAction 2 of 4 \(browser_click e7\) failed; the last 2 actions did not run\.\nCould not click button "Save": dialog covers it/,
+      /^### Error\nAction 2 of 4 \(browser_click e7\) failed; the last 2 actions did not run\.\nELEMENT_COVERED: Could not click button "Save"/,
     );
-    expect(res.text).toContain("1. browser_type e3: ok\n2. browser_click e7: failed");
-    expect(res.text).not.toContain("### Snapshot");
+    expect(res.text).toContain("1. browser_type e3: ok\n2. browser_click e7: failed (ELEMENT_COVERED)");
+    expect(res.text).toContain('### Snapshot\n```yaml\n- dialog "Cookies" [ref=e9]');
+  });
+
+  it("gives each failure a stable code", () => {
+    const target = { role: "button", name: "Save", selector: "#save" };
+    const diagnosed = (d: Diagnosis | undefined) =>
+      failureMessage("browser_click", "e7", d, "Timeout 5000ms exceeded.");
+    expect(errorCode(diagnosed(undefined))).toBe("ELEMENT_GONE");
+    expect(errorCode(diagnosed({ state: "covered", target, cover: target, buttons: [] }))).toBe("ELEMENT_COVERED");
+    expect(errorCode(diagnosed({ state: "ok", target }))).toBe("ELEMENT_NOT_STABLE");
+    expect(errorCode("Ref e7 not found in the current page snapshot. Try capturing new snapshot.")).toBe(
+      "ELEMENT_GONE",
+    );
+    expect(errorCode('Error: "#nope" does not match any elements.')).toBe("ELEMENT_GONE");
+    expect(errorCode("TimeoutError: Timeout 5000ms exceeded.")).toBe("TIMEOUT");
+    expect(errorCode(sensitiveRefusal("browser_type", "password"))).toBe("REFUSED");
+    expect(errorCode("net::ERR_NAME_NOT_RESOLVED")).toBe("ERROR");
+  });
+
+  it("checks what an action must leave on the page, waiting for it, and stops at a check that fails", async () => {
+    let looks = 0;
+    const page = (yaml: string) => ({
+      content: [
+        {
+          type: "text" as const,
+          text: `### Page\n- Page URL: http://127.0.0.1/done\n### Snapshot\n\`\`\`yaml\n${yaml}\n\`\`\``,
+        },
+      ],
+    });
+    const { stock, calls } = fakeStock({
+      // The confirmation shows on the fourth look: the last check waits for it.
+      browser_snapshot: () =>
+        page(['- textbox "Name" [ref=e3]: Alic', ...(++looks >= 4 ? ['- status: "Saved: Alice"'] : [])].join("\n")),
+    });
+    // What the fields hold, as the page reads them.
+    const held: Record<string, string> = { e3: "Alic", e4: "Pro", e5: "true" };
+    const field = (target: string) => ({
+      first: () => ({
+        evaluate: async () => {
+          if (!(target in held)) throw new Error("no element");
+          return held[target];
+        },
+      }),
+    });
+    stock.currentPage = () => ({ getByRef: field, locator: field }) as unknown as Page;
+    const ok = await run(stock, {
+      actions: [
+        { tool: "browser_select_option", arguments: { target: "e4", values: ["Pro"] }, expect: { value: "Pro" } },
+        { tool: "browser_click", arguments: { target: "e5" }, expect: { value: "true", url: "/done" } },
+        { tool: "browser_click", arguments: { target: "e6" }, expect: { text: "Saved: Alice", gone: "Error" } },
+      ],
+    });
+    expect(ok.isError).toBe(false);
+    expect(looks).toBe(4);
+
+    calls.length = 0;
+    const res = await run(stock, {
+      actions: [
+        { tool: "browser_type", arguments: { target: "e3", text: "Alice" }, expect: { value: "Alice", timeout: 0 } },
+        { tool: "browser_click", arguments: { target: "e6" } },
+      ],
+    });
+    expect(res.isError).toBe(true);
+    expect(calls.map((c) => c.name)).toEqual(["browser_type", "browser_snapshot", "browser_snapshot"]);
+    expect(res.text).toMatch(
+      /^### Error\nAction 1 of 2 \(browser_type e3\) ran, but its check failed; the last action did not run\.\nCHECK_FAILED: after 0 ms e3 holds "Alic", not "Alice"\./,
+    );
+    expect(res.text).toContain("1. browser_type e3: ran, check failed (CHECK_FAILED)");
+    expect(res.text).toContain('### Snapshot\n```yaml\n- textbox "Name" [ref=e3]: Alic');
   });
 
   it("checks every action before running any", async () => {
@@ -112,7 +196,7 @@ describe("browser_batch", () => {
     });
     expect(res.isError).toBe(true);
     expect(calls).toEqual([]);
-    expect(res.text).toContain("Nothing ran.");
+    expect(res.text).toContain("INVALID_ACTION: nothing ran.");
     expect(res.text).toContain('action 2: "browser_clik" is not a browser tool of this server');
     expect(res.text).toMatch(/action 3 \(browser_type\): invalid arguments: .*text/s);
     expect(res.text).toContain("(a batch cannot hold a batch)");

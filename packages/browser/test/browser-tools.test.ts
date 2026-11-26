@@ -332,10 +332,10 @@ describe.skipIf(reason !== undefined)(
       const text = await call(client, "browser_batch", {
         actions: [
           { tool: "browser_navigate", arguments: { url: `${web.url}/form` } },
-          { tool: "browser_type", arguments: { target: "#name", text: "Alice" } },
-          { tool: "browser_select_option", arguments: { target: "#plan", values: ["Pro"] } },
-          { tool: "browser_click", arguments: { target: "#agree" } },
-          { tool: "browser_click", arguments: { target: "#submit" } },
+          { tool: "browser_type", arguments: { target: "#name", text: "Alice" }, expect: { value: "Alice" } },
+          { tool: "browser_select_option", arguments: { target: "#plan", values: ["Pro"] }, expect: { value: "Pro" } },
+          { tool: "browser_click", arguments: { target: "#agree" }, expect: { value: "true" } },
+          { tool: "browser_click", arguments: { target: "#submit" }, expect: { text: "Saved Alice" } },
           { tool: "browser_wait_for", arguments: { text: "Saved Alice" } },
         ],
         snapshot: true,
