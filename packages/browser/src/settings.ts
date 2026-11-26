@@ -62,9 +62,10 @@ import { parseDuration, parseSize } from "./units.js";
  * - `userAgent`, `proxy` (format 11), and the `"camoufox"` value of `engine`: opt-in network and
  *   user agent settings (`network.ts`) and Camoufox as an alternate engine
  *   (`engine-camoufox.ts`), all off by default.
- * - `cursor` (format 12): the agent cursor (`agent-cursor.ts`): `"auto"` (the default) draws it
- *   when someone can see the browser (a Chrome window, or the live view), `"on"` always, `"off"`
- *   never.
+ * - `cursor` (format 12): the agent cursor: `"auto"` (the default) lets Chrome draw it when
+ *   someone can see the browser (a Chrome window, or the live view), with nothing in the page
+ *   (`agent-cursor-cdp.ts`); `"on"` always draws the named arrow and badge in the page
+ *   (`agent-cursor.ts`); `"off"` never draws.
  * - `resources` (format 13): `"low"` applies the low-resource preset (`tuning.ts`) for a
  *   machine short of memory; `"normal"` (the default) keeps the defaults. A key set on its own
  *   (`tabs`, `backgroundThrottling`) still wins over the preset.

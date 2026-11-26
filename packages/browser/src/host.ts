@@ -34,6 +34,7 @@ import {
   writeHealth,
 } from "./health.js";
 import { AgentCursor, CursorInput, agentName, cursorTools, resolveCursor } from "./agent-cursor.js";
+import { BrowserDrawnCursor } from "./agent-cursor-cdp.js";
 import { HumanInput, adaptiveSites, humanizeTools } from "./human-input.js";
 import { identityStateDir } from "./ids.js";
 import { idleMs } from "./idle-timer.js";
@@ -699,7 +700,8 @@ class SessionBackend extends EventEmitter implements ServerBackend {
         live: this.host.live !== undefined,
         engine: launched.engine,
       })
-        ? new AgentCursor({
+        ? // `on` draws the named arrow and the badge in the page; `auto` lets Chrome draw (`agent-cursor-cdp.ts`).
+          new (tuning.cursor === "on" ? AgentCursor : BrowserDrawnCursor)({
             title,
             locale,
             ...(identity ? { identity: identity.id } : {}),
