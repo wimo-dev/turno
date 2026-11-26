@@ -270,8 +270,10 @@ about:blank (15 minutes: closed); `tabs` in the identity's identity.json or the 
 `--max-tabs`, `--popups`, `--park-after` and `--close-after` flags change that.
 
 Next to the stock Playwright MCP tools, turno-browser lists `browser_batch`, which runs several
-of them in order in one call (stopping at the first failure) and returns one line per action and
-at most one snapshot. A click, hover, type, select or drag that fails because of the element says
+of them in order in one call and returns one line per action and at most one snapshot. An action
+can carry checks (`expect`: text shown or gone, a part of the URL, a field's value); the first
+action or check that fails stops the batch, its error starts with a stable code (`ELEMENT_GONE`,
+`CHECK_FAILED`, ...), and the result carries a snapshot of the page at the failure. A click, hover, type, select or drag that fails because of the element says
 which element covers it, or whether it is hidden or disabled, and what to do next, after a stable
 code such as `ELEMENT_COVERED`. After each action the server waits only until the page is done
 with it (its requests answered, nothing changed for two animation frames), with Playwright's own

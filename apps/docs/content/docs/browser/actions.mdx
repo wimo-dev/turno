@@ -10,6 +10,34 @@ turno adds `browser_batch` to the browser tools: it runs several actions (`brows
 fails, and returns one line per action plus, when asked, one snapshot at the end. A form filled
 in one call costs the agent one round trip instead of one per field.
 
+An action can carry checks in `expect`: `text` the page must show after it, text that must be
+`gone`, a part of the `url`, or the `value` its target must hold (the text of a field, the label
+of the selected option, `"true"` or `"false"` for a checkbox). The checks wait for the page up to
+`timeout` milliseconds (default 5000, at most 30000), so a step that ends with a confirmation
+waits for it without a separate `browser_wait_for`. The first action that fails, or whose check
+does not hold, stops the batch. Its error starts with a stable code, its line in the batch says the
+code, and the result carries a snapshot of the page at the failure, so the agent needs no extra
+call to see it:
+
+| Code | What happened |
+|---|---|
+| `INVALID_ACTION` | nothing ran: an action names no tool of the server or has invalid arguments |
+| `ELEMENT_GONE` | the target is not on the page (a stale ref, a selector that matches nothing) |
+| `ELEMENT_COVERED`, `ELEMENT_HIDDEN`, `ELEMENT_DISABLED`, `ELEMENT_READONLY`, `ELEMENT_NOT_STABLE` | the target could not be acted on, as for a call of its own |
+| `TIMEOUT` | the action or its wait did not finish in time |
+| `REFUSED` | the identity's policy, the engine or the guard of password fields refused the action |
+| `CHECK_FAILED` | the action ran and its `expect` did not hold; the message says what the page showed |
+| `ERROR` | anything else, with upstream's message |
+
+```json
+{
+  "actions": [
+    { "tool": "browser_type", "arguments": { "target": "e5", "text": "Alice" }, "expect": { "value": "Alice" } },
+    { "tool": "browser_click", "arguments": { "target": "e9" }, "expect": { "text": "Saved", "url": "/account" } }
+  ]
+}
+```
+
 When a click or a type fails because of the page, the error says why: the element that covers
 the target (a cookie banner, a dialog) with its buttons, or that the target is hidden or
 disabled, and the next step. The message starts with a code that stays the same from release to
