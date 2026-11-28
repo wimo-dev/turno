@@ -13,8 +13,8 @@ import s from "./pictures.module.css";
  * site's name on its sign-in page: the tool fills the fields, only on the origins the site was
  * stored with, and what the model gets back names the fields and never the values. In a snapshot
  * a password or one-time code field reads `[sensitive field]`, whoever filled it; the username
- * the vault filled reads `[vault: ...]`. The form is
- * not submitted unless the identity allows it.
+ * the vault filled reads `[vault: ...]`. The tool then submits the form, unless the identity's
+ * `vault submit` says `confirm`.
  */
 
 /** The phases of each step and how many beats each holds. */
@@ -42,7 +42,7 @@ export default function VaultPicture({ lang, chosen, run, drawn, armed, reduced,
   } else {
     prompt = "tool";
     cmd = call;
-    if (p >= 4) result = PRINTS.notSubmitted;
+    if (p >= 4) result = PRINTS.submitted;
   }
   useEffect(() => {
     if (run > 0) say({ prompt, cmd, result });

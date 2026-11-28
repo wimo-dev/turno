@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { CopyCommand } from "../landing/kit";
 import { localePath } from "@/lib/layout.shared";
-import type { BrowserCopy, Feature } from "./copy";
+import type { BrowserCopy, Feature, OptInState } from "./copy";
 import { Glyph } from "./pictures/glyphs";
 import s from "./page.module.css";
 
@@ -69,24 +69,34 @@ export function Included({ t, lang, labels }: { t: BrowserCopy; lang: string; la
   );
 }
 
-/** The opt-in features: a picture each, the tag that says it is off until turned on, and how. */
+/** The words and the kind of a grid feature's tag: on by default, opt in, or on when something is there. */
+function stateTag(state: OptInState, tags: BrowserCopy["tags"]): { kind: string; text: string } {
+  if (state === "default") return { kind: "default", text: tags.byDefault };
+  if (state === "opt") return { kind: "opt", text: tags.optIn };
+  return { kind: "when", text: state.when };
+}
+
+/** The features of the grid: a picture each, the tag that says whether it is on, and how to use it. */
 export function OptIns({ t, lang, labels }: { t: BrowserCopy; lang: string; labels: Labels }) {
   return (
     <div className={s.optIns}>
-      {t.optIn.items.map((feature) => (
-        <article key={feature.id} className={s.optIn} data-id={feature.id}>
-          <Glyph feature={feature} />
-          <div className={s.optInBody}>
-            <div className={s.itemHead}>
-              <h3 className={s.cardTitle}>{feature.title}</h3>
-              <span className={s.tag} data-kind="opt">
-                {t.tags.optIn}
-              </span>
+      {t.optIn.items.map((feature) => {
+        const tag = stateTag(feature.state, t.tags);
+        return (
+          <article key={feature.id} className={s.optIn} data-id={feature.id}>
+            <Glyph feature={feature} />
+            <div className={s.optInBody}>
+              <div className={s.itemHead}>
+                <h3 className={s.cardTitle}>{feature.title}</h3>
+                <span className={s.tag} data-kind={tag.kind}>
+                  {tag.text}
+                </span>
+              </div>
+              <Body feature={feature} lang={lang} labels={labels} />
             </div>
-            <Body feature={feature} lang={lang} labels={labels} />
-          </div>
-        </article>
-      ))}
+          </article>
+        );
+      })}
     </div>
   );
 }

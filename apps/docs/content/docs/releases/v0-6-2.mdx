@@ -1,0 +1,197 @@
+---
+title: turno 0.6.2
+description: Features on by default, natural language actions whenever a model can answer, a live view with the agent's steps, the last click left to you, compact snapshots, and faster actions that check their element.
+---
+
+<ReleaseHeader date="2026-11-28" packages={["turno-cli@0.6.2", "turno-browser@0.11.0"]} />
+
+**[turno-browser](/browser)** now turns its features on by default, worked out at every launch. Agents read pages in fewer tokens, act faster, check that they act on the same element as before, and leave the click that buys, sends, publishes or deletes to you, while the live view shows each step they take.
+
+## Upgrade
+
+<Upgrade>
+
+**Update `turno-cli` and `turno-browser` together**, as with every release.
+
+**Features are on by default, without touching identity.json.** turno-browser works out each default at every launch and never writes it into identity.json. `show`, `status` and `doctor` list each value with where it came from, for example `resources: low (auto: memory pressure)`. For an identity you do not touch, this changes:
+
+- **The live view is on.** It opens only with `turno-browser live`. `--live false` turns it off.
+- **Flows and screenshots are recorded**, under the 200MB cap and never of a page with a vault value. Traces stay off: while tracing, Chrome loads no image or frame of another site. `--record-flows false` and `--record-screenshots false` turn the others off.
+- **The `vision`, `pdf`, `devtools` and `network` tools are listed** when the server has no `--caps`. Pass `--caps` to the server to choose them yourself.
+- **`browser_login` submits the form.** `turno-browser vault submit <id> confirm` keeps the old behavior, and you must run it again even if you chose it before.
+- **The low-resource preset turns on under memory pressure.** `--resources normal` keeps it off.
+- **Human-like input is `auto`.** `--humanize off` turns it off.
+- **Several agent sessions share the browser**, each in its own tabs. `browser_close` closes the calling session's tabs, and the idle release closes the browser. `--sharing session` serves one session at a time. An mcp.toml block with `exclusive = true` keeps working, and `doctor` says how to change it.
+- **A headless Chrome** gets the coherent user agent (once `login` has read that Chrome's client hints), and background throttling when the live view is off. `--user-agent off` pins the user agent off.
+- **Chrome gets the system's locale** when identity.json names none. `--locale off` pins it off.
+- **`login` finds a health check** when there is none. `--health off` pins it off.
+
+Each flag above goes to `turno-browser set <id>`, except `--caps`, a flag of the server. A key set in identity.json still wins over every default, and an `off` value pins one off. See [Defaults](/docs/browser/identities#defaults).
+
+**identity.json moves to format 14** when a value is `auto` or `false`, or when it sets `notify` or `lastClick`. turno-browser 0.10 refuses a format 14 file.
+
+**The last click is yours.** When the agent's `browser_click` would place an order, make a payment, send a message or money, publish a post or confirm a deletion, turno-browser does not click, and the agent asks you instead. `turno-browser set <id> --last-click false` turns it off.
+
+**System notifications are on.** turno-browser shows one when the agent waits for you and when it is done after a long run. `turno-browser set <id> --notify false`, or `TURNO_BROWSER_NOTIFY=off` in the server's environment, turns them off.
+
+**The `storage` tools are listed**, with session values masked. Attach mode and a policy that lists `storage` keep them off.
+
+**Natural language actions are listed whenever a model can answer them**, including the Claude Code CLI or Codex found on the PATH. `TURNO_BROWSER_ACT_CLI=off` keeps the CLIs out of it.
+
+**Snapshots are compact, and an action that stays on the page answers with what changed.** `TURNO_BROWSER_SNAPSHOT=full` in the server's environment turns compaction off, and `TURNO_BROWSER_SNAPSHOT=compact` turns the changes off.
+
+</Upgrade>
+
+## Highlights
+
+<Highlight area="Browser" title="Natural language actions whenever a model can answer" href="/docs/browser/natural-language-and-captchas#which-model-answers" more="Which model answers">
+
+`browser_act`, `browser_extract` and `browser_observe` are on without an identity.json `act` group. The server takes the first that works: MCP sampling when the connected client offers it (decided per connection), else `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` from the environment, else the Claude Code CLI (`claude -p`, `haiku`) or Codex (`codex exec`, `gpt-5.6-terra`) found on the PATH, run headless with your own login. With none of them the tools are not listed.
+
+The CLI gets the prompt on its standard input, never on its command line, runs with its tools off and no MCP server loaded, and stops after 90 seconds. A provider named in identity.json keeps working as before.
+
+Captcha solving is on when a solver key is configured, in identity.json or with `TURNO_BROWSER_CAPTCHA_ENDPOINT` and `TURNO_BROWSER_CAPTCHA_KEY` in the environment. Without one, a result that ends on a captcha says so and hands the step to you with `browser_request_human`.
+
+```sh
+# which path each identity resolves to, and why
+turno-browser show school
+turno-browser doctor
+```
+
+</Highlight>
+
+<Highlight area="Browser" title="A live view with the agent's steps" href="/docs/browser/live-view#the-timeline" more="The timeline">
+
+The live view is a panel: the agent's tab next to a timeline of its steps (the time, what it did, the element or address, how long it took, and whether it failed or was not run), with the pauses, your turns and what changed when you handed the browser back. A line never shows what the agent typed, filled or selected, a script, or an address's query, and every line goes through the same redaction as the agent's results, so vault values stay hidden. When the same call on the same element fails three times in a row, the line and the status say the session looks stuck. New steps and changes of state are announced to screen readers.
+
+You can take the controls without pausing first: clicking, typing or scrolling on the picture while the agent works, or in the agent's Chrome window, makes the agent's next call wait. The browser goes back to the agent 5 seconds after your last input, or with the view's Hand back button (formerly Resume), and the waiting call is told that you used the browser and what changed.
+
+```sh
+# an app window of your Chromium browser
+turno-browser live school
+# a tab of your default browser
+turno-browser live school --tab
+```
+
+</Highlight>
+
+<Highlight area="Browser" title="The last click is yours" href="/docs/browser/live-view#the-last-click-is-yours" more="The last click is yours">
+
+When the agent's `browser_click` would place an order, make a payment, send a message or money, publish a post or confirm a deletion, turno-browser does not click. The agent is told what the click would do and to ask you with `browser_request_human` and `requireHumanClick`, and that step's banner says what the click does, from the page: the order's total, the amount, who a message goes to. The check is conservative: a word that also names a harmless step ("Buy now", "Send", "Post", "Delete") counts only when the page agrees (a checkout with an amount, a message being written, a dialog that warns it cannot be undone), and steps on the way ("Add to cart", "Proceed to checkout", "Send code") never count.
+
+turno-browser also shows a [notification of the system](/docs/browser/live-view#notifications) when the agent waits for you (a person step, a passkey prompt, a captcha no solver answers) and when it is done after a long run, with `osascript` on macOS, `notify-send` on Linux and a PowerShell toast on Windows. The text is redacted like any result and is never run as a script.
+
+```sh
+turno-browser set school --last-click false
+turno-browser set school --notify false
+```
+
+</Highlight>
+
+<Highlight area="Browser" title="An agent cursor drawn by Chrome" href="/docs/browser/agent-cursor#drawn-by-chrome-the-default" more="Drawn by Chrome">
+
+The agent cursor's default, `cursor: "auto"`, is drawn by Chrome now, with nothing in the page. When the browser can be seen (a window, or the live view), Chrome highlights the element the agent acts on and shows a ripple for each click of the agent, painted above the page where no page script can see them. The highlight shows in the live view too, and is hidden while the model's screenshot is taken.
+
+The named arrow, the ring and the badge drawn in the page are `cursor: "on"`, and the fallback when Chrome refuses the protocol calls.
+
+```sh
+# the named arrow, the ring and the badge, in the page
+turno-browser set school --cursor on
+```
+
+</Highlight>
+
+<Highlight area="Browser" title="Compact snapshots, and a table of contents for long pages" href="/docs/browser/actions#snapshots" more="Snapshots">
+
+Every element an agent can act on keeps its ref, and the text a reader needs stays, while wrappers without a name, the destination under a named link, separators, text that repeats a neighbouring button's name, refs on elements nobody acts on and runs of identical rows are left out. Measured with the new `pnpm bench:snapshot --public`, with every interactive ref kept and the same answers to fixed questions:
+
+| Page | Before | Compact |
+|---|---|---|
+| Hacker News | 12,238 tokens | 3,786 tokens |
+| A GitHub repository page | 18,879 tokens | 7,721 tokens |
+| Wikipedia search results | 5,842 tokens | 3,040 tokens |
+
+A page still past about 15,000 tokens once compact comes back as a table of contents of its landmarks, headings and text fields, with refs and sizes: a long Wikipedia article (128,673 tokens) becomes 849 tokens. The new `browser_read` tool reads one part by ref, the whole page compact, or with `full: true` the page as Playwright wrote it.
+
+</Highlight>
+
+<Highlight area="Browser" title="An action answers with what changed" href="/docs/browser/actions#snapshots" more="Snapshots">
+
+An action that stays on the page (a click, a key, a selection, a drag) answers with what changed since the last snapshot the agent was given, by ref, when it is the same session and URL and the changes are under half the compact page. Before, the result only linked the snapshot file Playwright wrote, and an agent that wanted to see what its click did called `browser_snapshot` for the whole page. Opening the "Code" menu on a GitHub repository page now answers with 262 tokens of changes, against 7,683 for the page.
+
+A navigation, another tab or a change that is most of the page answer as before, and `browser_snapshot` always returns the whole page.
+
+</Highlight>
+
+<Highlight area="Browser" title="Faster actions, and errors with a stable code" href="/docs/browser/actions#actions" more="Actions">
+
+The wait after a click, key press or typed text now ends as soon as the page is done with the action: the requests it started have answered (or none started within 100 ms), a navigation has reached DOMContentLoaded, and nothing on the page changed for two animation frames, checked in an isolated world the page cannot see. Playwright's fixed wait (`settle`, 500 ms by default, twice when the action made requests) is now only the limit. On the local evaluation suite a click went from 860 ms to 413 ms at the median (1,432 to 552 ms at p95), with the agent cursor's glide in both. Camoufox and read mode keep Playwright's wait.
+
+Action errors that name what is in the way start with a stable code (`ELEMENT_COVERED`, `ELEMENT_HIDDEN`, `ELEMENT_DISABLED`, `ELEMENT_READONLY`, `ELEMENT_GONE`, `ELEMENT_NOT_STABLE`), which JSON results carry as `code`, with the covering element as `cover`.
+
+</Highlight>
+
+<Highlight area="Browser" title="Batches that check each step" href="/docs/browser/actions#actions" more="Actions">
+
+An action in `browser_batch` can carry `expect`: text the page must show after it, text that must be gone, a part of the URL, or the value its target must hold (a field's text, the selected option's label, `"true"` for a checked box), waited for up to `timeout` ms (5000 by default). The first action that fails, or whose check does not hold, stops the batch. Its error starts with a stable code (the `ELEMENT_*` codes, and `INVALID_ACTION`, `TIMEOUT`, `REFUSED`, `CHECK_FAILED`, `ERROR`), its line in the batch says the code, and the result carries a snapshot of the page at the failure, so the agent needs no extra call to see where it stands.
+
+```json
+{
+  "tool": "browser_click",
+  "arguments": { "target": "e9" },
+  "expect": { "text": "Saved", "url": "/account" }
+}
+```
+
+</Highlight>
+
+<Highlight area="Browser" title="Replays and repeated steps check their element" href="/docs/browser/flows#the-element-must-be-the-same-one" more="The element must be the same one">
+
+Each flow step keeps a fingerprint of its element: role, accessible name, label, nearest landmark, and the page's URL with ids as `*`. On replay, the element a locator finds must match it, or the step does not run and the replay stops with what differs and a fresh snapshot.
+
+With `record.flows`, on by default, the identity also keeps an action cache: an action that names an element by a selector (a `browser_batch` step, `turno-browser do click '#save'`) is refused when the selector now finds another element than the one an earlier action worked on. Neither the cache nor a flow keeps a vault value.
+
+Measured with the new `pnpm bench:cache` on five changed versions of a form: replays went from 3 wrong-element clicks in 45 steps to none (15% of steps refused), and the same actions repeated by CSS selector from 9 wrong-element actions in 45 to none (27% refused).
+
+</Highlight>
+
+<Highlight area="Browser" title="Storage tools with session values masked" href="/docs/browser/vault#cookies-and-stored-tokens" more="Cookies and stored tokens">
+
+The `storage` tools (cookies, localStorage, sessionStorage and the storage state file) are listed by default. A cookie that is HttpOnly, named like a credential (`session`, `sid`, `token`, `auth`, `csrf`, `login`) or holding a random-looking value, and the tokens in stored items, read `[masked]`; names, domains, paths, expiry and flags stay. After every browser call the server reads the cookies and the page's web storage, so a random-looking session value is also hidden from `browser_evaluate` (`document.cookie`), response bodies, console messages, snapshots and written files. A mask written back keeps the value it stands for, in the same cookie or item only, so `browser_cookie_set` with `[masked]` and `browser_set_storage_state` with a saved file keep the session.
+
+Without a proxy of its own, an identity's Chrome follows [the system's proxy](/docs/browser/network#the-systems-proxy) as before, and `show` and `status` now name it; `"proxy": false` makes Chrome connect directly. With a proxy in use, turno-browser looks up [where it exits](/docs/browser/network#where-the-proxy-exits) (one HTTPS request to get.geojs.io through the proxy, once a day per proxy) and warns when the identity's time zone or locale does not match. `TURNO_BROWSER_EXIT_CHECK=0` turns the lookup off.
+
+</Highlight>
+
+<Highlight area="Browser" title="What a page reads matches Chrome without turno" href="/docs/browser/engines" more="Engines">
+
+What a page reads about the browser is now what the same Chrome shows without turno on this computer. The color scheme, reduced motion and contrast follow the system instead of Playwright's light default. A headless Chrome reports the computer's primary display and the window Chrome would open on it (1200x852 on a 1512x982 MacBook screen) instead of a 1280x720 page on an 800x600 screen; a viewport, device or `--window-size` you set still wins. An identity's time zone and locale are set when Chrome starts, so workers read the same values as their page, and without a locale in identity.json Chrome reads the system's language itself, as it does for a person (on macOS, `es-419` for a Mexican Spanish system, not `es-MX`).
+
+The passkey watch no longer adds a script and a binding to every page: it wraps `navigator.credentials` only on a sign-in page while the agent acts on it, and puts Chrome's own methods back 3 seconds later, so a page reads native methods at load. With human-like input off, a click lands at a point inside its element instead of the exact center, at no cost in time.
+
+</Highlight>
+
+## Browser
+
+- **`doctor` checks patchright-core**: it says whether the installed patchright-core is the version the reputation suite last passed with, and [warns when it is another one](/docs/troubleshooting/browser-patchright-unverified), since how turno's scripts reach pages and the automation leak checks were not verified on it.
+- **New identities** created at a terminal on macOS with Google Chrome keep their cookie key in the system keychain, and `add` mentions Camoufox, Lightpanda and attach mode when they apply.
+- **Google Chrome from ~/Applications**: an identity that names no browser runs it from there too.
+- **The reputation bench**'s probe page now reports elements no page script made under `<html>`.
+
+## CLI
+
+- **New mcp.toml blocks**: turno prints the block of a new identity with `exclusive = false`, except in attach mode.
+- **`turno help environment`** lists `TURNO_BROWSER_SNAPSHOT`.
+- **`turno browser live`** without a running server no longer says the view is off when only no server runs.
+
+## Fixes
+
+- **A click that opens a `confirm()` or `alert()` dialog** no longer hangs until the client's timeout, and `browser_handle_dialog` answers it while the agent cursor draws and without a step screenshot waiting out its 5 seconds.
+- **A page that closes its own tab** right after an action returns the tab now current instead of an error.
+
+## Links
+
+- Full changelogs: [turno-cli](https://github.com/wimo-dev/turno/blob/main/packages/turno/CHANGELOG.md) and [turno-browser](https://github.com/wimo-dev/turno/blob/main/packages/browser/CHANGELOG.md).
+- [Defaults](/docs/browser/identities#defaults), [the timeline](/docs/browser/live-view#the-timeline), [taking the controls without pausing](/docs/browser/live-view#taking-the-controls-without-pausing), [the last click is yours](/docs/browser/live-view#the-last-click-is-yours) and [notifications](/docs/browser/live-view#notifications).
+- [Snapshots](/docs/browser/actions#snapshots), [batch checks and error codes](/docs/browser/actions#actions), [human-like input](/docs/browser/actions#human-like-input), [the element must be the same one](/docs/browser/flows#the-element-must-be-the-same-one) and [the agent cursor](/docs/browser/agent-cursor).
+- [Which model answers](/docs/browser/natural-language-and-captchas#which-model-answers), [cookies and stored tokens](/docs/browser/vault#cookies-and-stored-tokens), [the system's proxy](/docs/browser/network#the-systems-proxy) and [what leaves your machine](/docs/browser/what-leaves-your-machine).

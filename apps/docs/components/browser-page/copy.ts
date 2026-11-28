@@ -19,20 +19,21 @@ export const CMD = {
   /** The same command as it reads under the picture, where the whole line does not fit. */
   vaultAddShort: "turno-browser vault add school campus ...",
   export: "turno-browser export school --out school.session",
-  sharing: "turno-browser set school --sharing tabs",
+  sharing: "turno-browser set school --sharing session",
   replay: "turno-browser replay school sign-in",
   live: "turno-browser live school",
   setup: "turno-browser setup claude-code",
   doSnapshot: "turno-browser do school snapshot",
-  act: "turno-browser set school --act",
+  show: "turno-browser show school",
+  lastClick: "turno-browser set school --last-click false",
   captcha:
     "turno-browser set school --captcha-provider task-api --captcha-endpoint https://solver.example.com --captcha-key keychain:captcha-solver",
-  humanize: "turno-browser set school --humanize light",
+  humanize: "turno-browser set school --humanize off",
   readMode: "turno-browser set school --engine lightpanda",
   attach: "turno-browser set school --attach auto",
   camoufox: "turno-browser set school --engine camoufox",
-  record: "turno-browser record school --flows --traces --screenshots",
-  userAgent: "turno-browser set school --user-agent coherent",
+  record: "turno-browser record school",
+  proxy: "turno-browser set school --proxy-server http://proxy.example.com:8080",
   lighter: "turno-browser set school --block-trackers true --block-types image,media --cache",
   policy: "turno-browser set shop --policy-file shop-policy.json",
   withTurnoInstall: "npm install --global turno-cli turno-browser",
@@ -60,7 +61,7 @@ export const PRINTS = {
   parked: "parked a tab unused for 5 minutes on about:blank (https://docs.example.com/api); using it again loads that page",
   closed: "closed a tab unused for 15 minutes (https://docs.example.com/api)",
   filled: `Filled the username, password and one-time code of "campus" from the vault of identity "school" on https://${SITE}. The values are hidden as [vault: ...] in every result.`,
-  notSubmitted: "Nothing was submitted: click the sign-in button yourself (it is in the snapshot below).",
+  submitted: "Submitted the form (this identity submits sign-ins itself). Check the page below for the result.",
 } as const;
 
 /** What the reader pastes into a coding agent so it sets turno-browser up for them. */
@@ -77,9 +78,31 @@ export interface BrowserChapter extends SectionCopy {
   commands: ChapterCommand[];
 }
 
-/** The pictures of the opt-in features, by id. */
-export const OPT_IN_IDS = ["live", "sharing", "policy", "act", "captcha", "humanize", "read", "attach", "camoufox", "record", "network", "lighter"] as const;
+/** The features of the grid, each with its picture, by id. */
+export const OPT_IN_IDS = [
+  "live",
+  "lastClick",
+  "sharing",
+  "snapshot",
+  "humanize",
+  "record",
+  "storage",
+  "act",
+  "captcha",
+  "policy",
+  "network",
+  "lighter",
+  "read",
+  "attach",
+  "camoufox",
+] as const;
 export type OptInId = (typeof OPT_IN_IDS)[number];
+
+/**
+ * Whether a feature of the grid is on by default, waits for the user to turn it on, or comes on
+ * when what it needs is there (the words of its tag say what).
+ */
+export type OptInState = "default" | "opt" | { when: string };
 
 export interface Feature {
   title: string;
@@ -91,6 +114,8 @@ export interface Feature {
 
 export interface OptIn extends Feature {
   id: OptInId;
+  /** What its tag says: on by default, opt in, or on when something it needs is there. */
+  state: OptInState;
   run: string;
   /** The few words the feature's picture shows, when it shows any. */
   words?: string[];
@@ -164,8 +189,8 @@ export interface BrowserCopy {
       notPart: string;
     };
   };
-  /** The words of the two small tags: on from the start, and off until turned on. */
-  tags: { on: string; optIn: string };
+  /** The words of the small tags: on from the start, on by default, and off until turned on. */
+  tags: { on: string; byDefault: string; optIn: string };
   facts: { title: string; text: string }[];
   included: { label: string; headline: Headline; items: Feature[] };
   optIn: { label: string; headline: Headline; lead: string; more: { text: string; href: string }; items: OptIn[] };
@@ -235,7 +260,7 @@ const en: BrowserCopy = {
         { prompt: "…", run: "15 minutes without a call", note: "Chrome closes. The next call opens it again, with the same profile and cookies.", copyable: false },
         { prompt: "$", run: CMD.set, note: "Every limit is a setting of the identity." },
       ],
-      aside: "By default: 8 pages, parked after 5 minutes, closed after 15. On a machine short of memory, --resources low keeps at most 2 pages and parks one you have not used for 2 minutes.",
+      aside: "By default: 8 pages, parked after 5 minutes, closed after 15. When the system reports memory pressure as Chrome starts, a low-resource preset turns on by itself: at most 2 pages, and one you have not used for 2 minutes is parked.",
       more: { text: "Tabs and lifecycle", href: `${DOCS}/tabs#tabs` },
       rest: "eight pages open",
     },
@@ -248,7 +273,7 @@ const en: BrowserCopy = {
         { prompt: "$", run: CMD.vaultAdd, note: "The password and the one-time secret are asked with hidden prompts." },
         { prompt: "tool", run: TOOL.login, note: "The agent names the site. The tool fills the username, the password and the current code.", copyable: false },
       ],
-      aside: "A password or a one-time code you type yourself stays out too: a snapshot shows [sensitive field]. The tool does not submit the form unless you turn that on for the identity.",
+      aside: "A password or a one-time code you type yourself stays out too: a snapshot shows [sensitive field]. The tool then submits the form; turno-browser vault submit school confirm makes it stop after filling, so the agent clicks sign in itself.",
       more: { text: "Credential vault", href: `${DOCS}/vault` },
       rest: "nothing stored yet",
     },
@@ -297,7 +322,7 @@ const en: BrowserCopy = {
       notPart: "The model is not part of this step.",
     },
   },
-  tags: { on: "on", optIn: "opt in" },
+  tags: { on: "on", byDefault: "on by default", optIn: "opt in" },
   facts: [
     { title: "On your machine", text: "No cloud browser, no telemetry and no bill per hour." },
     { title: "The browser you have", text: "Chrome by default, or Brave or Edge. It downloads one only if you ask." },
@@ -310,24 +335,24 @@ const en: BrowserCopy = {
     items: [
       {
         title: "See where the agent is",
-        text: "When you can see the browser, a cursor with the agent's name glides to each element it acts on, with a ring on the target and a badge on the page. The model never sees it.",
+        text: "When you can see the browser, Chrome itself highlights the element the agent acts on and shows a ripple for each of its clicks, painted above the page with nothing in it. The highlight is hidden while the model takes a screenshot. `cursor: on` draws an arrow with the agent's name and a badge in the page instead.",
         more: { text: "The agent cursor", href: `${DOCS}/agent-cursor` },
       },
       {
         title: "The agent asks you for the step that is yours",
-        text: "For a password, a captcha, an emailed code or a second factor, the agent calls `browser_request_human`, and a passkey request hands you the browser by itself. The tab comes to the front with the instruction and a Done button, and every call waits. The agent learns that you finished, never what you typed.",
+        text: "For a password, a captcha, an emailed code or a second factor, the agent calls `browser_request_human`, and a passkey request hands you the browser by itself. The tab comes to the front with the instruction and a Done button, every call waits, and your system shows a notification. The agent learns that you finished, never what you typed.",
         run: "browser_request_human",
         more: { text: "When the agent asks for you", href: `${DOCS}/live-view#when-the-agent-asks-for-you` },
       },
       {
         title: "Fewer round trips, clearer errors",
-        text: "`browser_batch` runs up to 20 actions in one call and returns one line per action. A click that fails says which element covers the target, or that it is hidden or disabled, and what to try next.",
+        text: "`browser_batch` runs up to 20 actions in one call, each with an optional check of what the page must show after it. The first that fails stops the batch with a stable code (`ELEMENT_COVERED` names the element in the way) and a snapshot of the page. The wait after an action ends when the page is done with it: on the local evaluation suite a click went from 860 ms to 413 ms at the median.",
         run: "browser_batch",
         more: { text: "Actions", href: `${DOCS}/actions#actions` },
       },
       {
         title: "Record once, replay later",
-        text: "An agent saves what it did on a site as a flow and runs it again later without working the page out.",
+        text: "An agent saves what it did on a site as a flow and runs it again later without working the page out. Each step keeps a fingerprint of its element, and a replay stops instead of acting on another one: on five changed versions of a form, replays went from 3 wrong-element clicks in 45 steps to none.",
         run: CMD.replay,
         more: { text: "Flows", href: `${DOCS}/flows#flows-record-and-replay` },
       },
@@ -346,59 +371,115 @@ const en: BrowserCopy = {
     ],
   },
   optIn: {
-    label: "opt in",
-    headline: ["Off by default. ", "On when you say so", "."],
-    lead: "Each of these is a setting of an identity. Nothing below runs until you turn it on, and each one turns off the same way.",
+    label: "yours to decide",
+    headline: ["On by default. ", "Off when you say so", "."],
+    lead: "Most of these come on by default, worked out at every launch and never written into identity.json. A few come on when what they need is there, and the ones marked opt in wait for you. Each one is yours to change: a key you set wins over every default, and turno-browser show lists each value and where it came from.",
     more: { text: "What leaves your machine, and what never does", href: `${DOCS}/what-leaves-your-machine` },
     items: [
       {
         id: "live",
+        state: "default",
         title: "Watch it work, and take the controls",
-        text: "A live view of the agent's tab in your own browser. Pause, and your clicks and keys go to that tab. Resume, and the agent is told what changed.",
+        text: "A panel with the agent's tab next to a timeline of its steps, which never shows what it typed. It opens only when you ask. Click or type on the picture, or in the agent's Chrome window, and the agent waits; the browser goes back to it 5 seconds after your last input, and it is told what changed.",
         run: CMD.live,
         more: { text: "Live view", href: `${DOCS}/live-view` },
-        words: ["follow the agent", "pause", "resume"],
+        words: ["follow the agent", "pause", "hand back"],
+      },
+      {
+        id: "lastClick",
+        state: "default",
+        title: "The last click is yours",
+        text: "When a click would place an order, make a payment, send a message or money, publish a post or confirm a deletion, the agent does not click. It asks you, and the banner says what the click does, from the page: the order's total, the amount, who a message goes to. Steps on the way, like Add to cart, never count.",
+        run: CMD.lastClick,
+        more: { text: "The last click is yours", href: `${DOCS}/live-view#the-last-click-is-yours` },
+        words: ["Pay $95.50", "you"],
       },
       {
         id: "sharing",
+        state: "default",
         title: "Several agents, one browser",
-        text: "Several agent sessions use one identity's Chrome at once. Each works in its own tabs, never in a tab another session holds.",
+        text: "Several agent sessions use one identity's Chrome at once. Each works in its own tabs, never in a tab another session holds, and `browser_close` closes only its own.",
         run: CMD.sharing,
         more: { text: "Sharing a browser", href: `${DOCS}/sharing` },
         words: ["session"],
       },
       {
+        id: "snapshot",
+        state: "default",
+        title: "Compact pages for the model",
+        text: "Snapshots keep every element the agent can act on and the text a reader needs, and leave the rest out: Hacker News went from 12,238 to 3,786 tokens. A page still too long comes back as a table of contents that `browser_read` reads part by part, and an action that stays on the page answers with what changed: 262 tokens for opening the Code menu of a GitHub repository page, against 7,683 for the page.",
+        run: "browser_read",
+        more: { text: "Snapshots", href: `${DOCS}/actions#snapshots` },
+      },
+      {
+        id: "humanize",
+        state: "default",
+        title: "Human-like input",
+        text: "The pointer travels a curve to a point inside the target, the button stays down for a moment and text is typed key by key. By default the level follows the page: off on localhost and for reading, light to act, and full on sign-in, payment and support pages and on a site that challenged the identity.",
+        run: CMD.humanize,
+        more: { text: "Human-like input", href: `${DOCS}/actions#human-like-input` },
+      },
+      {
+        id: "record",
+        state: "default",
+        title: "Recordings",
+        text: "Every session's actions saved as a flow, and a screenshot after each action, under a 200MB cap and never of a page that shows a vault value. Playwright traces are opt in: while tracing, Chrome loads no image or frame of another site.",
+        run: CMD.record,
+        more: { text: "Recordings and traces", href: `${DOCS}/flows#recordings-and-traces` },
+      },
+      {
+        id: "storage",
+        state: "default",
+        title: "Cookies and storage, sessions masked",
+        text: "The agent can read and set cookies, localStorage and sessionStorage, and save the storage state, while the values that keep you signed in read `[masked]`. A random-looking session value is hidden from every other result too, `document.cookie` included. Names, domains and expiry stay, and a mask written back keeps the session.",
+        run: "browser_storage_state",
+        more: { text: "Cookies and stored tokens", href: `${DOCS}/vault#cookies-and-stored-tokens` },
+      },
+      {
+        id: "act",
+        state: { when: "with a model" },
+        title: "Actions in plain words",
+        text: "`browser_act` carries out a short instruction on the current tab, `browser_extract` reads data off the page as JSON, and `browser_observe` proposes the calls without running them. No setup: the server takes the first that works of your client's own model, an OpenAI or Anthropic key in the environment, and the Claude Code CLI or Codex you are signed in to. `show` says which one an identity uses.",
+        run: CMD.show,
+        more: { text: "Natural language actions", href: `${DOCS}/natural-language-and-captchas#natural-language-actions` },
+        words: ["accept the cookie banner, then open the second result"],
+      },
+      {
+        id: "captcha",
+        state: { when: "with a solver key" },
+        title: "Captcha solving",
+        text: "With a solver key, in identity.json or the environment, `browser_solve_captcha` finds a reCAPTCHA v2, hCaptcha or Turnstile widget, sends its public site key and the page address to the solver service, and puts the token back in the page. Without one, the captcha goes to you.",
+        run: CMD.captcha,
+        more: { text: "Captcha solving", href: `${DOCS}/natural-language-and-captchas#captcha-solving` },
+        words: ["your solver", "token"],
+      },
+      {
         id: "policy",
+        state: "opt",
         title: "Keep an identity on its own sites",
         text: "A policy lists the domains an identity's tabs may show and turns features off for good. Only the command line writes it: no tool of the agent can change it.",
         run: CMD.policy,
         more: { text: "Identity policy", href: `${DOCS}/policy` },
       },
       {
-        id: "act",
-        title: "Actions in plain words",
-        text: "`browser_act` carries out a short instruction on the current tab, `browser_extract` reads data off the page as JSON, and `browser_observe` proposes the calls without running them. The model is yours to pick.",
-        run: CMD.act,
-        more: { text: "Natural language actions", href: `${DOCS}/natural-language-and-captchas#natural-language-actions` },
-        words: ["accept the cookie banner, then open the second result"],
+        id: "network",
+        state: "opt",
+        title: "A proxy per identity",
+        text: "Sends an identity through an HTTP or SOCKS proxy, with its password in the system keychain, and checks where the proxy exits (one request a day to GeoJS) against the identity's time zone and locale. Without one, Chrome follows the system's proxy and `show` names it. In a headless Chrome the user agent comes from the Chrome you have installed (once `login` has read it), never from a typed string.",
+        run: CMD.proxy,
+        more: { text: "Network and user agent", href: `${DOCS}/network#network-and-user-agent` },
       },
       {
-        id: "captcha",
-        title: "Captcha solving",
-        text: "`browser_solve_captcha` finds a reCAPTCHA v2, hCaptcha or Turnstile widget, sends its public site key and the page address to a solver service you configure, and puts the token back in the page.",
-        run: CMD.captcha,
-        more: { text: "Captcha solving", href: `${DOCS}/natural-language-and-captchas#captcha-solving` },
-        words: ["your solver", "token"],
-      },
-      {
-        id: "humanize",
-        title: "Human-like input",
-        text: "The pointer travels a curve to a point inside the target, the button stays down for a moment and text is typed key by key. Three levels: light, full and adaptive.",
-        run: CMD.humanize,
-        more: { text: "Human-like input", href: `${DOCS}/actions#human-like-input` },
+        id: "lighter",
+        state: "opt",
+        title: "Lighter pages",
+        text: "Blocks the trackers, images, media or fonts you name, and keeps images, fonts, stylesheets and scripts on disk for that identity only.",
+        run: CMD.lighter,
+        more: { text: "Blocking and the cache", href: `${DOCS}/network#blocking-and-the-resource-cache` },
       },
       {
         id: "read",
+        state: "opt",
         title: "Read mode",
         text: "Runs the identity on Lightpanda, a headless browser that builds the page without laying it out or drawing it: for reading pages fast and with little memory.",
         run: CMD.readMode,
@@ -406,6 +487,7 @@ const en: BrowserCopy = {
       },
       {
         id: "attach",
+        state: "opt",
         title: "Attach to your own Chrome",
         text: "Connects to the Chrome you already have open instead of launching one, so the agent works in your real, signed-in browser. Chrome asks you to allow each connection.",
         run: CMD.attach,
@@ -413,31 +495,11 @@ const en: BrowserCopy = {
       },
       {
         id: "camoufox",
+        state: "opt",
         title: "Camoufox",
         text: "Runs an identity on Camoufox, a Firefox build that sets what the browser reports inside the browser itself, on its own profile. You install it and keep it up to date.",
         run: CMD.camoufox,
         more: { text: "Camoufox", href: `${DOCS}/engines#camoufox` },
-      },
-      {
-        id: "record",
-        title: "Recordings and traces",
-        text: "Every session's actions saved as a flow, a Playwright trace with DOM snapshots, network and a screencast, and a screenshot after each action.",
-        run: CMD.record,
-        more: { text: "Recordings and traces", href: `${DOCS}/flows#recordings-and-traces` },
-      },
-      {
-        id: "network",
-        title: "A proxy and a coherent user agent",
-        text: "Sends an identity through an HTTP or SOCKS proxy, with its password in the system keychain, and builds the user agent from the Chrome you have installed, never from a typed string.",
-        run: CMD.userAgent,
-        more: { text: "Network and user agent", href: `${DOCS}/network#network-and-user-agent` },
-      },
-      {
-        id: "lighter",
-        title: "Lighter pages",
-        text: "Blocks the trackers, images, media or fonts you name, and keeps images, fonts, stylesheets and scripts on disk for that identity only.",
-        run: CMD.lighter,
-        more: { text: "Blocking and the cache", href: `${DOCS}/network#blocking-and-the-resource-cache` },
       },
     ],
   },
@@ -541,7 +603,7 @@ const es: BrowserCopy = {
         { prompt: "…", run: "15 minutos sin llamadas", note: "Chrome se cierra. La siguiente llamada lo abre otra vez, con el mismo perfil y las mismas cookies.", copyable: false },
         { prompt: "$", run: CMD.set, note: "Cada límite es un ajuste de la identidad." },
       ],
-      aside: "Por defecto: 8 páginas, en pausa a los 5 minutos, cerradas a los 15. En una máquina con poca memoria, --resources low deja como máximo 2 páginas y pausa la que no hayas usado en 2 minutos.",
+      aside: "Por defecto: 8 páginas, en pausa a los 5 minutos, cerradas a los 15. Cuando el sistema reporta presión de memoria al arrancar Chrome, un modo de pocos recursos se activa solo: como máximo 2 páginas, y la que no hayas usado en 2 minutos pasa a pausa.",
       more: { text: "Pestañas y ciclo de vida", href: `${DOCS}/tabs#tabs` },
       rest: "ocho páginas abiertas",
     },
@@ -554,7 +616,7 @@ const es: BrowserCopy = {
         { prompt: "$", run: CMD.vaultAdd, note: "La contraseña y el secreto del código se piden sin mostrarse en pantalla." },
         { prompt: "tool", run: TOOL.login, note: "El agente nombra el sitio. La herramienta llena el usuario, la contraseña y el código vigente.", copyable: false },
       ],
-      aside: "Una contraseña o un código que escribas tú tampoco llega al modelo: en el árbol de la página aparece [sensitive field]. La herramienta no envía el formulario a menos que lo actives para la identidad.",
+      aside: "Una contraseña o un código que escribas tú tampoco llega al modelo: en el árbol de la página aparece [sensitive field]. Después la herramienta envía el formulario; turno-browser vault submit school confirm hace que se detenga después de llenarlo, y el agente hace clic en iniciar sesión.",
       more: { text: "Bóveda de credenciales", href: `${DOCS}/vault` },
       rest: "todavía no hay nada guardado",
     },
@@ -603,7 +665,7 @@ const es: BrowserCopy = {
       notPart: "El modelo no participa en este paso.",
     },
   },
-  tags: { on: "activo", optIn: "opcional" },
+  tags: { on: "activo", byDefault: "activo por defecto", optIn: "opcional" },
   facts: [
     { title: "En tu máquina", text: "Sin navegador en la nube, sin telemetría y sin cobro por hora." },
     { title: "El navegador que ya tienes", text: "Chrome por defecto, o Brave o Edge. Solo descarga uno si se lo pides." },
@@ -616,24 +678,24 @@ const es: BrowserCopy = {
     items: [
       {
         title: "Mira dónde está el agente",
-        text: "Cuando puedes ver el navegador, un cursor con el nombre del agente se desliza a cada elemento sobre el que actúa, con un anillo en el objetivo y una insignia en la página. El modelo nunca lo ve.",
+        text: "Cuando puedes ver el navegador, Chrome mismo resalta el elemento sobre el que actúa el agente y muestra una onda en cada uno de sus clics, pintados encima de la página sin poner nada en ella. El resaltado se oculta mientras el modelo toma una captura. `cursor: on` dibuja en cambio una flecha con el nombre del agente y una insignia en la página.",
         more: { text: "El cursor del agente", href: `${DOCS}/agent-cursor` },
       },
       {
         title: "El agente te pide el paso que te toca a ti",
-        text: "Para una contraseña, un captcha, un código por correo o un segundo factor, el agente llama `browser_request_human`, y cuando una página pide una passkey el navegador pasa a ti por sí solo. La pestaña pasa al frente con la instrucción y un botón de listo, y todas las llamadas esperan. El agente se entera de que terminaste, nunca de lo que escribiste.",
+        text: "Para una contraseña, un captcha, un código por correo o un segundo factor, el agente llama `browser_request_human`, y cuando una página pide una passkey el navegador pasa a ti por sí solo. La pestaña pasa al frente con la instrucción y un botón de listo, todas las llamadas esperan y tu sistema muestra una notificación. El agente se entera de que terminaste, nunca de lo que escribiste.",
         run: "browser_request_human",
         more: { text: "Cuando el agente te necesita", href: `${DOCS}/live-view#when-the-agent-asks-for-you` },
       },
       {
         title: "Menos idas y vueltas, errores más claros",
-        text: "`browser_batch` corre hasta 20 acciones en una llamada y devuelve una línea por acción. Un clic que falla dice qué elemento tapa el objetivo, o que está oculto o deshabilitado, y qué intentar después.",
+        text: "`browser_batch` corre hasta 20 acciones en una llamada, cada una con una revisión opcional de lo que la página debe mostrar después. La primera que falla detiene el lote con un código estable (`ELEMENT_COVERED` nombra el elemento que estorba) y un snapshot de la página. La espera después de una acción termina cuando la página acabó con ella: en la suite de evaluación local, un clic pasó de 860 ms a 413 ms en la mediana.",
         run: "browser_batch",
         more: { text: "Acciones", href: `${DOCS}/actions#actions` },
       },
       {
         title: "Graba una vez, repite después",
-        text: "Un agente guarda lo que hizo en un sitio como un flujo y lo corre de nuevo sin tener que entender la página otra vez.",
+        text: "Un agente guarda lo que hizo en un sitio como un flujo y lo corre de nuevo sin tener que entender la página otra vez. Cada paso guarda una huella de su elemento, y una repetición se detiene en lugar de actuar sobre otro: en cinco versiones modificadas de un formulario, las repeticiones pasaron de 3 clics en el elemento equivocado en 45 pasos a ninguno.",
         run: CMD.replay,
         more: { text: "Flujos", href: `${DOCS}/flows#flows-record-and-replay` },
       },
@@ -652,59 +714,115 @@ const es: BrowserCopy = {
     ],
   },
   optIn: {
-    label: "opcional",
-    headline: ["Apagado por defecto. ", "Encendido cuando tú digas", "."],
-    lead: "Cada una es un ajuste de una identidad. Nada de esto corre hasta que lo enciendes, y se apaga de la misma forma.",
+    label: "tú decides",
+    headline: ["Activo por defecto. ", "Apagado cuando tú digas", "."],
+    lead: "La mayoría de estas funciones vienen activas por defecto: se calculan en cada arranque y nunca se escriben en identity.json. Unas cuantas se activan cuando está lo que necesitan, y las marcadas como opcionales esperan a que tú las enciendas. Cada una la cambias tú: un ajuste que fijes gana sobre cualquier valor por defecto, y turno-browser show lista cada valor y de dónde viene.",
     more: { text: "Qué sale de tu máquina, y qué nunca", href: `${DOCS}/what-leaves-your-machine` },
     items: [
       {
         id: "live",
+        state: "default",
         title: "Míralo trabajar, y toma el control",
-        text: "Una vista en vivo de la pestaña del agente en tu propio navegador. Pausa, y tus clics y teclas van a esa pestaña. Reanuda, y al agente se le dice qué cambió.",
+        text: "Un panel con la pestaña del agente junto a una línea de tiempo de sus pasos, que nunca muestra lo que escribió. Solo se abre cuando lo pides. Haz clic o escribe en la imagen, o en la ventana de Chrome del agente, y el agente espera; el navegador vuelve a él 5 segundos después de tu última acción, y al agente se le dice qué cambió.",
         run: CMD.live,
         more: { text: "Vista en vivo", href: `${DOCS}/live-view` },
-        words: ["seguir al agente", "pausar", "reanudar"],
+        words: ["seguir al agente", "pausar", "devolver el control"],
+      },
+      {
+        id: "lastClick",
+        state: "default",
+        title: "El último clic es tuyo",
+        text: "Cuando un clic haría un pedido, un pago, enviaría un mensaje o dinero, publicaría algo o confirmaría un borrado, el agente no hace clic. Te lo pide a ti, y el aviso dice qué hace el clic, tomado de la página: el total del pedido, el monto, a quién va un mensaje. Los pasos intermedios, como Agregar al carrito, nunca cuentan.",
+        run: CMD.lastClick,
+        more: { text: "El último clic es tuyo", href: `${DOCS}/live-view#the-last-click-is-yours` },
+        words: ["Pagar $95.50", "tú"],
       },
       {
         id: "sharing",
+        state: "default",
         title: "Varios agentes, un navegador",
-        text: "Varias sesiones de agentes usan a la vez el Chrome de una identidad. Cada una trabaja en sus propias pestañas, nunca en una que tiene otra sesión.",
+        text: "Varias sesiones de agentes usan a la vez el Chrome de una identidad. Cada una trabaja en sus propias pestañas, nunca en una que tiene otra sesión, y `browser_close` cierra solo las suyas.",
         run: CMD.sharing,
         more: { text: "Compartir un navegador", href: `${DOCS}/sharing` },
         words: ["sesión"],
       },
       {
+        id: "snapshot",
+        state: "default",
+        title: "Páginas compactas para el modelo",
+        text: "Los snapshots conservan cada elemento sobre el que el agente puede actuar y el texto que hace falta leer, y dejan fuera el resto: Hacker News pasó de 12,238 a 3,786 tokens. Una página que sigue siendo muy larga llega como un índice que `browser_read` lee por partes, y una acción que se queda en la página responde con lo que cambió: 262 tokens al abrir el menú Code de la página de un repositorio de GitHub, contra 7,683 de la página completa.",
+        run: "browser_read",
+        more: { text: "Snapshots", href: `${DOCS}/actions#snapshots` },
+      },
+      {
+        id: "humanize",
+        state: "default",
+        title: "Entrada como la de una persona",
+        text: "El puntero recorre una curva hasta un punto dentro del objetivo, el botón se queda presionado un momento y el texto se escribe tecla por tecla. Por defecto el nivel depende de la página: apagado en localhost y para leer, light para actuar, y full en páginas de inicio de sesión, pago y soporte, y en un sitio que le puso un desafío a la identidad.",
+        run: CMD.humanize,
+        more: { text: "Human-like input", href: `${DOCS}/actions#human-like-input` },
+      },
+      {
+        id: "record",
+        state: "default",
+        title: "Grabaciones",
+        text: "Las acciones de cada sesión guardadas como un flujo, y una captura después de cada acción, con un tope de 200MB y nunca de una página que muestra un valor de la bóveda. Las trazas de Playwright son opcionales: mientras graba una traza, Chrome no carga imágenes ni frames de otro sitio.",
+        run: CMD.record,
+        more: { text: "Grabaciones y trazas", href: `${DOCS}/flows#recordings-and-traces` },
+      },
+      {
+        id: "storage",
+        state: "default",
+        title: "Cookies, con las sesiones ocultas",
+        text: "El agente puede leer y escribir cookies, localStorage y sessionStorage, y guardar el estado del almacenamiento, mientras los valores que mantienen tu sesión se leen como `[masked]`. Un valor de sesión que parece aleatorio también se oculta en todos los demás resultados, incluido `document.cookie`. Los nombres, dominios y vencimientos se quedan, y una máscara escrita de vuelta conserva la sesión.",
+        run: "browser_storage_state",
+        more: { text: "Cookies y tokens guardados", href: `${DOCS}/vault#cookies-and-stored-tokens` },
+      },
+      {
+        id: "act",
+        state: { when: "con un modelo" },
+        title: "Acciones en lenguaje natural",
+        text: "`browser_act` ejecuta una instrucción corta en la pestaña actual, `browser_extract` lee datos de la página como JSON y `browser_observe` propone las llamadas sin correrlas. Sin configurar nada: el servidor toma lo primero que funcione entre el modelo de tu propio cliente, una clave de OpenAI o Anthropic en el entorno, y la CLI de Claude Code o Codex con tu sesión. `show` dice cuál usa una identidad.",
+        run: CMD.show,
+        more: { text: "Acciones en lenguaje natural", href: `${DOCS}/natural-language-and-captchas#natural-language-actions` },
+        words: ["acepta el aviso de cookies y abre el segundo resultado"],
+      },
+      {
+        id: "captcha",
+        state: { when: "con clave de servicio" },
+        title: "Resolución de captchas",
+        text: "Con la clave de un servicio de resolución, en identity.json o en el entorno, `browser_solve_captcha` encuentra un widget de reCAPTCHA v2, hCaptcha o Turnstile, envía su clave pública del sitio y la dirección de la página a ese servicio, y pone el token de vuelta en la página. Sin clave, el captcha pasa a ti.",
+        run: CMD.captcha,
+        more: { text: "Resolución de captchas", href: `${DOCS}/natural-language-and-captchas#captcha-solving` },
+        words: ["tu servicio", "token"],
+      },
+      {
         id: "policy",
+        state: "opt",
         title: "Mantén una identidad en sus propios sitios",
         text: "Una política lista los dominios que pueden mostrar las pestañas de una identidad y apaga funciones de forma definitiva. Solo la línea de comandos la escribe: ninguna herramienta del agente puede cambiarla.",
         run: CMD.policy,
         more: { text: "Política de la identidad", href: `${DOCS}/policy` },
       },
       {
-        id: "act",
-        title: "Acciones en lenguaje natural",
-        text: "`browser_act` ejecuta una instrucción corta en la pestaña actual, `browser_extract` lee datos de la página como JSON y `browser_observe` propone las llamadas sin correrlas. El modelo lo eliges tú.",
-        run: CMD.act,
-        more: { text: "Acciones en lenguaje natural", href: `${DOCS}/natural-language-and-captchas#natural-language-actions` },
-        words: ["acepta el aviso de cookies y abre el segundo resultado"],
+        id: "network",
+        state: "opt",
+        title: "Un proxy por identidad",
+        text: "Manda una identidad por un proxy HTTP o SOCKS, con su contraseña en el llavero del sistema, y revisa por dónde sale el proxy (una consulta al día a GeoJS) contra la zona horaria y el idioma de la identidad. Sin proxy propio, Chrome sigue el proxy del sistema y `show` lo nombra. En un Chrome sin ventana el user agent sale del Chrome que tienes instalado (una vez que `login` lo leyó), nunca de un texto escrito a mano.",
+        run: CMD.proxy,
+        more: { text: "Red y user agent", href: `${DOCS}/network#network-and-user-agent` },
       },
       {
-        id: "captcha",
-        title: "Resolución de captchas",
-        text: "`browser_solve_captcha` encuentra un widget de reCAPTCHA v2, hCaptcha o Turnstile, envía su clave pública del sitio y la dirección de la página a un servicio que tú configuras, y pone el token de vuelta en la página.",
-        run: CMD.captcha,
-        more: { text: "Resolución de captchas", href: `${DOCS}/natural-language-and-captchas#captcha-solving` },
-        words: ["tu servicio", "token"],
-      },
-      {
-        id: "humanize",
-        title: "Entrada como la de una persona",
-        text: "El puntero recorre una curva hasta un punto dentro del objetivo, el botón se queda presionado un momento y el texto se escribe tecla por tecla. Tres niveles: light, full y adaptive.",
-        run: CMD.humanize,
-        more: { text: "Human-like input", href: `${DOCS}/actions#human-like-input` },
+        id: "lighter",
+        state: "opt",
+        title: "Páginas más ligeras",
+        text: "Bloquea los rastreadores, imágenes, video o fuentes que indiques, y guarda imágenes, fuentes, hojas de estilo y scripts en disco solo para esa identidad.",
+        run: CMD.lighter,
+        more: { text: "Bloqueo y caché", href: `${DOCS}/network#blocking-and-the-resource-cache` },
       },
       {
         id: "read",
+        state: "opt",
         title: "Modo lectura",
         text: "Corre la identidad en Lightpanda, un navegador sin ventana que construye la página sin acomodarla ni dibujarla: para leer páginas rápido y con poca memoria.",
         run: CMD.readMode,
@@ -712,6 +830,7 @@ const es: BrowserCopy = {
       },
       {
         id: "attach",
+        state: "opt",
         title: "Conéctalo a tu propio Chrome",
         text: "Se conecta al Chrome que ya tienes abierto en lugar de abrir otro, así el agente trabaja en tu navegador real, con tus sesiones. Chrome te pide permitir cada conexión.",
         run: CMD.attach,
@@ -719,31 +838,11 @@ const es: BrowserCopy = {
       },
       {
         id: "camoufox",
+        state: "opt",
         title: "Camoufox",
         text: "Corre una identidad en Camoufox, una versión de Firefox que fija dentro del propio navegador lo que este reporta, en su propio perfil. Tú lo instalas y lo mantienes al día.",
         run: CMD.camoufox,
         more: { text: "Camoufox", href: `${DOCS}/engines#camoufox` },
-      },
-      {
-        id: "record",
-        title: "Grabaciones y trazas",
-        text: "Las acciones de cada sesión guardadas como un flujo, una traza de Playwright con el DOM, la red y un video de pantalla, y una captura después de cada acción.",
-        run: CMD.record,
-        more: { text: "Grabaciones y trazas", href: `${DOCS}/flows#recordings-and-traces` },
-      },
-      {
-        id: "network",
-        title: "Un proxy y un user agent coherente",
-        text: "Manda una identidad por un proxy HTTP o SOCKS, con su contraseña en el llavero del sistema, y arma el user agent a partir del Chrome que tienes instalado, nunca de un texto escrito a mano.",
-        run: CMD.userAgent,
-        more: { text: "Red y user agent", href: `${DOCS}/network#network-and-user-agent` },
-      },
-      {
-        id: "lighter",
-        title: "Páginas más ligeras",
-        text: "Bloquea los rastreadores, imágenes, video o fuentes que indiques, y guarda imágenes, fuentes, hojas de estilo y scripts en disco solo para esa identidad.",
-        run: CMD.lighter,
-        more: { text: "Bloqueo y caché", href: `${DOCS}/network#blocking-and-the-resource-cache` },
       },
     ],
   },

@@ -133,8 +133,8 @@ turno identity login browser:escuela
 ```
 
 `turno-browser` es su propio servidor MCP. Maneja el Chrome que ya tienes instalado, con
-ventana, con un perfil persistente por identidad y sin inyectar scripts, así que un agente
-trabaja dentro de las sesiones que tú iniciaste a mano.
+ventana y con un perfil persistente por identidad, así que un agente trabaja dentro de las
+sesiones que tú iniciaste a mano.
 
 - **Limpia lo que deja.** Mantiene 8 pestañas como máximo, pausa una pestaña sin uso a los 5
   minutos y la cierra a los 15. Chrome se cierra tras 15 minutos sin llamadas y vuelve a abrir en
@@ -149,6 +149,9 @@ trabaja dentro de las sesiones que tú iniciaste a mano.
   y un secreto TOTP opcional por sitio en el almacén de secretos del sistema, y la herramienta
   `browser_login` los escribe en la página de inicio de sesión de ese sitio. Una contraseña o
   un código de un solo uso nunca regresa al agente, lo escriba quien lo escriba.
+- **El último clic es tuyo.** El agente no hace clic en un botón que hace un pedido, paga, envía,
+  publica o confirma un borrado: te lo pide a ti, y tu sistema muestra una notificación cada vez
+  que el agente te espera.
 - **Sesiones que se pueden mover.** `turno browser export <id> --out <archivo>` escribe las
   cookies y el almacenamiento de una identidad en un archivo cifrado con una frase, con
   vencimiento, y `turno browser import <archivo>` lo lee en otra máquina. La bóveda de
@@ -158,10 +161,11 @@ trabaja dentro de las sesiones que tú iniciaste a mano.
 
 Úsalo con tus propias cuentas, en sitios cuyos términos te permitan el acceso automatizado, y a
 ritmo humano. No lo uses para sortear controles de acceso, muros de pago o límites, para extraer
-datos a gran escala, ni para entrar a cuentas que no son tuyas. La resolución de captchas y las
-acciones en lenguaje natural vienen apagadas y se activan por identidad; las dos envían contenido
-de la página a un tercero que tú eliges, y resolver captchas puede incumplir los términos de un
-sitio. Más detalle en
+datos a gran escala, ni para entrar a cuentas que no son tuyas. Las acciones en lenguaje natural
+se activan cuando un modelo puede responderlas (el de tu cliente, una API key en el entorno o una
+CLI con tu sesión), y la resolución de captchas cuando configuras la clave de un servicio; las
+dos envían contenido de la página a un tercero, y resolver captchas puede incumplir los términos
+de un sitio. Más detalle en
 [Identidades del navegador](https://turno.wimo.dev/es/docs/browser/identities).
 
 ## Preguntas frecuentes

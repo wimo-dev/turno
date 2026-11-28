@@ -273,7 +273,7 @@ change, and print the `turno undo <stamp>` that puts them back. `turno mcp impor
 | `turno browser identities\|add\|show\|set\|login\|remove` | browser identities and their settings (needs `turno-browser`) |
 | `turno browser vault add\|list\|remove\|submit` | sign-in credentials per site in the OS secret store, filled by the `browser_login` tool |
 | `turno browser export <id> --out <file>`, `turno browser import <file>` | move an identity's session to another machine as one encrypted file |
-| `turno browser flows\|replay <id>`, `turno browser record\|traces <id>` | saved flows and replaying them; opt-in recordings (flows, traces, screenshots) and the trace viewer |
+| `turno browser flows\|replay <id>`, `turno browser record\|traces <id>` | saved flows and replaying them; recordings (flows and screenshots by default, traces when you turn them on) and the trace viewer |
 | `turno browser doctor [--fix]`, `turno browser reputation [<id>]` | check Chrome and every identity; how often each site challenged it |
 | `turno browser bench` | developer diagnostic: browser engine compatibility |
 
@@ -384,6 +384,9 @@ languages and locale fixed (`turno browser show|set <id>`).
   an optional TOTP secret per site in the OS secret store, and the `browser_login` tool fills
   them into that site's sign-in page; results are redacted and values are bound to the site.
   A password or a one-time code never comes back to the agent, whoever typed it.
+- **The last click is yours.** The agent does not click a button that places an order, pays,
+  sends, publishes or confirms a deletion: it asks you, and your system shows a notification
+  whenever the agent waits for you.
 - **Sessions you can move.** `turno browser export <id> --out <file>` writes an identity's
   cookies and storage as one file encrypted with a passphrase, with an expiry, and
   `turno browser import <file>` reads it on another machine. The vault never leaves.
@@ -397,9 +400,10 @@ More in [Browser identities](https://turno.wimo.dev/docs/browser/identities) and
 
 **Acceptable use.** Use it with your own accounts, on sites whose terms allow automated access
 by you, and at a human pace. Do not use it to get around access controls, paywalls or rate
-limits, to scrape at scale, or to access accounts that are not yours. Captcha solving and natural
-language actions are off unless you turn them on per identity; both send page content to a third
-party you pick, and captcha solving may break a site's terms.
+limits, to scrape at scale, or to access accounts that are not yours. Natural language actions
+are on when a model can answer them (your client's, an API key in the environment, or a CLI you
+are signed in to), and captcha solving when you configure a solver key; both send page content
+to a third party, and captcha solving may break a site's terms.
 
 ### Accounts bridge
 

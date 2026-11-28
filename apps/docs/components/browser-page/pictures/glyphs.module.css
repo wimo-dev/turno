@@ -1,4 +1,4 @@
-/* The small pictures of the opt-in features. */
+/* The small pictures of the features of the grid. */
 
 .glyph {
   --tone: var(--tone-third);
@@ -79,13 +79,40 @@
   border: 1px solid var(--ink);
   background: var(--paper);
 }
+.panel {
+  display: flex;
+}
 .screen {
   position: relative;
   display: flex;
+  flex: 1;
   flex-direction: column;
   gap: 6px;
+  min-width: 0;
   height: 58px;
   padding: 12px;
+}
+/* The timeline of the agent's steps, the newest in blue. */
+.steps {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  justify-content: center;
+  gap: 7px;
+  width: 64px;
+  padding: 0 10px;
+  border-left: 1px solid var(--line);
+}
+.steps > i {
+  height: 4px;
+  background: var(--line);
+}
+.steps > i:nth-child(2) {
+  width: 70%;
+}
+.steps > i[data-now] {
+  width: 84%;
+  background: var(--tone-keep);
 }
 .screen > i {
   height: 5px;
@@ -296,5 +323,86 @@
   text-decoration: none;
 }
 .policy > span[data-ok] b {
+  color: var(--tone-keep);
+}
+
+/* The last click */
+.lastClick {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: min(100%, 300px);
+}
+.agentStop {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  min-width: 24px;
+}
+.agentStop > b {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  background: var(--tone-keep);
+}
+.agentStop > i {
+  flex: 1;
+  border-top: 1px dashed var(--tone-keep);
+}
+/* Where the agent stops: short of the button. */
+.agentStop::after {
+  content: "";
+  flex: none;
+  width: 1.5px;
+  height: 12px;
+  background: var(--tone-keep);
+}
+.final {
+  display: grid;
+  flex: none;
+  justify-items: start;
+  gap: 6px;
+}
+.pay {
+  padding: 6px 10px;
+  border: 1px solid var(--ink);
+  background: var(--paper);
+  font-family: var(--font-sans, inherit);
+  font-size: 12.5px;
+  line-height: 1.35;
+  white-space: nowrap;
+}
+.yours {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--dim);
+}
+.yours > b {
+  width: 8px;
+  height: 8px;
+  border: 1.5px solid var(--ink);
+}
+
+/* Cookies and storage */
+.storage {
+  display: grid;
+  gap: 5px;
+  width: min(100%, 240px);
+}
+.storage > span {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 4px 9px;
+  border: 1px solid var(--line);
+  background: var(--paper);
+  color: var(--dim);
+}
+.storage b {
+  font-weight: 500;
+  color: var(--ink);
+}
+.storage > span[data-masked] b {
   color: var(--tone-keep);
 }

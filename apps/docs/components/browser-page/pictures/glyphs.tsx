@@ -3,11 +3,11 @@ import type { OptIn, OptInId } from "../copy";
 import g from "./glyphs.module.css";
 
 /*
- * One small picture per opt-in feature: hairlines and squares, the identity in its tone, turno
- * and the agent in blue. A picture shows the idea in one glance; the card's text says the rest.
+ * One small picture per feature of the grid: hairlines and squares, the identity in its tone,
+ * turno and the agent in blue. A picture shows the idea in one glance; the card's text says the rest.
  */
 
-/** The picture of an opt-in feature. `words` are the few it shows, in the page's language. */
+/** The picture of a feature of the grid. `words` are the few it shows, in the page's language. */
 export function Glyph({ feature }: { feature: OptIn }) {
   const Picture = GLYPHS[feature.id];
   return (
@@ -19,16 +19,24 @@ export function Glyph({ feature }: { feature: OptIn }) {
 
 type GlyphProps = { words: string[] };
 
-/** The agent's tab as a picture, with the controls of the view under it. */
+/** The agent's tab as a picture next to the timeline of its steps, with the controls of the view under them. */
 function Live({ words }: GlyphProps) {
   return (
     <div className={g.live}>
-      <div className={g.screen}>
-        <i />
-        <i />
-        <i />
-        <span className={g.cursorAgent} />
-        <span className={g.cursorYou} />
+      <div className={g.panel}>
+        <div className={g.screen}>
+          <i />
+          <i />
+          <i />
+          <span className={g.cursorAgent} />
+          <span className={g.cursorYou} />
+        </div>
+        <div className={g.steps}>
+          <i />
+          <i />
+          <i />
+          <i data-now />
+        </div>
       </div>
       <div className={g.controls}>
         <span className={g.follow}>
@@ -39,6 +47,65 @@ function Live({ words }: GlyphProps) {
         </span>
         <span className={g.key}>{words[2]}</span>
       </div>
+    </div>
+  );
+}
+
+/** The agent's pointer stops short of a button that pays, and the click is the person's. */
+function LastClick({ words }: GlyphProps) {
+  return (
+    <div className={g.lastClick}>
+      <span className={g.agentStop}>
+        <b />
+        <i />
+      </span>
+      <span className={g.final}>
+        <span className={g.pay}>{words[0]}</span>
+        <span className={g.yours}>
+          <b /> {words[1]}
+        </span>
+      </span>
+    </div>
+  );
+}
+
+/** Where each line of the whole tree ends, and each line of the compact one (all different). */
+const TREE_ENDS = [90, 80, 94, 70, 86, 92, 76, 88, 82];
+const COMPACT_ENDS = [208, 196, 212];
+
+/** A page's whole tree, and the shorter one the model gets, its refs in blue. */
+function Snapshot() {
+  return (
+    <svg viewBox="0 0 240 96" className={g.svg}>
+      <rect x="18" y="8" width="84" height="80" className={g.line} />
+      {TREE_ENDS.map((end, index) => (
+        <path key={end} d={`M${26 + (index % 3) * 6} ${16 + index * 8} H${end}`} className={g.line} />
+      ))}
+      <path d="M112 48 H128 M122 42 L128 48 L122 54" className={g.blue} />
+      <rect x="138" y="24" width="84" height="48" className={g.ink} />
+      {COMPACT_ENDS.map((end, index) => (
+        <g key={end}>
+          <rect x="146" y={32 + index * 12} width="4" height="4" className={g.blueFill} />
+          <path d={`M156 ${34 + index * 12} H${end}`} className={g.ink} />
+        </g>
+      ))}
+    </svg>
+  );
+}
+
+/** Cookies as the agent reads them: what is harmless stays, what keeps you signed in is masked. */
+function Storage() {
+  return (
+    <div className={g.storage}>
+      <span>
+        theme <b>dark</b>
+      </span>
+      <span data-masked>
+        session <b>[masked]</b>
+      </span>
+      <span data-masked>
+        csrf_token <b>[masked]</b>
+      </span>
     </div>
   );
 }
@@ -231,6 +298,9 @@ function Lighter() {
 
 const GLYPHS: Record<OptInId, (props: GlyphProps) => ReactNode> = {
   live: Live,
+  lastClick: LastClick,
+  snapshot: Snapshot,
+  storage: Storage,
   sharing: Sharing,
   policy: Policy,
   act: Act,

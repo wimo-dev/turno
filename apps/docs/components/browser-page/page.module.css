@@ -195,7 +195,7 @@
   color: var(--dim);
 }
 
-/* The small tag on every feature: on from the start, or off until turned on. */
+/* The small tag on every feature: on from the start, on by default, on when something is there, or off until turned on. */
 .tag {
   flex: none;
   padding: 1px 7px;
@@ -210,9 +210,17 @@
   border: 1px solid var(--line);
   color: var(--dim);
 }
-.tag[data-kind="opt"] {
+.tag[data-kind="default"] {
+  border: 1px solid var(--tone-keep);
+  color: var(--tone-keep);
+}
+.tag[data-kind="when"] {
   border: 1px dashed var(--tone-keep);
   color: var(--tone-keep);
+}
+.tag[data-kind="opt"] {
+  border: 1px dashed var(--dim);
+  color: var(--dim);
 }
 
 .cardTitle {
@@ -301,7 +309,7 @@
   }
 }
 
-/* The opt-in features: a picture each, twelve of them in three even columns. */
+/* The features of the grid: a picture each, fifteen of them in three even columns. */
 .optIns {
   display: grid;
   gap: 16px;
@@ -327,6 +335,12 @@
 @media (min-width: 720px) {
   .optIns {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+/* In two columns, an odd last card takes the whole row. */
+@media (min-width: 720px) and (max-width: 1099.98px) {
+  .optIn:last-child:nth-child(odd) {
+    grid-column: 1 / -1;
   }
 }
 @media (min-width: 1100px) {
