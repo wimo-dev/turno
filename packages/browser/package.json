@@ -1,6 +1,6 @@
 {
   "name": "turno-browser",
-  "version": "0.10.1",
+  "version": "0.11.0",
   "description": "A browser your agents use with your accounts. It stays light on your machine, and the model never sees your passwords.",
   "license": "Apache-2.0",
   "author": "William Frank Monroy Mamani (https://github.com/william-monroy)",

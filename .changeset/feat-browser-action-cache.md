@@ -1,5 +1,0 @@
----
-"turno-browser": minor
----
-
-Recorded flows and repeated steps check that they act on the same element. Each flow step keeps a fingerprint of its element (role, accessible name, label, nearest landmark, and the page's URL with ids as `*`); on replay, the element a locator finds must match it, or the step does not run and the replay stops with what differs and a fresh snapshot. With `record.flows` (on by default) the identity also keeps an action cache in `~/.local/share/turno/browser/action-cache/<id>.json` (mode 600): an action that names an element by a selector (a `browser_batch` step, `turno-browser do click '#save'`) is refused when the selector now finds another element than the one an earlier action worked on. Neither the cache nor a flow keeps a vault value: names the redactor knows are stored as their mark, and a locator that holds one is dropped. Measured with the new `pnpm bench:cache` on five changed versions of a form: replays went from 3 wrong-element clicks in 45 steps to none (15% of steps refused), and the same actions repeated by CSS selector from 9 wrong-element actions in 45 to none (27% refused).
