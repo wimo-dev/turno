@@ -1,5 +1,11 @@
 # turno-browser
 
+## 0.11.1
+
+### Patch Changes
+
+- 147625a: The help of `vault submit`, `record` and `set` now says what is on by default since 0.11.0: `browser_login` submits the form (`auto`), flows and screenshots are recorded, traces stay off, and `--disable` lists `storage`.
+
 ## 0.11.0
 
 ### Minor Changes
