@@ -14,7 +14,20 @@ import { fileURLToPath } from "node:url";
 const APP = join(dirname(fileURLToPath(import.meta.url)), "..");
 const PORT = Number(process.env.PORT ?? 4319);
 const ORIGIN = `http://127.0.0.1:${PORT}`;
-const START = ["/", "/es", "/docs", "/es/docs", "/llms.txt", "/llms-full.txt", "/docs/concepts/gateway.md"];
+const START = [
+  "/",
+  "/es",
+  "/docs",
+  "/es/docs",
+  "/releases",
+  "/es/releases",
+  "/releases/feed.xml",
+  "/releases/browser/feed.xml",
+  "/releases/cli/feed.xml",
+  "/llms.txt",
+  "/llms-full.txt",
+  "/docs/concepts/gateway.md",
+];
 
 if (!existsSync(join(APP, ".next/BUILD_ID"))) {
   console.error("check-links: build the site first: pnpm build");

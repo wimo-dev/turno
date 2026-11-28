@@ -2,17 +2,19 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { productOf, withoutPrefix } from "@/lib/products";
 
 const LABEL: Record<string, string> = { en: "Tools", es: "Herramientas" };
 
 /**
  * The two tools of the toolkit, next to the logo: turno and turno-browser. The current one is
- * the tool the page is about: turno-browser on its own page and in its docs, turno elsewhere.
+ * the tool the page is about: turno-browser on its own page, in its docs and in its releases,
+ * turno elsewhere.
  */
 export function ProductSwitch({ lang, home, browser }: { lang: string; home: string; browser: string }) {
   const pathname = usePathname();
-  const docs = `${home === "/" ? "" : home}/docs/browser`;
-  const onBrowser = pathname === browser || pathname.startsWith(`${browser}/`) || pathname === docs || pathname.startsWith(`${docs}/`);
+  const prefix = home === "/" ? "" : home;
+  const onBrowser = pathname === browser || pathname.startsWith(`${browser}/`) || productOf(withoutPrefix(pathname, prefix)) === "browser";
   return (
     <nav aria-label={LABEL[lang] ?? LABEL.en} className="d-products">
       {/* No prefetch: the other tool's page would preload styles this page never uses. */}

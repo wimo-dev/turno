@@ -1,12 +1,5 @@
 import { REPO } from "@/lib/layout.shared";
-
-/** The folder of each published package in the repository, for its CHANGELOG.md. */
-const PACKAGE_DIRS: Record<string, string> = {
-  "turno-cli": "turno",
-  "turno-browser": "browser",
-  "turno-fonts": "fonts",
-  "turno-core": "core",
-};
+import { PACKAGE_DIRS, parseTag } from "@/lib/release-frontmatter";
 
 export interface ReleasedPackage {
   name: string;
@@ -22,19 +15,17 @@ export interface ReleasedPackage {
  * page that does not exist, so anything unexpected fails the build instead.
  */
 export function releasedPackage(tag: string): ReleasedPackage {
-  const at = tag.lastIndexOf("@");
-  const name = tag.slice(0, at);
-  const version = tag.slice(at + 1);
-  const dir = PACKAGE_DIRS[name];
-  if (at <= 0 || !dir || !/^\d+\.\d+\.\d+$/.test(version)) {
+  const parsed = parseTag(tag);
+  if (!parsed) {
     throw new Error(`release pages: "${tag}" is not <package>@<version> for a published package (${Object.keys(PACKAGE_DIRS).join(", ")})`);
   }
+  const { name, version } = parsed;
   return {
     name,
     version,
     release: `${REPO}/releases/tag/${encodeURIComponent(tag)}`,
     // GitHub's anchor for the heading "## 0.2.0" drops the dots.
-    changelog: `${REPO}/blob/main/packages/${dir}/CHANGELOG.md#${version.replaceAll(".", "")}`,
+    changelog: `${REPO}/blob/main/packages/${PACKAGE_DIRS[name]}/CHANGELOG.md#${version.replaceAll(".", "")}`,
   };
 }
 

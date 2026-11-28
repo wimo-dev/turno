@@ -1,17 +1,17 @@
 ---
-title: turno 0.6.2
+title: turno-browser 0.11.0
 description: Features on by default, natural language actions whenever a model can answer, a live view with the agent's steps, the last click left to you, compact snapshots, and faster actions that check their element.
+product: browser
+version: 0.11.0
+date: 2026-11-28
+with: ["turno-cli@0.6.2"]
 ---
-
-<ReleaseHeader date="2026-11-28" packages={["turno-cli@0.6.2", "turno-browser@0.11.0"]} />
 
 **[turno-browser](/browser)** now turns its features on by default, worked out at every launch. Agents read pages in fewer tokens, act faster, check that they act on the same element as before, and leave the click that buys, sends, publishes or deletes to you, while the live view shows each step they take.
 
 ## Upgrade
 
 <Upgrade>
-
-**Update `turno-cli` and `turno-browser` together**, as with every release.
 
 **Features are on by default, without touching identity.json.** turno-browser works out each default at every launch and never writes it into identity.json. `show`, `status` and `doctor` list each value with where it came from, for example `resources: low (auto: memory pressure)`. For an identity you do not touch, this changes:
 
@@ -171,18 +171,12 @@ The passkey watch no longer adds a script and a binding to every page: it wraps 
 
 </Highlight>
 
-## Browser
+## More
 
 - **`doctor` checks patchright-core**: it says whether the installed patchright-core is the version the reputation suite last passed with, and [warns when it is another one](/docs/troubleshooting/browser-patchright-unverified), since how turno's scripts reach pages and the automation leak checks were not verified on it.
 - **New identities** created at a terminal on macOS with Google Chrome keep their cookie key in the system keychain, and `add` mentions Camoufox, Lightpanda and attach mode when they apply.
 - **Google Chrome from ~/Applications**: an identity that names no browser runs it from there too.
 - **The reputation bench**'s probe page now reports elements no page script made under `<html>`.
-
-## CLI
-
-- **New mcp.toml blocks**: turno prints the block of a new identity with `exclusive = false`, except in attach mode.
-- **`turno help environment`** lists `TURNO_BROWSER_SNAPSHOT`.
-- **`turno browser live`** without a running server no longer says the view is off when only no server runs.
 
 ## Fixes
 
@@ -191,7 +185,7 @@ The passkey watch no longer adds a script and a binding to every page: it wraps 
 
 ## Links
 
-- Full changelogs: [turno-cli](https://github.com/wimo-dev/turno/blob/main/packages/turno/CHANGELOG.md) and [turno-browser](https://github.com/wimo-dev/turno/blob/main/packages/browser/CHANGELOG.md).
+- Full changelog: [turno-browser](https://github.com/wimo-dev/turno/blob/main/packages/browser/CHANGELOG.md).
 - [Defaults](/docs/browser/identities#defaults), [the timeline](/docs/browser/live-view#the-timeline), [taking the controls without pausing](/docs/browser/live-view#taking-the-controls-without-pausing), [the last click is yours](/docs/browser/live-view#the-last-click-is-yours) and [notifications](/docs/browser/live-view#notifications).
 - [Snapshots](/docs/browser/actions#snapshots), [batch checks and error codes](/docs/browser/actions#actions), [human-like input](/docs/browser/actions#human-like-input), [the element must be the same one](/docs/browser/flows#the-element-must-be-the-same-one) and [the agent cursor](/docs/browser/agent-cursor).
 - [Which model answers](/docs/browser/natural-language-and-captchas#which-model-answers), [cookies and stored tokens](/docs/browser/vault#cookies-and-stored-tokens), [the system's proxy](/docs/browser/network#the-systems-proxy) and [what leaves your machine](/docs/browser/what-leaves-your-machine).

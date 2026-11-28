@@ -54,7 +54,7 @@ export function baseOptions(lang: string): BaseLayoutProps {
       { text: t.docs, url: localePath(lang, "/docs"), active: "nested-url" },
       { text: t.reference, url: localePath(lang, "/docs/reference"), active: "nested-url" },
       { text: t.troubleshooting, url: localePath(lang, "/docs/troubleshooting"), active: "nested-url" },
-      { text: t.releases, url: localePath(lang, "/docs/releases"), active: "nested-url" },
+      { text: t.releases, url: localePath(lang, "/releases"), active: "nested-url" },
     ],
   };
 }

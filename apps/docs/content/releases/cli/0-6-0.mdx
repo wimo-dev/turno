@@ -1,0 +1,30 @@
+---
+title: turno 0.6.0
+description: Removing a browser identity from turno asks first, as turno-browser 0.9.0 does, and turno-cli needs turno-browser's API 1.14.
+product: cli
+version: 0.6.0
+date: 2026-11-22
+with: ["turno-browser@0.9.0", "turno-core@0.4.0"]
+---
+
+Most of this release is [turno-browser 0.9.0](/releases/browser/0-9-0): a policy per identity, Brave, Edge or a browser installed without admin, passkeys, a low-memory preset and a browser in Spanish. In turno itself, removing a browser identity now asks first.
+
+## Upgrade
+
+<Upgrade>
+
+**Update `turno-cli` and `turno-browser` together**, as with every release.
+
+</Upgrade>
+
+## CLI
+
+- **turno-browser's API 1.14**: turno-cli needs it, for the browser an identity runs on (`turno-browser set <id> --browser`).
+
+## Changed behavior
+
+- **`turno browser remove` and `turno identity remove browser:<id>`** ask before they delete, with the list of what goes, as `turno-browser remove` does. `turno identity remove browser:<id>` passes `--yes` and `--json` on to turno-browser.
+
+## Links
+
+- Full changelog: [turno-cli](https://github.com/wimo-dev/turno/blob/main/packages/turno/CHANGELOG.md).

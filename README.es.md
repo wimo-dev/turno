@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://turno.wimo.dev/es"><b>turno.wimo.dev</b></a> · <a href="https://turno.wimo.dev/es/docs">Documentación</a> · <a href="https://turno.wimo.dev/docs/releases">Versiones</a> · <a href="README.md">English</a> · Español
+  <a href="https://turno.wimo.dev/es"><b>turno.wimo.dev</b></a> · <a href="https://turno.wimo.dev/es/docs">Documentación</a> · <a href="https://turno.wimo.dev/es/releases">Versiones</a> · <a href="README.md">English</a> · Español
 </p>
 
 **¿Cambias de cuenta? La conversación sigue.** La misma sesión continúa en tu otra cuenta, con

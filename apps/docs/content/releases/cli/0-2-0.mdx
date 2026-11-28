@@ -1,11 +1,13 @@
 ---
 title: turno 0.2.0
 description: A new look for the CLI, folder server sets, OAuth for remote MCP servers, one-step setup and a safer gateway.
+product: cli
+version: 0.2.0
+date: 2026-11-17
+with: ["turno-browser@0.2.0"]
 ---
 
-<ReleaseHeader date="2026-11-17" packages={["turno-cli@0.2.0", "turno-browser@0.2.0"]} />
-
-turno 0.2.0 gives the CLI **[a look you can read at a glance](/docs/reference/cli/status)** and makes the gateway do more with less. **[`turno init`](/docs/get-started/first-five-minutes)** sets everything up in one step, and **[`turno demo`](/docs/get-started/try-it)** shows it without touching your setup. **[Server sets](/docs/concepts/folder-rules#server-sets-which-mcp-servers-a-folder-sees)** let each folder see only the MCP servers it needs, the gateway signs in to **[remote servers with OAuth](/docs/concepts/gateway#remote-servers)** once per account, and **[`turno mcp top` and `turno mcp log`](/docs/concepts/gateway#watching-it)** show what it does. Each profile gets **[its own gateway token](/docs/concepts/gateway#one-token-per-profile)**, and the **[accounts bridge](/docs/concepts/profiles#service-accounts-and-the-accounts-bridge)** no longer trusts the calling model to say what a delegated run may do.
+turno 0.2.0 gives the CLI **[a look you can read at a glance](/docs/reference/cli/status)** and makes the gateway do more with less. **[`turno init`](/docs/get-started/first-five-minutes)** sets everything up in one step, and **[`turno demo`](/docs/get-started/try-it)** shows it without touching your setup. **[Server sets](/docs/concepts/folder-rules#server-sets-which-mcp-servers-a-folder-sees)** let each folder see only the MCP servers it needs, the gateway signs in to **[remote servers with OAuth](/docs/concepts/gateway#remote-servers)** once per account, and **[`turno mcp top` and `turno mcp log`](/docs/concepts/gateway#watching-it)** show what it does. Each profile gets **[its own gateway token](/docs/concepts/gateway#one-token-per-profile)**, and the **[accounts bridge](/docs/concepts/profiles#service-accounts-and-the-accounts-bridge)** no longer trusts the calling model to say what a delegated run may do. [turno-browser 0.2.0](/releases/browser/0-2-0) came out with it.
 
 ## Upgrade
 
@@ -140,12 +142,6 @@ turno mcp savings
 - **`turno open`**: accepts only http(s) and mailto links, and works on Linux.
 - **A lighter, locked install**: `turno-cli` no longer pulls in `turno-browser` and `turno-fonts` (about 52 MB down to 27 MB), and both packages ship an `npm-shrinkwrap.json`. No package in either tree runs an install script.
 
-## Browser
-
-- **Engine ids**: `turno browser bench` names its engines `chrome-headed`, `chrome-headless`, `chrome-baseline` and `firefox`. `--engine` still accepts the old ids.
-- **Asks first**: `turno browser bench` asks before it opens Chrome on third-party test pages. `--only-urls` replaces `--no-detectors`, which still works.
-- **`turno-browser-mcp`**: refuses `--port` or `--host` together with `--identity`, which would serve a signed-in browser over HTTP. `--allow-http-identity` accepts it, and then it listens on 127.0.0.1 only.
-
 ## Fixes
 
 - **Status line**: no longer shows `$0.00` for a model it has no price for, and a damaged cache, a full disk or a read-only state folder leaves one part of the line empty instead of replacing it with an error. It shows `mcpd down` when the gateway does not answer.
@@ -169,12 +165,11 @@ What can break a script or a habit when you upgrade from 0.1:
 - **`turno auto`**: exits 1 instead of running the plain agent when the setup is broken. `TURNO_ALLOW_PLAIN=1` runs the plain agent despite a broken config.
 - **`turno mcp sync`**: does not rewrite `~/.claude.json` while a plain `claude` session is open, unless you pass `--force`.
 - **Unknown flags**: every `turno mcp` subcommand, and more commands besides, reject them (exit 2) instead of ignoring them.
-- **`turno browser bench`**: reports the new engine ids in its table and `--json`, and without a terminal it needs `--yes` (`--json` alone no longer runs it).
 - **Profile names**: `init` and `demo` can no longer be profile names.
 
 ## Links
 
-- Full changelogs: [turno-cli 0.2.0](https://github.com/wimo-dev/turno/blob/main/packages/turno/CHANGELOG.md#020) and [turno-browser 0.2.0](https://github.com/wimo-dev/turno/blob/main/packages/browser/CHANGELOG.md#020).
+- Full changelog: [turno-cli 0.2.0](https://github.com/wimo-dev/turno/blob/main/packages/turno/CHANGELOG.md#020).
 - Get started: [Try it](/docs/get-started/try-it) and [First five minutes](/docs/get-started/first-five-minutes).
 - Concepts: [Folder rules](/docs/concepts/folder-rules), [The gateway](/docs/concepts/gateway) and [Profiles](/docs/concepts/profiles).
 - [Security and privacy](/docs/security), for what `turno doctor --security` checks.

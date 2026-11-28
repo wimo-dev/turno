@@ -1,17 +1,17 @@
 ---
-title: turno 0.5.3
+title: turno-browser 0.8.0
 description: Passwords and one-time codes stay out of every result whoever typed them, the agent can ask you for a step only you may do, and an agent cursor that follows each agent.
+product: browser
+version: 0.8.0
+date: 2026-11-22
+with: ["turno-cli@0.5.3"]
 ---
-
-<ReleaseHeader date="2026-11-22" packages={["turno-cli@0.5.3", "turno-browser@0.8.0"]} />
 
 **[turno-browser](/browser)** now keeps every password and one-time code away from the agent, not only the ones the vault fills, and the agent can hand you the steps that are yours: a password, a captcha, an emailed code, a second factor or accepting terms.
 
 ## Upgrade
 
 <Upgrade>
-
-**Update `turno-cli` and `turno-browser` together**, as with every release.
 
 **Typing into a password field is now refused.** An agent that used `browser_type` or `browser_fill_form` on a password or one-time code field gets an error that tells it to ask you with `browser_request_human`, or to sign in with `browser_login` and a vault entry. A saved flow replays such a field only from the secret store (`keychain:<item>`) or from the hidden prompt of `turno-browser replay`.
 
@@ -47,5 +47,5 @@ Each agent session's cursor is named after its own agent ("Claude Code", "Codex"
 
 ## Links
 
-- Full changelogs: [turno-cli](https://github.com/wimo-dev/turno/blob/main/packages/turno/CHANGELOG.md) and [turno-browser](https://github.com/wimo-dev/turno/blob/main/packages/browser/CHANGELOG.md).
+- Full changelog: [turno-browser](https://github.com/wimo-dev/turno/blob/main/packages/browser/CHANGELOG.md).
 - [Password fields and credentials](/docs/browser/vault#password-fields-and-credentials), [When the agent asks for you](/docs/browser/live-view#when-the-agent-asks-for-you) and [the agent cursor](/docs/browser/agent-cursor).

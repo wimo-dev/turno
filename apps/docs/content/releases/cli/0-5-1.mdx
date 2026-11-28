@@ -1,0 +1,31 @@
+---
+title: turno 0.5.1
+description: Bash completion that works on macOS, quiet pipes, and a gateway that stops when its home folder is gone.
+product: cli
+version: 0.5.1
+date: 2026-11-20
+with: ["turno-browser@0.6.0", "turno-core@0.3.0"]
+---
+
+A small release after 0.5.0. **[turno-browser 0.6.0](/releases/browser/0-6-0)** gets shell completion, bash completion now works on the bash macOS ships, and a few rough edges are gone.
+
+## Upgrade
+
+<Upgrade>
+
+**Update `turno-cli` and `turno-browser` together**, as with every release.
+
+**If you load bash completion, change that line in `~/.bashrc`.** Bash 3.2, the one macOS ships, cannot load `source <(...)`. Replace it with `eval "$(turno completion bash)"`. zsh and fish stay as they are.
+
+</Upgrade>
+
+## Fixes
+
+- **Bash completion on macOS**: the bash script never completed anything on bash 3.2. Each word now reaches turno on its own, and the help shows the `eval` line that bash 3.2 can load. turno and turno-browser share the same scripts.
+- **Quiet pipes**: `turno --help | head` and `turno-browser --help | head` sometimes printed an `EPIPE` stack trace when the reader stopped early. They now end quietly.
+- **A gateway with no home**: `turno mcp daemon run` now stops by itself within 15 seconds when its home folder is removed, as happens with a throwaway HOME, instead of running on with nothing to serve.
+
+## Links
+
+- Full changelog: [turno-cli](https://github.com/wimo-dev/turno/blob/main/packages/turno/CHANGELOG.md).
+- [Shell completion for turno](/docs/get-started/install#shell-completion-optional).

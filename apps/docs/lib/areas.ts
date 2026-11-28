@@ -1,25 +1,85 @@
 import type * as PageTree from "fumadocs-core/page-tree";
 import type { ReactNode } from "react";
 import { localePath } from "@/lib/layout.shared";
+import type { SidebarProduct } from "@/lib/products";
 
 /**
- * The docs have five areas, each a root folder in content/docs with its own sidebar:
- * `(docs)` (a folder group, so its pages keep their URLs), `browser` (turno-browser's own docs),
- * `reference`, `troubleshooting` and `releases`.
+ * The areas of the site, each a folder of the page tree with its own home. The root folders of
+ * content/docs are `(docs)` (a folder group, so its pages keep their URLs), `browser`
+ * (turno-browser's own docs), `reference` and `troubleshooting`; content/releases is one more,
+ * with a folder per product. The sidebar lists the areas of the product the page is about.
  */
-export type AreaId = "docs" | "browser" | "reference" | "troubleshooting" | "releases";
+export type AreaId = "docs" | "reference" | "troubleshooting" | "releases" | "browser" | "browser-releases" | "whats-new";
 
-const AREAS: { id: AreaId; path: string }[] = [
-  { id: "docs", path: "/docs" },
-  { id: "browser", path: "/docs/browser" },
-  { id: "reference", path: "/docs/reference" },
-  { id: "troubleshooting", path: "/docs/troubleshooting" },
-  { id: "releases", path: "/docs/releases" },
-];
+const PATHS: Record<AreaId, string> = {
+  docs: "/docs",
+  reference: "/docs/reference",
+  troubleshooting: "/docs/troubleshooting",
+  releases: "/releases/cli",
+  browser: "/docs/browser",
+  "browser-releases": "/releases/browser",
+  "whats-new": "/releases",
+};
 
-const NAMES: Record<string, Record<AreaId, string>> = {
-  en: { docs: "Docs", browser: "turno-browser", reference: "Reference", troubleshooting: "Troubleshooting", releases: "Releases" },
-  es: { docs: "Documentación", browser: "turno-browser", reference: "Referencia", troubleshooting: "Solución de problemas", releases: "Versiones" },
+/** The areas each product's sidebar lists, in order; the combined releases page lists both products' releases. */
+const SIDEBARS: Record<SidebarProduct, AreaId[]> = {
+  turno: ["docs", "reference", "troubleshooting", "releases"],
+  browser: ["browser", "browser-releases", "troubleshooting"],
+  releases: ["whats-new", "releases", "browser-releases"],
+};
+
+/**
+ * Where a page sits, for the label over its title: the first area whose folder holds it. The
+ * product folders of releases come before the releases root, and turno-browser's docs come last,
+ * since its sidebar also links pages of other areas (environment variables, what's new).
+ */
+const PLACE_ORDER: AreaId[] = ["docs", "reference", "troubleshooting", "releases", "browser-releases", "whats-new", "browser"];
+
+/**
+ * Two names per area: the short one inside a product's own list, where the product is clear,
+ * and the full one where both products meet (the combined list, the label over a title).
+ */
+const NAMES: Record<string, { short: Record<AreaId, string>; full: Record<AreaId, string> }> = {
+  en: {
+    short: {
+      docs: "Docs",
+      reference: "Reference",
+      troubleshooting: "Troubleshooting",
+      releases: "Releases",
+      browser: "Docs",
+      "browser-releases": "Releases",
+      "whats-new": "What's new",
+    },
+    full: {
+      docs: "Docs",
+      reference: "Reference",
+      troubleshooting: "Troubleshooting",
+      releases: "turno releases",
+      browser: "turno-browser",
+      "browser-releases": "turno-browser releases",
+      "whats-new": "What's new",
+    },
+  },
+  es: {
+    short: {
+      docs: "Documentación",
+      reference: "Referencia",
+      troubleshooting: "Solución de problemas",
+      releases: "Versiones",
+      browser: "Documentación",
+      "browser-releases": "Versiones",
+      "whats-new": "Novedades",
+    },
+    full: {
+      docs: "Documentación",
+      reference: "Referencia",
+      troubleshooting: "Solución de problemas",
+      releases: "Versiones de turno",
+      browser: "turno-browser",
+      "browser-releases": "Versiones de turno-browser",
+      "whats-new": "Novedades",
+    },
+  },
 };
 
 export interface AreaLink {
@@ -30,32 +90,45 @@ export interface AreaLink {
   count: number;
 }
 
-function countPages(nodes: PageTree.Node[]): number {
+/** The area lists of every product, for the sidebar to pick from by the current path. */
+export type AreaLists = Record<SidebarProduct, AreaLink[]>;
+
+/**
+ * The pages of an area. A link to another area (turno-browser's sidebar links the environment
+ * variables and what's new) is not one of them; a page file always is.
+ */
+function countPages(nodes: PageTree.Node[], href: string): number {
   let n = 0;
   for (const node of nodes) {
-    if (node.type === "page") n += node.external ? 0 : 1;
-    else if (node.type === "folder") n += (node.index ? 1 : 0) + countPages(node.children);
+    if (node.type === "page") n += node.external || (!node.$ref && !node.url.startsWith(href)) ? 0 : 1;
+    else if (node.type === "folder") n += (node.index ? 1 : 0) + countPages(node.children, href);
   }
   return n;
 }
 
-/** The root folder that holds an area: the one whose first page is the area's home. */
-function areaFolder(tree: PageTree.Root, href: string): PageTree.Folder | undefined {
-  for (const node of tree.children) {
-    if (node.type !== "folder" || !node.root) continue;
+/** The folder that holds an area: the one whose index, or first page, is the area's home. */
+function areaFolder(nodes: PageTree.Node[], href: string): PageTree.Folder | undefined {
+  for (const node of nodes) {
+    if (node.type !== "folder") continue;
     const first = node.index ?? node.children.find((child) => child.type === "page");
     if (first?.type === "page" && first.url === href) return node;
+    const inner = areaFolder(node.children, href);
+    if (inner) return inner;
   }
   return undefined;
 }
 
-export function areaLinks(tree: PageTree.Root, lang: string): AreaLink[] {
+function areaLink(tree: PageTree.Root, lang: string, id: AreaId, names: Record<AreaId, string>): AreaLink {
+  const href = localePath(lang, PATHS[id]);
+  const folder = areaFolder(tree.children, href);
+  // A root folder lists its home among its children; a product folder of releases holds it as its index.
+  return { id, href, name: names[id], count: folder ? (folder.index ? 1 : 0) + countPages(folder.children, href) : 0 };
+}
+
+export function areaLists(tree: PageTree.Root, lang: string): AreaLists {
   const names = NAMES[lang] ?? NAMES.en!;
-  return AREAS.map(({ id, path }) => {
-    const href = localePath(lang, path);
-    const folder = areaFolder(tree, href);
-    return { id, href, name: names[id], count: folder ? countPages(folder.children) : 0 };
-  });
+  const list = (product: SidebarProduct, kind: "short" | "full") => SIDEBARS[product].map((id) => areaLink(tree, lang, id, names[kind]));
+  return { turno: list("turno", "short"), browser: list("browser", "short"), releases: list("releases", "full") };
 }
 
 export interface PagePlace {
@@ -67,11 +140,13 @@ export interface PagePlace {
 
 /** Where a page sits in the sidebar, for the label over its title. */
 export function placeOf(tree: PageTree.Root, lang: string, url: string): PagePlace | undefined {
-  for (const link of areaLinks(tree, lang)) {
-    const folder = areaFolder(tree, link.href);
+  const names = (NAMES[lang] ?? NAMES.en!).full;
+  for (const id of PLACE_ORDER) {
+    const href = localePath(lang, PATHS[id]);
+    const folder = areaFolder(tree.children, href);
     if (!folder) continue;
-    const groups = groupsTo(folder.children, url);
-    if (groups) return { area: { name: link.name, href: link.href }, groups };
+    const groups = folder.index?.url === url ? [] : groupsTo(folder.children, url);
+    if (groups) return { area: { name: names[id], href }, groups };
   }
   return undefined;
 }

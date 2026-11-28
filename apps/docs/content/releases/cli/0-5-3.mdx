@@ -1,0 +1,22 @@
+---
+title: turno 0.5.3
+description: mcpd sends each client's name with every call, so the agent cursor of each session is named after its own agent.
+product: cli
+version: 0.5.3
+date: 2026-11-22
+with: ["turno-browser@0.8.0"]
+---
+
+Most of this release is [turno-browser 0.8.0](/releases/browser/0-8-0), which keeps every password and one-time code away from the agent and lets the agent hand you the steps that are yours. In turno itself, mcpd sends the client's name with each call, so each agent session's cursor is named after its own agent. The hidden prompt of `turno browser replay` names the parameters it asked for to the server it starts in `TURNO_BROWSER_PROMPTED_PARAMS`, which `turno help environment` lists.
+
+## Upgrade
+
+<Upgrade>
+
+**Update `turno-cli` and `turno-browser` together**, as with every release.
+
+</Upgrade>
+
+## Links
+
+- Full changelog: [turno-cli](https://github.com/wimo-dev/turno/blob/main/packages/turno/CHANGELOG.md).

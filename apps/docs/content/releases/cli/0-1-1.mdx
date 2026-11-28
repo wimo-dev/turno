@@ -1,11 +1,13 @@
 ---
-title: turno 0.1
+title: turno 0.1.1
 description: The first public release, with one MCP gateway for every agent session, profiles for four coding agents and the Claude Code status line.
+product: cli
+version: 0.1.1
+date: 2026-11-16
+with: ["turno-browser@0.1.1", "turno-fonts@0.1.1"]
 ---
 
-<ReleaseHeader date="2026-11-16" packages={["turno-cli@0.1.1", "turno-browser@0.1.1", "turno-fonts@0.1.1"]} />
-
-The first public release of turno: **[one MCP gateway](/docs/concepts/gateway)** for every agent session, **[profiles](/docs/concepts/profiles)** for Claude Code, Codex CLI, GitHub Copilot CLI and Cursor CLI, **[folder rules](/docs/concepts/folder-rules)** that pick the account, **[the Claude Code status line](/docs/concepts/profiles#the-status-line)** with usage per account, and **[the accounts bridge](/docs/concepts/profiles#service-accounts-and-the-accounts-bridge)**. 0.1.0 came out on November 16, 2026, and 0.1.1 the same day.
+The first public release of turno: **[one MCP gateway](/docs/concepts/gateway)** for every agent session, **[profiles](/docs/concepts/profiles)** for Claude Code, Codex CLI, GitHub Copilot CLI and Cursor CLI, **[folder rules](/docs/concepts/folder-rules)** that pick the account, **[the Claude Code status line](/docs/concepts/profiles#the-status-line)** with usage per account, and **[the accounts bridge](/docs/concepts/profiles#service-accounts-and-the-accounts-bridge)**. 0.1.0 came out on November 16, 2026, and 0.1.1 the same day. The browser that came with it has its own page: [turno-browser 0.1.1](/releases/browser/0-1-1).
 
 ## Upgrade
 
@@ -74,18 +76,14 @@ A builtin MCP server that hands a task to a service account another profile is s
 - **Scripts**: `--json` on reads, `--dry-run` and `turno undo` on writes, and shell completion.
 - **Updates**: `turno upgrade`, and a daily update check that honors `DO_NOT_TRACK`.
 
-## Browser
-
-- **turno-browser**: an MCP server that drives your installed Google Chrome with a persistent profile per identity (`turno-browser-mcp --identity <name>`), headed by default, plus the `turno browser bench` checks.
-
 ## Fixes
 
 0.1.1, the same day:
 
 - **`turno upgrade`**: recognizes a Homebrew install and runs `brew update` and `brew upgrade turno` instead of `npm install --global`.
-- **Repository**: moved to `github.com/wimo-dev/turno`, and turno-browser is listed in the MCP Registry as `io.github.wimo-dev/turno-browser`.
+- **Repository**: moved to `github.com/wimo-dev/turno`.
 
 ## Links
 
-- Full changelogs: [turno-cli](https://github.com/wimo-dev/turno/blob/main/packages/turno/CHANGELOG.md#011), [turno-browser](https://github.com/wimo-dev/turno/blob/main/packages/browser/CHANGELOG.md#011) and [turno-fonts](https://github.com/wimo-dev/turno/blob/main/packages/fonts/CHANGELOG.md#011), from 0.1.1 down to 0.1.0.
+- Full changelogs: [turno-cli](https://github.com/wimo-dev/turno/blob/main/packages/turno/CHANGELOG.md#011) and [turno-fonts](https://github.com/wimo-dev/turno/blob/main/packages/fonts/CHANGELOG.md#011), from 0.1.1 down to 0.1.0.
 - Concepts: [The gateway](/docs/concepts/gateway), [Profiles](/docs/concepts/profiles) and [Folder rules](/docs/concepts/folder-rules).

@@ -1,0 +1,42 @@
+---
+title: turno-browser 0.6.0
+description: turno-browser gets shell completion for zsh, bash or fish.
+product: browser
+version: 0.6.0
+date: 2026-11-20
+with: ["turno-cli@0.5.1", "turno-core@0.3.0"]
+---
+
+**[turno-browser](/browser)** gets shell completion.
+
+## Upgrade
+
+<Upgrade>
+
+**Nothing to migrate.** Identities, `identity.json` and `mcp.toml` stay as they are.
+
+</Upgrade>
+
+## Highlights
+
+<Highlight area="Browser" title="Shell completion for turno-browser" href="/docs/browser/get-started#shell-completion-optional" more="Shell completion">
+
+`turno-browser completion` prints a script for zsh, bash or fish. It completes commands, identity names, the agents `setup` knows, the actions of `do` and each command's flags. It only reads the identity folders: completing never starts Chrome or reads the secret store.
+
+```sh
+echo 'source <(turno-browser completion zsh)' \
+  >> ~/.zshrc
+echo 'eval "$(turno-browser completion bash)"' \
+  >> ~/.bashrc
+```
+
+</Highlight>
+
+## Fixes
+
+- **Quiet pipes**: `turno-browser --help | head` sometimes printed an `EPIPE` stack trace when the reader stopped early. It now ends quietly.
+
+## Links
+
+- Full changelogs: [turno-browser](https://github.com/wimo-dev/turno/blob/main/packages/browser/CHANGELOG.md) and [turno-core](https://github.com/wimo-dev/turno/blob/main/packages/core/CHANGELOG.md).
+- [The turno-browser command reference](/docs/browser/reference/cli).

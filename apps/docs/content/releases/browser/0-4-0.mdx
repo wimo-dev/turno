@@ -1,19 +1,17 @@
 ---
-title: turno 0.4.0
+title: turno-browser 0.4.0
 description: Several agents in one browser, flows you record once and replay, a browser you can drive from the shell, and a view to watch the agent and take over.
+product: browser
+version: 0.4.0
+date: 2026-11-19
+with: ["turno-cli@0.4.0"]
 ---
 
-<ReleaseHeader date="2026-11-19" packages={["turno-cli@0.4.0", "turno-browser@0.4.0"]} />
-
-turno 0.4.0 is about the browser again. One browser identity can now **[serve several agents at once](/docs/browser/sharing)**, each in its own tabs. What an agent does can be **[saved as a flow and replayed](/docs/browser/flows#flows-record-and-replay)**, coding agents can **[drive the browser from the shell](/docs/browser/actions#from-the-shell)**, and you can **[watch the agent's tab and take over](/docs/browser/live-view)** when a site needs a person. Two **[engines](/docs/browser/engines)** join Chrome: Lightpanda for reading pages with little memory, and your own Chrome. Every new setting is off until you turn it on.
+One browser identity can now **[serve several agents at once](/docs/browser/sharing)**, each in its own tabs. What an agent does can be **[saved as a flow and replayed](/docs/browser/flows#flows-record-and-replay)**, coding agents can **[drive the browser from the shell](/docs/browser/actions#from-the-shell)**, and you can **[watch the agent's tab and take over](/docs/browser/live-view)** when a site needs a person. Two **[engines](/docs/browser/engines)** join Chrome: Lightpanda for reading pages with little memory, and your own Chrome. Every new setting is off until you turn it on. It came out with [turno 0.4.0](/releases/cli/0-4-0).
 
 ## Upgrade
 
 <Upgrade>
-
-**Update `turno-cli` and `turno-browser` together.** This turno-cli needs turno-browser 0.4, and says so in one line if the other one is older.
-
-**Let mcpd restart.** `turno upgrade` restarts it so it runs the new version. If you upgraded with your package manager, run `turno upgrade --finish`.
 
 **Nothing to migrate.** Your `identity.json` files keep working as they are. An identity that turns on a new setting is written in a newer format, which an older turno-browser on another machine refuses with a message to update it.
 
@@ -112,11 +110,6 @@ Keys for these services are only `keychain:` references, read from the secret st
 - **Cleanup**: a server in read mode stops a Lightpanda that a killed server left running, and `turno browser doctor --fix` does too.
 - **Benchmarks**: an [evaluation suite](/docs/benchmarks#evaluation-suite) of browser tasks with paired runs, and a [fingerprint and event bench](/docs/benchmarks#fingerprint-and-event-bench) that shows what a page can observe about the browser.
 
-## CLI
-
-- **Faster status**: `turno doctor`, `turno status` and `turno mcp daemon status` no longer wait for `lsof` to tell who holds mcpd's port, which took seconds on a busy Mac.
-- **`turno browser <id> <action>`**: the short form of `turno browser do`, when the id is not a subcommand.
-
 ## Changed behavior
 
 What can change when you upgrade from 0.3:
@@ -125,6 +118,6 @@ What can change when you upgrade from 0.3:
 
 ## Links
 
-- Full changelogs: [turno-cli](https://github.com/wimo-dev/turno/blob/main/packages/turno/CHANGELOG.md) and [turno-browser](https://github.com/wimo-dev/turno/blob/main/packages/browser/CHANGELOG.md).
-- Browser: [Browser identities](/docs/browser/identities), [Let an agent use my signed-in browser](/docs/guides/signed-in-browser) and [The browser package](/docs/security#the-browser-package).
+- Full changelog: [turno-browser](https://github.com/wimo-dev/turno/blob/main/packages/browser/CHANGELOG.md).
+- [Browser identities](/docs/browser/identities), [Let an agent use my signed-in browser](/docs/guides/signed-in-browser) and [The browser package](/docs/security#the-browser-package).
 - [Benchmarks](/docs/benchmarks#turno-browser) and [Troubleshooting](/docs/troubleshooting).
