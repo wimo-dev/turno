@@ -218,7 +218,7 @@ export function vaultCommand(c: Ctx): Command {
     },
     rm: { summary: "same as remove", hidden: true, run: withModule(remove) },
     submit: {
-      summary: "let browser_login submit the form (auto) or leave the click to the agent (confirm, default)",
+      summary: "let browser_login submit the form (auto, default) or leave the click to the agent (confirm)",
       synopsis: "<identity> <confirm|auto> [--dry-run]",
 
       flags: ["--dry-run"],
