@@ -8,12 +8,12 @@
     "source": "github",
     "subfolder": "packages/browser"
   },
-  "version": "0.10.1",
+  "version": "0.11.0",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "turno-browser",
-      "version": "0.10.1",
+      "version": "0.11.0",
       "transport": {
         "type": "stdio"
       },
