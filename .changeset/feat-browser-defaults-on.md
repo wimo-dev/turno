@@ -1,6 +1,6 @@
 ---
 "turno-browser": minor
-"turno": patch
+"turno-cli": patch
 ---
 
 turno-browser turns its features on by default, worked out at every launch and never written into identity.json. `show`, `status` and `doctor` list each value with where it came from, for example `resources: low (auto: memory pressure)`.

@@ -20,7 +20,7 @@
     "typecheck": "pnpm --filter \"./packages/*\" run typecheck",
     "lint": "biome check && knip",
     "format": "biome format --write",
-    "check": "pnpm typecheck && pnpm lint && pnpm test && node --test scripts/*.test.mjs bench/browser/*.test.mjs && node scripts/no-em-dash.mjs && node scripts/patchright-guard.mjs && node scripts/licenses.mjs",
+    "check": "pnpm typecheck && pnpm lint && pnpm test && node --test scripts/*.test.mjs bench/browser/*.test.mjs && node scripts/no-em-dash.mjs && node scripts/changeset-names.mjs && node scripts/patchright-guard.mjs && node scripts/licenses.mjs",
     "changeset": "changeset",
     "version-packages": "changeset version && node scripts/sync-server-json.mjs && pnpm install --lockfile-only",
     "pack:check": "pnpm build && node scripts/pack-check.mjs",
