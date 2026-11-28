@@ -167,6 +167,31 @@ describe("the live view server", () => {
     expect(JSON.parse(ok.body).paused.by).toBe("the live view");
   });
 
+  it("lets the side panel in only from its extension, with a code that works once, then its own token", async () => {
+    const server = await startServer();
+    const extension = `chrome-extension://${"b".repeat(32)}`;
+    expect(await server.panelOffer("https://evil.example")).toBeUndefined();
+    const offer = (await server.panelOffer(extension))!;
+    const port = Number(new URL(offer.server).port);
+    const post = (path: string, headers: Record<string, string>, body: unknown = {}) =>
+      http(port, "POST", path, { "content-type": "application/json", ...headers }, JSON.stringify(body));
+    // A page's origin, or no origin, never reaches the panel's routes (nor uses up the code).
+    expect((await post("/panel/session", { origin: "http://evil.example" }, { code: offer.code })).status).toBe(401);
+    expect((await post("/panel/session", {}, { code: offer.code })).status).toBe(401);
+    const ok = await post("/panel/session", { origin: extension }, { code: offer.code });
+    expect(ok.status).toBe(200);
+    expect(ok.headers["access-control-allow-origin"]).toBe(extension);
+    const { token } = JSON.parse(ok.body) as { token: string };
+    expect((await post("/panel/session", { origin: extension }, { code: offer.code })).status).toBe(401);
+    expect((await post("/pause", { origin: extension })).status).toBe(401);
+    expect((await post("/pause", { origin: extension, authorization: `Bearer ${token}x` })).status).toBe(401);
+    const paused = await post("/pause", { origin: extension, authorization: `Bearer ${token}` });
+    expect(paused.status).toBe(200);
+    expect(JSON.parse(paused.body).paused.by).toBe("the side panel");
+    // The token is the panel's alone: the view's own routes still want the view's cookie.
+    expect((await http(port, "GET", "/state", { authorization: `Bearer ${token}` })).status).toBe(401);
+  });
+
   it("refuses input with no tab to send it to without pausing, and the link and input never from the wrong side", async () => {
     await startServer();
     const port = (await liveStatus("work", sb.env))!.port;

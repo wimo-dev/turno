@@ -33,6 +33,7 @@
   "files": [
     "dist",
     "!dist/**/*.map",
+    "extension",
     "npm-shrinkwrap.json",
     "LICENSE",
     "NOTICE",

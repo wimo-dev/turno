@@ -73,6 +73,7 @@ Every feature has a default that turno works out when Chrome starts, from what i
 | Feature | Default | When |
 |---|---|---|
 | [Live view](/docs/browser/live-view) | on | every server with an identity; it opens only when you ask |
+| [Side panel](/docs/browser/live-view#the-side-panel-in-the-agents-window) | on | a Chrome with a window that turno starts, with the live view on; not headless, in attach mode or with another engine |
 | [Flows](/docs/browser/flows) | recorded | always |
 | [Screenshots](/docs/browser/flows#recordings-and-traces) | after each action, under a disk cap | never of a page that shows a vault value; not in attach or read mode |
 | [Traces](/docs/browser/flows#recordings-and-traces) | off (not yet available: while tracing, Chrome loads no image or frame of another site) | `--record-traces true` turns them on |
@@ -100,7 +101,7 @@ turno-browser set school --user-agent off --locale off --health off
 turno-browser set school --live "" --user-agent ""
 ```
 
-`"auto"` (for `live.enabled`, `resources`, `humanize.level` and `userAgent`) says the same as leaving the key out. A file with an `auto` or `false` value, or with `notify` or `lastClick` set, is written as format 14, which an older turno-browser refuses with "update turno-browser" instead of guessing.
+`"auto"` (for `live.enabled`, `resources`, `humanize.level` and `userAgent`) says the same as leaving the key out. A file with an `auto` or `false` value, or with `notify`, `lastClick` or `sidePanel` set, is written as format 14, which an older turno-browser refuses with "update turno-browser" instead of guessing.
 
 Some features stay one step away: resource blocking and the own HTTP cache (`--block-*`, `--cache`), `--allow-http-identity`, and the [engines](/docs/browser/engines) other than Chrome. `turno-browser add` offers Camoufox and Lightpanda when they are installed, and attach mode, but never switches an identity on its own. Natural language actions, captcha solving, `storage` and the proxy stay off until you set them.
 

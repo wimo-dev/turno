@@ -311,6 +311,16 @@ function protocolChecks(report) {
         )
       : check("page-nodes", "protocol", "pass", 0),
   );
+  // turno-browser's side panel extension has no web accessible resources: no page can load one
+  // of its files, exactly as for an id no extension has.
+  const ext = report.static?.extension;
+  out.push(
+    !ext
+      ? check("extension-resources", "protocol", "info", undefined, "not measured")
+      : ext.turno.image || ext.turno.fetch || ext.none.image || ext.none.fetch
+        ? check("extension-resources", "protocol", "fail", ext, "a page loaded a file of an extension")
+        : check("extension-resources", "protocol", "pass", 0, "no file of the side panel extension loads"),
+  );
   out.push(
     report.legacyRuntimeLeak
       ? check("legacy-runtime-leak", "protocol", "fail", true, "console arguments were serialized (Runtime.enable)")

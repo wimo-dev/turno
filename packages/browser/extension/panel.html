@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>turno-browser</title>
+<link rel="stylesheet" href="panel.css">
+</head>
+<body>
+<header class="bar">
+  <span class="brand">turno</span>
+  <span class="chip" id="id"></span>
+  <span class="spacer"></span>
+  <button class="icon-btn" id="live" type="button" hidden></button>
+</header>
+<div class="pill" id="pill"><i class="dot" aria-hidden="true"></i><span id="status"></span></div>
+<section class="now" id="now" aria-labelledby="now-k">
+  <div class="k" id="now-k"></div>
+  <div class="main">
+    <div class="ic" id="now-ic" aria-hidden="true"></div>
+    <div class="text">
+      <div id="now-v"></div>
+      <div id="now-t"></div>
+    </div>
+    <div class="elapsed" id="now-e" aria-hidden="true"></div>
+  </div>
+  <div id="now-d"></div>
+  <div class="acts" id="now-acts" hidden>
+    <button class="btn go" id="now-done" type="button"></button>
+    <span class="hint" id="now-hint"></span>
+  </div>
+</section>
+<div class="take" id="take" hidden><span id="take-t"></span><button class="btn" id="takeback" type="button"></button></div>
+<div class="controls">
+  <button class="btn" id="pause" type="button" disabled></button>
+  <button class="btn primary" id="resume" type="button" disabled></button>
+</div>
+<div id="notice" role="status"></div>
+<section class="steps" aria-labelledby="steps-title">
+  <h2><span id="steps-title"></span><span id="count">0</span></h2>
+  <ol id="steps" aria-live="polite" aria-relevant="additions"></ol>
+</section>
+<div id="announce" class="sr" role="status" aria-live="polite"></div>
+<script src="panel.js"></script>
+</body>
+</html>

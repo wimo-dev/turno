@@ -60,6 +60,8 @@ export interface UiStrings {
     denied: string;
     /** Who took the controls by using the agent's own window (an automatic pause). */
     byWindow: string;
+    /** Who paused: the side panel in the agent's window. */
+    byPanel: string;
     /** An automatic pause: `{by}`; `{s}`: seconds of no input before the agent goes on. */
     tookOver: string;
     /** The step timeline next to the picture. */
@@ -130,6 +132,20 @@ export interface UiStrings {
       agentTitle: string;
       /** A step's tab is not the one shown. */
       otherTab: string;
+    };
+    /** The side panel in the agent's own Chrome window (`extension/panel.js`). */
+    panel: {
+      title: string;
+      waitingHint: string;
+      humanHint: string;
+      takeOverHint: string;
+      /** Next to "I am done" on a person step. */
+      doneHint: string;
+      openLive: string;
+      openLiveHint: string;
+      disconnected: string;
+      /** The server's answer when no browser can show the live view. */
+      noLiveWindow: string;
     };
   };
   /** The person step's banner (`human-step.ts`). */
@@ -215,6 +231,7 @@ export const UI_STRINGS: Record<UiLocale, UiStrings> = {
       hiddenInput: "This page holds a vault or sensitive value, so the view hides it; use the browser window for it.",
       denied: "This live view needs a fresh link. Run {command}: it opens one that works once.",
       byWindow: "you, in the browser window",
+      byPanel: "the side panel",
       tookOver:
         "You have the controls ({by}). The agent goes on {s} s after your last input, or when you press Hand back.",
       steps: "Steps",
@@ -341,6 +358,18 @@ export const UI_STRINGS: Record<UiLocale, UiStrings> = {
         agentTitle: "The agent",
         otherTab: "in another tab",
       },
+      panel: {
+        title: "turno: what the agent does",
+        waitingHint: "Each step of the agent shows here, as it happens.",
+        humanHint: "The agent stopped and waits for you. Do it on the page.",
+        takeOverHint:
+          "You are using the page. The agent goes on a few seconds after you stop, or when you press Hand back.",
+        doneHint: "when you have finished on the page",
+        openLive: "Live view",
+        openLiveHint: "Open the live view in a window of its own",
+        disconnected: "Disconnected from turno-browser. It connects again when the agent's server runs.",
+        noLiveWindow: "No Chromium browser was found to show the live view; run turno-browser live <id> instead.",
+      },
     },
     step: {
       title: "Your turn",
@@ -418,6 +447,7 @@ export const UI_STRINGS: Record<UiLocale, UiStrings> = {
         "Esta página tiene una contraseña u otro dato privado, por eso aquí no se ve. Usa la ventana del navegador.",
       denied: "Este enlace ya no sirve. Pide uno nuevo con {command}: cada enlace funciona una sola vez.",
       byWindow: "tú, en la ventana del navegador",
+      byPanel: "el panel lateral",
       tookOver:
         "Tú tienes el control ({by}). El agente sigue {s} s después de lo último que hagas, o cuando presiones Devolver el control.",
       steps: "Pasos",
@@ -543,6 +573,20 @@ export const UI_STRINGS: Record<UiLocale, UiStrings> = {
         },
         agentTitle: "El agente",
         otherTab: "en otra pestaña",
+      },
+      panel: {
+        title: "turno: lo que hace el agente",
+        waitingHint: "Cada paso del agente aparece aquí, mientras ocurre.",
+        humanHint: "El agente se detuvo y te espera. Hazlo en la página.",
+        takeOverHint:
+          "Estás usando la página. El agente sigue unos segundos después de que pares, o cuando presiones Devolver el control.",
+        doneHint: "cuando termines en la página",
+        openLive: "Vista en vivo",
+        openLiveHint: "Abre la vista en vivo en una ventana aparte",
+        disconnected:
+          "Sin conexión con turno-browser. Vuelve a conectarse cuando el servidor del agente esté en marcha.",
+        noLiveWindow:
+          "No se encontró un navegador Chromium para mostrar la vista en vivo; usa turno-browser live <id> en su lugar.",
       },
     },
     step: {

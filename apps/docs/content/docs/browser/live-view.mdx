@@ -21,6 +21,58 @@ turno-browser resume school
 changes how long a paused call waits (identity.json `"live": { "enabled": false, "wait": "2m" }`;
 from `"5s"` to `"30m"`, 2 minutes by default). `"enabled": "auto"` says the same as leaving it out.
 
+## The side panel in the agent's window
+
+When turno starts a Chrome with a window, the agent's own window shows what it does in Chrome's
+side panel, next to the page. It is on by default, and you do not have to open anything:
+
+- a pill with the state (working, thinking, paused, your turn, looks stuck) and a "Now" card with
+  the step the agent runs, in the color of its kind, and how long it has run;
+- the agent's steps, with the same icons, colors and words as the live view's timeline, "Thought
+  for 4 s" between calls and a line where the agent moves to another site;
+- Pause and Hand back, and when the agent waits for you (a person step, the last click, a passkey,
+  a captcha) an amber card that says what to do, with "I am done";
+- a chip while you have the controls, with Hand back;
+- "Live view", which opens the full view below in an app window.
+
+![The side panel while the agent signs in on a demo shop: the "Now" card says it types into the Username field (13 characters), with Pause and Hand back, and its steps below](/browser-side-panel.png)
+
+![The side panel in the dark theme while the agent waits for the person: an amber card asks them to type the password and sign in, with the "I am done" button](/browser-side-panel-dark.png)
+
+It follows your system's light or dark theme and its reduced motion setting. Its only motion is the
+state's dot, which fades; colors change at once, since a color that fades repaints the panel on
+every frame while the agent works. Close it with Chrome's own button; turno-browser's icon in the
+toolbar (or in Chrome's Extensions menu) opens it again.
+
+What it is made of: a small extension that ships inside turno-browser and that Chrome loads at each
+start over the DevTools protocol (`Extensions.loadUnpacked`, with
+`--enable-unsafe-extension-debugging`). Its only permission is `sidePanel`: it has no content
+scripts, no host permissions and no web accessible resources, so it reads and changes no page, and
+no page can load one of its files or message it. The panel reads the same server as the live view,
+on 127.0.0.1: turno hands the panel the server's address and a code that works once through the
+extension's service worker, over the protocol, never through a page or an address a site can see,
+and the panel trades the code for a token of its own. Like the live view, it shows no typed text
+and no vault value, and a page's text only as text.
+
+What a page can tell: the panel takes its width from the page, as when a person opens Chrome's side
+panel. A page loaded with it open has a narrower `innerWidth` (about 390 px less; `outerWidth` and
+the screen do not change), and a page open while it opens gets a `resize` event. On the
+[reputation bench](https://github.com/wimo-dev/turno/tree/main/bench/browser)'s probe page, the
+panel adds no element to the page and no call in its main world, and the extension's files load no
+more than those of an id no extension has.
+
+It is not loaded for a headless Chrome, in [attach mode](/docs/browser/sharing) (your own browser
+keeps its own extensions), for the [engines](/docs/browser/engines) other than Chrome, or when the
+live view is off. To turn it off for an identity:
+
+```sh
+turno-browser set school --side-panel false
+```
+
+`turno-browser live school` still opens the full view below.
+
+## The live view
+
 The view is a panel: a header that says what the agent does now, the agent's tab as a picture (a
 screencast over CDP, sent only while a view is open) on a stage that shows each action, a "Now"
 card and a timeline of the agent's steps, a list of tabs with "Follow the agent" (the tab of the

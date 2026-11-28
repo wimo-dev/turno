@@ -7,10 +7,24 @@
 // page never needs the automation to read it back, so reading the report cannot disturb what
 // it measured.
 
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { refOf } from "./tasks.mjs";
 
 const NONCE = "turno-probe";
+
+/** The id of turno-browser's side panel extension, from the `key` of its manifest. */
+function sidePanelExtensionId() {
+  const manifest = JSON.parse(
+    readFileSync(new URL("../../../packages/browser/extension/manifest.json", import.meta.url), "utf8"),
+  );
+  return createHash("sha256")
+    .update(Buffer.from(manifest.key, "base64"))
+    .digest("hex")
+    .slice(0, 32)
+    .replace(/./g, (c) => String.fromCharCode(97 + Number.parseInt(c, 16)));
+}
 
 // Runs in the page. Plain ES2020, no dependencies.
 const PROBE_SCRIPT = String.raw`
@@ -129,6 +143,21 @@ const PROBE_SCRIPT = String.raw`
     const getter = Object.getOwnPropertyDescriptor(Navigator.prototype, 'webdriver');
     const globals = Object.getOwnPropertyNames(window).sort();
     const intl = Intl.DateTimeFormat().resolvedOptions();
+    // turno-browser's side panel extension, by its fixed id, next to an id no extension has: a
+    // page that can load a file of an extension (web_accessible_resources) can tell it is there.
+    const loads = (src) => new Promise((done) => {
+      const img = new Image();
+      const timer = setTimeout(() => done(false), 2000);
+      img.onload = () => { clearTimeout(timer); done(true); };
+      img.onerror = () => { clearTimeout(timer); done(false); };
+      img.src = src;
+    });
+    const fetches = (src) => post(src).then(() => true, () => false);
+    const extensionOf = async (id) => ({
+      image: await loads('chrome-extension://' + id + '/icon-16.png'),
+      fetch: await fetches('chrome-extension://' + id + '/manifest.json'),
+    });
+    const extension = { turno: await extensionOf('__TURNO_EXTENSION_ID__'), none: await extensionOf('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa') };
     report.static = {
       userAgent: nav.userAgent,
       platform: nav.platform,
@@ -166,6 +195,7 @@ const PROBE_SCRIPT = String.raw`
       visibility: document.visibilityState,
       focused: document.hasFocus(),
       pointerRawUpdate: 'onpointerrawupdate' in window,
+      extension,
     };
     flush();
   }
@@ -203,7 +233,7 @@ const PROBE_HTML = `<!doctype html><html lang="en"><head><meta charset="utf-8"><
   #steps { display: none; position: absolute; left: 600px; top: 120px; width: 300px; border: 1px solid #888; padding: 8px 16px }
   .human #steps { display: block }
 </style>
-<script nonce="${NONCE}">${PROBE_SCRIPT}</script>
+<script nonce="${NONCE}">${PROBE_SCRIPT.replace("__TURNO_EXTENSION_ID__", sidePanelExtensionId())}</script>
 </head><body>
 <h1>Probe</h1>
 <button id="hover-target">Hover target</button>
