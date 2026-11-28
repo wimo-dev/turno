@@ -773,7 +773,7 @@ const es: BrowserCopy = {
       {
         id: "storage",
         state: "default",
-        title: "Cookies, con las sesiones ocultas",
+        title: "Cookies y almacenamiento, sesiones ocultas",
         text: "El agente puede leer y escribir cookies, localStorage y sessionStorage, y guardar el estado del almacenamiento, mientras los valores que mantienen tu sesión se leen como `[masked]`. Un valor de sesión que parece aleatorio también se oculta en todos los demás resultados, incluido `document.cookie`. Los nombres, dominios y vencimientos se quedan, y una máscara escrita de vuelta conserva la sesión.",
         run: "browser_storage_state",
         more: { text: "Cookies y tokens guardados", href: `${DOCS}/vault#cookies-and-stored-tokens` },

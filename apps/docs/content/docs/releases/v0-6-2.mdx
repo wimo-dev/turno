@@ -16,7 +16,7 @@ description: Features on by default, natural language actions whenever a model c
 **Features are on by default, without touching identity.json.** turno-browser works out each default at every launch and never writes it into identity.json. `show`, `status` and `doctor` list each value with where it came from, for example `resources: low (auto: memory pressure)`. For an identity you do not touch, this changes:
 
 - **The live view is on.** It opens only with `turno-browser live`. `--live false` turns it off.
-- **Flows and screenshots are recorded**, under the 200MB cap and never of a page with a vault value. Traces stay off: while tracing, Chrome loads no image or frame of another site. `--record-flows false` and `--record-screenshots false` turn the others off.
+- **Flows and screenshots are recorded**, under the 200MB cap and never of a page with a vault value. Traces stay off: while tracing, Chrome loads no image or frame of another site. `--record-flows false` and `--record-screenshots false` turn them off.
 - **The `vision`, `pdf`, `devtools` and `network` tools are listed** when the server has no `--caps`. Pass `--caps` to the server to choose them yourself.
 - **`browser_login` submits the form.** `turno-browser vault submit <id> confirm` keeps the old behavior, and you must run it again even if you chose it before.
 - **The low-resource preset turns on under memory pressure.** `--resources normal` keeps it off.
