@@ -1,6 +1,6 @@
 ---
 "turno-browser": minor
-"turno": patch
+"turno-cli": patch
 ---
 
 The last click is yours: when the agent's `browser_click` would place an order, make a payment, send a message or money, publish a post or confirm a deletion, turno-browser does not click. The agent is told what the click would do and to ask you with `browser_request_human` and `requireHumanClick`, and that step's banner says what the click does, from the page: the order's total, the amount, who a message goes to. The check is conservative: a word that also names a harmless step ("Buy now", "Send", "Post", "Delete") counts only when the page agrees (a checkout with an amount, a message being written, a dialog that warns it cannot be undone), and steps on the way ("Add to cart", "Proceed to checkout", "Send code") never count. `turno-browser set <id> --last-click false` turns it off.
