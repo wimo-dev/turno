@@ -3,7 +3,7 @@ import { request } from "node:http";
 import { pidAlive } from "turno-core/process";
 import { assertIdentityId } from "./ids.js";
 import { type LiveFile, liveFilePath } from "./live.js";
-import type { LiveStatus } from "./live-server.js";
+import type { LiveStatus, TeachState } from "./live-server.js";
 import { names } from "./names.js";
 
 /**
@@ -110,4 +110,19 @@ export async function liveResume(id: string, env: NodeJS.ProcessEnv = process.en
  */
 export async function liveLink(id: string, env: NodeJS.ProcessEnv = process.env): Promise<string> {
   return ((await ask(id, "POST", "/link", env)) as { url: string }).url;
+}
+
+/**
+ * Teach mode of the server that serves `id` (`teach.ts`): `state`, or `start` (with a flow
+ * name and an optional first address), `stop` (the review waits in the side panel), `save`
+ * (every step as shown) or `cancel`.
+ */
+export async function liveTeach(
+  id: string,
+  action: "state" | "start" | "stop" | "save" | "cancel",
+  env: NodeJS.ProcessEnv = process.env,
+  payload: { name?: string; url?: string; overwrite?: boolean } = {},
+): Promise<TeachState> {
+  if (action === "state") return (await ask(id, "GET", "/teach", env)) as TeachState;
+  return (await ask(id, "POST", `/teach/${action}`, env, payload)) as TeachState;
 }

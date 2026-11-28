@@ -26,6 +26,7 @@ import { ACTION_NAMES, DO_JSON, browserDo, doDetails, doFlagNames, doSynopsis } 
 import * as flowCmd from "./flows.js";
 import * as ident from "./identity.js";
 import * as liveCmd from "./live.js";
+import * as teachCmd from "./teach.js";
 import * as session from "./session.js";
 import { vaultCommand } from "./vault.js";
 import { BACKGROUND_JSON, backgroundCommand } from "./background.js";
@@ -385,6 +386,8 @@ async function dispatch(c: Ctx, sub: string, rest: string[], io: Io): Promise<nu
         return await flowCmd.traces(c, rest, io);
       case "record":
         return flowCmd.record(c, rest, io);
+      case "teach":
+        return await teachCmd.teach(c, rest, io);
       case "live":
         return await liveCmd.live(c, rest, io);
       case "pause":
@@ -443,6 +446,8 @@ function examples(c: Ctx): string[] {
     `${b} reputation school --json`,
     `${b} vault add school mail --url https://mail.example.com --username alice`,
     `${b} record school --flows --traces`,
+    `${b} teach school --name submit-timesheet --url https://portal.example.edu/timesheet`,
+    `${b} teach school --save`,
     `${b} flows school`,
     `${b} replay school submit-timesheet --param password=keychain:school-password`,
     `${b} traces school --open`,
@@ -619,6 +624,23 @@ the report says which locators it tried; --from continues at a later step.`,
       flags: ["--param", "--from", "--headless", "--json"],
       json: flowCmd.REPLAY_JSON,
       run: run("replay"),
+    },
+    teach: {
+      summary: "show the agent a task once in the identity's Chrome; it is saved as a flow",
+      synopsis: "<id> [--name <flow> [--url <start>] [--overwrite]] [--stop | --save | --cancel] [--json]",
+      details: `Teach mode: you do the task once in the window of the identity's Chrome and turno-browser
+writes each step down as a flow, the same kind browser_record saves: clicks, typing, choices,
+checkboxes, Enter, Escape and Tab, uploads, new tabs, popups and the addresses you type. What you
+type becomes a parameter with that value as its default, a password or one-time field keeps no
+value, and a sign-in on a vault site becomes one browser_login step. The agent waits meanwhile.
+With --name it starts (the browser first, when nothing serves the identity); --url opens a page as
+the first step. At a terminal, Enter saves every step as shown and Ctrl-C drops them; the side
+panel's Teach a flow does the same with a review of each step; --stop ends the listening and
+leaves that review to the panel, --save and --cancel end a teach mode started elsewhere. Then the agent runs it with
+browser_replay, and you with ${b} replay <id> <flow>. Needs turno's own Chrome, with the live view on.`,
+      flags: ["--name", "--url", "--overwrite", "--stop", "--save", "--cancel", "--json"],
+      json: teachCmd.TEACH_JSON,
+      run: run("teach"),
     },
     traces: {
       summary: "an identity's recordings (traces, screenshots); --open shows a trace in the viewer",

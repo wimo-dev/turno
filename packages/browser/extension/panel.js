@@ -17,6 +17,14 @@ let K = {}; // tool name -> kind
 let server = "";
 let token = "";
 let state = null;
+// Teach mode (below): its strings, whether this browser can teach, and where it stands.
+let TT = null;
+let canTeach = false;
+let teach = { phase: "idle" };
+let naming = false;
+let dismissed = "";
+let teachShown = false;
+const edits = new Map();
 
 function fill(t, v) {
   for (const k in v) t = t.split(`{${k}}`).join(String(v[k]));
@@ -107,6 +115,7 @@ function byName(by) {
     {
       "the live view": T.byView,
       "the side panel": T.byPanel,
+      "teach mode": T.byTeach,
       browser_request_human: T.byStep,
       "the person's input in the browser window": T.byWindow,
     }[by] || by
@@ -115,6 +124,12 @@ function byName(by) {
 
 // The state pill and the "Now" card.
 function pill(text, tone, running) {
+  // While the person teaches, the pill says so whatever else changes.
+  if (TT && (teach.phase === "teaching" || teach.phase === "review")) {
+    text = fill(teach.phase === "review" ? TT.review : TT.teaching, { name: teach.name });
+    tone = "type";
+    running = teach.phase === "teaching";
+  }
   $("status").textContent = text;
   setTone($("pill"), tone || "muted");
   $("pill").classList.toggle("run", !!running);
@@ -228,6 +243,8 @@ function humanTurn(e) {
   announce(title);
 }
 function takeOver() {
+  // The person's input while teaching is the flow, not a take-over.
+  if (teach.phase === "teaching" || teach.phase === "review") return;
   clearTimeout(run.think);
   clearTimeout(run.done);
   run.taken = true;
@@ -359,7 +376,10 @@ function render(s) {
   $("pill").title = text;
   // A panel that opens during a pause gets no fx event for it: the state says which it is.
   const step = s.paused && (s.paused.by === "browser_request_human" || s.paused.by === "a passkey prompt");
-  if (s.paused && step && !run.human) humanTurn({ cue: s.paused.by === "a passkey prompt" ? "passkey" : "step" });
+  // Teach mode holds the agent: its own card says so, not the take-over chip.
+  const teaching = s.paused && /teach( mode)?$/.test(s.paused.by);
+  if (teaching) pill("", "type", true);
+  else if (s.paused && step && !run.human) humanTurn({ cue: s.paused.by === "a passkey prompt" ? "passkey" : "step" });
   else if (s.paused && !step && !run.taken) takeOver();
   else if (!s.paused && (run.human || run.taken)) {
     run.human = null;
@@ -367,12 +387,12 @@ function render(s) {
     $("take").hidden = true;
     now("navigate", S.idle, "", "muted", false);
   }
-  if (s.paused && !run.human) $("now-t").textContent = text;
+  if (s.paused && !run.human && !teaching) $("now-t").textContent = text;
   else if (s.stuck && !run.human) {
     pill(S.looksStuck, "bad", false);
     now("stuck", S.looksStuck, text, "bad", false);
   }
-  if (!s.paused && !s.stuck) {
+  if (!s.paused && !s.stuck && teach.phase !== "teaching" && teach.phase !== "review") {
     if (run.open) pill(S.kinds[run.open.kind] || S.kinds.other, toneOf(run.open.kind), true);
     else if (run.mode === "thinking") pill(S.thinking, "agent", true);
     else if (run.mode === "done") pill(S.done, "ok", false);
@@ -391,6 +411,8 @@ function render(s) {
   $("pause").disabled = !!s.paused && !s.paused.idleMs;
   $("resume").disabled = !s.paused;
   $("live").hidden = !s.view.available || !s.browser;
+  canTeach = !!s.browser && s.engine === "chrome";
+  showTeach();
 }
 
 // The connection: the code from the service worker, the token, then the event stream.
@@ -477,6 +499,18 @@ function boot(b) {
   const live = $("live");
   live.replaceChildren(icon("live", 13), document.createTextNode(P.openLive));
   live.title = P.openLiveHint;
+  TT = T.teach;
+  const tb = $("teach-btn");
+  tb.replaceChildren(icon("run", 13), document.createTextNode(TT.button));
+  tb.title = TT.buttonHint;
+  $("teach-name-l").textContent = TT.namePrompt;
+  $("teach-name-h").textContent = TT.nameHint;
+  $("teach-start").textContent = TT.start;
+  $("teach-cancel").textContent = TT.cancel;
+  $("teach-stop").textContent = TT.stop;
+  $("teach-save").textContent = TT.save;
+  $("teach-discard").textContent = TT.discard;
+  $("teach-close").textContent = TT.close;
   if (!run.human && !run.open) now("think", S.waiting, P.waitingHint, "muted", false);
 }
 function onEvent(name, data) {
@@ -497,6 +531,7 @@ function onEvent(name, data) {
     addSteps(value, true);
   } else if (name === "step") addSteps([value], false);
   else if (name === "fx") onFx(value);
+  else if (name === "teach") onTeach(value);
 }
 /** Reads the server's event stream (text/event-stream) until it ends; false when the token is refused. */
 async function stream() {
@@ -538,6 +573,181 @@ async function main() {
     await sleep(2000);
   }
 }
+
+// Teach mode: the person shows a flow once in this window (`teach.ts`). The panel names it,
+// lists the steps as they come, and sends the review; values typed are never sent here.
+function teachLabel(v) {
+  const t = v.target || "";
+  switch (v.tool) {
+    case "browser_login":
+      return `${TT.login} ${v.detail || ""}`;
+    case "browser_tabs":
+      return v.detail ? `${TT.toTab} ${v.detail}` : TT.newTab;
+    case "browser_check":
+      return `${TT.check} ${t}`;
+    case "browser_uncheck":
+      return `${TT.uncheck} ${t}`;
+    case "browser_file_upload":
+      return TT.upload;
+    case "browser_press_key":
+      return `${TT.key} ${v.detail || ""}`;
+    case "browser_navigate":
+      return stepText(v.tool, v.detail || "");
+    default:
+      return stepText(v.tool, t);
+  }
+}
+function teachIcon(tool) {
+  if (tool === "browser_login") return "human";
+  if (tool === "browser_check" || tool === "browser_uncheck") return "select";
+  if (tool === "browser_press_key") return "type";
+  const kind = kindOf(tool);
+  return ICONS[kind] ? kind : "other";
+}
+function teachLine(v, review) {
+  const li = document.createElement("li");
+  const kind = teachIcon(v.tool);
+  setTone(li, toneOf(kind === "human" ? "human" : kindOf(v.tool)));
+  const ic = document.createElement("span");
+  ic.className = "ic";
+  ic.append(icon(kind, 14));
+  const what = document.createElement("div");
+  what.className = "what";
+  const edit = edits.get(v.id) || {};
+  if (review && v.target) {
+    const name = document.createElement("input");
+    name.value = edit.name ?? v.target;
+    name.maxLength = 120;
+    name.setAttribute("aria-label", TT.rename);
+    name.oninput = () => edits.set(v.id, { ...edits.get(v.id), name: name.value });
+    what.append(span("", teachLabel({ ...v, target: "" }).trim()), name);
+  } else what.append(span("", teachLabel(v)));
+  if (v.chars !== undefined && !(v.param && v.param.locked)) what.append(span("meta", fill(TT.chars, { n: v.chars })));
+  if (v.param && v.param.locked) what.append(span("meta", TT.locked));
+  else if (v.param && review) {
+    const pick = document.createElement("select");
+    pick.setAttribute("aria-label", v.target || v.param.name);
+    for (const [value, text] of [
+      ["param", TT.param],
+      ["fixed", TT.fixed],
+      ["sensitive", TT.sensitive],
+    ]) {
+      const o = document.createElement("option");
+      o.value = value;
+      o.textContent = text;
+      pick.append(o);
+    }
+    pick.value = edit.value || "param";
+    pick.onchange = () => edits.set(v.id, { ...edits.get(v.id), value: pick.value });
+    what.append(pick);
+  }
+  li.append(ic, what);
+  if (review) {
+    const x = document.createElement("button");
+    x.type = "button";
+    x.className = "x";
+    x.textContent = "\u00d7";
+    x.title = TT.remove;
+    x.setAttribute("aria-label", `${TT.remove}: ${teachLabel(v)}`);
+    li.classList.toggle("gone", !!edit.remove);
+    x.onclick = () => {
+      const next = { ...edits.get(v.id), remove: !(edits.get(v.id) || {}).remove };
+      edits.set(v.id, next);
+      li.classList.toggle("gone", next.remove);
+    };
+    li.append(x);
+  } else li.append(span("", ""));
+  return li;
+}
+function showTeach() {
+  if (!TT) return;
+  const phase = teach.phase;
+  const busy = phase === "teaching" || phase === "review";
+  const done = phase === "saved" && dismissed !== `${teach.name}:${teach.file}`;
+  $("teach-btn").hidden = !canTeach || busy || naming;
+  $("teach").hidden = !(naming || busy || done);
+  $("teach-form").hidden = !naming || busy;
+  $("teach-run").hidden = !busy;
+  $("teach-done").hidden = !done || busy || naming;
+  // The agent waits while the person teaches: no "Now" card, Pause or Hand back then.
+  $("controls").hidden = busy;
+  $("now").hidden = busy;
+  if (busy) {
+    $("take").hidden = true;
+    pill("", "type", true);
+  } else if (teachShown) pill(S.idle, "muted", false);
+  teachShown = busy;
+}
+let shown = "";
+function onTeach(t) {
+  const before = teach;
+  teach = t;
+  if (t.phase === "teaching" || t.phase === "review") {
+    naming = false;
+    const review = t.phase === "review";
+    $("teach-title").textContent = fill(review ? TT.review : TT.teaching, { name: t.name });
+    $("teach-hint").textContent = review ? TT.reviewHint : TT.teachingHint;
+    $("teach-stop").hidden = review;
+    $("teach-acts").hidden = !review;
+    // The review keeps what the person changed; new steps redraw the list.
+    const key = `${t.phase}:${t.name}:${t.steps.length}`;
+    if (key !== shown) {
+      shown = key;
+      if (before.phase !== "review" || !review) edits.clear();
+      const list = $("teach-steps");
+      list.replaceChildren(...t.steps.map((v) => teachLine(v, review)));
+      if (!t.steps.length) {
+        const empty = document.createElement("li");
+        empty.className = "empty";
+        empty.textContent = TT.noSteps;
+        list.append(empty);
+      }
+      list.scrollTop = list.scrollHeight;
+      if (!review && t.steps.length) announce(teachLabel(t.steps[t.steps.length - 1]));
+    }
+  } else {
+    shown = "";
+    edits.clear();
+    if (t.phase === "saved") {
+      $("teach-done-t").textContent = fill(TT.saved, { name: t.name, n: t.steps });
+      $("teach-done-h").textContent = TT.savedHint;
+    }
+  }
+  showTeach();
+}
+$("teach-btn").onclick = () => {
+  naming = true;
+  showTeach();
+  $("teach-name").focus();
+};
+$("teach-cancel").onclick = () => {
+  naming = false;
+  showTeach();
+};
+$("teach-form").onsubmit = async (e) => {
+  e.preventDefault();
+  const name = $("teach-name").value.trim();
+  if (!/^[a-z0-9][a-z0-9_-]{0,63}$/.test(name)) return note(TT.nameHint);
+  const r = await post("/panel/teach/start", { name });
+  if (!r.error) onTeach(r);
+};
+$("teach-stop").onclick = async () => {
+  const r = await post("/panel/teach/stop");
+  if (!r.error) onTeach(r);
+};
+$("teach-save").onclick = async () => {
+  const list = [...edits].map(([id, e]) => ({ id, ...e }));
+  const r = await post("/panel/teach/save", { edits: list });
+  if (!r.error) onTeach(r);
+};
+$("teach-discard").onclick = async () => {
+  const r = await post("/panel/teach/cancel");
+  if (!r.error) onTeach(r);
+};
+$("teach-close").onclick = () => {
+  dismissed = `${teach.name}:${teach.file}`;
+  showTeach();
+};
 
 $("pause").onclick = () => post("/pause");
 $("resume").onclick = () => post("/resume");

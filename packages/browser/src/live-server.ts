@@ -1,5 +1,5 @@
 import { randomBytes, timingSafeEqual } from "node:crypto";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { type IncomingMessage, type Server, type ServerResponse, createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -27,6 +27,8 @@ import { names } from "./names.js";
 import { type UiLocale, fill, uiStrings } from "./ui-strings.js";
 import { TOOL_KINDS } from "./live-effects.js";
 import type { PanelOffer } from "./side-panel.js";
+import { AUTO_PREFIX, FlowError, assertFlowName, flowPath } from "./flows.js";
+import { type TaughtEdit, type TaughtView, TeachSession } from "./teach.js";
 import { type BrowserWatch, titleOf } from "./watch.js";
 
 /**
@@ -226,6 +228,10 @@ export class LiveServer implements BrowserWatch {
   private readonly panelCodes = new Map<string, number>();
   /** `chrome-extension://<id>`: the one origin a panel's request may come from. */
   private panelOrigin: string | undefined;
+  /** Teach mode (`teach.ts`): the session the person is showing, and where it stands. */
+  private teaching: { session: TeachSession; phase: "teaching" | "review"; held: boolean } | undefined;
+  /** The last flow teach mode saved, until the next one starts. */
+  private taught: { name: string; steps: number; file: string } | undefined;
   private cast: { page: Page; cdp: CDPSession; download: (d: { suggestedFilename(): string }) => void } | undefined;
   private casting: Promise<void> = Promise.resolve();
   private hidden = false;
@@ -353,6 +359,8 @@ export class LiveServer implements BrowserWatch {
   }
 
   async close(): Promise<void> {
+    await this.teaching?.session.stop().catch(() => {});
+    this.teaching = undefined;
     if (this.closed) return;
     this.closed = true;
     this.gate.resume();
@@ -391,6 +399,8 @@ export class LiveServer implements BrowserWatch {
     this.pushState();
     return () => {
       if (this.browser !== browser) return;
+      // Teach mode listened to this browser: what it had is gone with it.
+      if (this.teaching) void this.teachCancel();
       this.browser = undefined;
       if (this.heldBrowser === browser) this.heldBrowser = undefined;
       void this.retarget();
@@ -517,6 +527,8 @@ export class LiveServer implements BrowserWatch {
   }
 
   resume(): boolean {
+    // Teach mode holds the agent until the flow is saved or dropped.
+    if (this.teaching) return false;
     const was = this.gate.current();
     if (!this.gate.resume()) return false;
     this.o.log?.(`"${this.o.identity.id}" resumed`);
@@ -807,6 +819,12 @@ export class LiveServer implements BrowserWatch {
         await this.input(await readJson(req));
         return this.json(res, 200, { ok: true });
       }
+      if (trusted && /^\/teach(\/|$)/.test(url.pathname))
+        return this.json(
+          res,
+          200,
+          await this.teachRoute(`${method} ${url.pathname.slice(6) || "/"}`, req, names().browser),
+        );
       if (route === "POST /link" && trusted) {
         await readJson(req);
         const reason = this.refusal();
@@ -819,6 +837,117 @@ export class LiveServer implements BrowserWatch {
       if (!res.headersSent) this.json(res, status, { error: this.o.redactor.text(String((error as Error).message)) });
       else res.end();
     }
+  }
+
+  // Teach mode.
+
+  /** Where teach mode stands, as the panel and `turno-browser teach` read it. */
+  teachState(): TeachState {
+    const t = this.teaching;
+    if (t) return { phase: t.phase, name: t.session.name, steps: t.session.views() };
+    return this.taught ? { phase: "saved", ...this.taught } : { phase: "idle" };
+  }
+
+  private pushTeach(): void {
+    const data = JSON.stringify(this.teachState());
+    for (const res of this.panels) res.write(`event: teach\ndata: ${data}\n\n`);
+  }
+
+  /** `start`, `stop`, `save`, `cancel`, or the state; `by` says who asked (a panel, the CLI). */
+  private async teachRoute(route: string, req: IncomingMessage, by: string): Promise<TeachState> {
+    if (route === "GET /") return this.teachState();
+    const body = await readJson(req);
+    // The panel speaks the identity's language; the CLI's output stays in English.
+    const t = uiStrings(by === "the side panel" ? this.locale() : "en").live.teach;
+    try {
+      if (route === "POST /start") {
+        await this.teachStart(String(body.name ?? ""), body.url, body.overwrite === true, by, t);
+      } else if (route === "POST /stop") {
+        await this.teachStop(t);
+      } else if (route === "POST /save") {
+        const edits = Array.isArray(body.edits) ? (body.edits as unknown[]).filter(isEdit) : [];
+        const description = typeof body.description === "string" ? body.description.slice(0, 300) : undefined;
+        await this.teachSave(edits, body.overwrite === true, t, description);
+      } else if (route === "POST /cancel") {
+        await this.teachCancel();
+      } else throw new HttpError(404, "not found");
+    } catch (error) {
+      if (error instanceof FlowError) throw new HttpError(409, error.message);
+      throw error;
+    }
+    return this.teachState();
+  }
+
+  /** The person starts showing a flow: the agent waits until it is saved or dropped. */
+  private async teachStart(name: string, url: unknown, overwrite: boolean, by: string, t: TeachWords): Promise<void> {
+    if (this.teaching) throw new HttpError(409, fill(t.already, { name: this.teaching.session.name }));
+    assertFlowName(name);
+    if (name.startsWith(AUTO_PREFIX)) throw new FlowError(fill(t.autoName, { prefix: AUTO_PREFIX }));
+    if (!overwrite && existsSync(flowPath(this.o.identity.id, name, this.o.identity.env)))
+      throw new FlowError(fill(t.exists, { name }));
+    let start: string | undefined;
+    if (url !== undefined && url !== null && url !== "") {
+      try {
+        start = new URL(String(url)).href;
+      } catch {
+        throw new HttpError(400, fill(t.badUrl, { url: String(url) }));
+      }
+      if (!/^https?:/.test(start)) throw new HttpError(400, fill(t.badUrl, { url: start }));
+    }
+    const b = this.browser;
+    // Teach mode listens over the DevTools protocol, in turno's own Chrome.
+    if (!b || b.userBrowser || b.engine !== "chrome") throw new HttpError(409, b ? t.noEngine : t.noBrowser);
+    this.taught = undefined;
+    // A pause that runs already (a person step, the person's own) stays theirs to end.
+    const held = await this.pause(by === "the side panel" ? "teach mode" : `${by} teach`, true);
+    const session = new TeachSession(b.context, this.o.identity, this.o.redactor, name, () => this.pushTeach());
+    this.teaching = { session, phase: "teaching", held };
+    try {
+      await session.start(start, this.target());
+    } catch (error) {
+      await this.endTeach();
+      throw error;
+    }
+    this.o.log?.(`"${this.o.identity.id}" teach mode: the person shows flow "${name}"; the agent waits`);
+    this.pushTeach();
+  }
+
+  /** The person is done showing: the steps wait for the review. */
+  private async teachStop(words: TeachWords): Promise<void> {
+    const t = this.teaching;
+    if (!t) throw new HttpError(409, words.none);
+    await t.session.stop();
+    t.phase = "review";
+    this.pushTeach();
+  }
+
+  private async teachSave(
+    edits: TaughtEdit[],
+    overwrite: boolean,
+    words: TeachWords,
+    description?: string,
+  ): Promise<void> {
+    const t = this.teaching;
+    if (!t) throw new HttpError(409, words.none);
+    if (t.phase === "teaching") await this.teachStop(words);
+    const { flow, file } = t.session.save(edits, { overwrite, ...(description ? { description } : {}) });
+    this.taught = { name: flow.name, steps: flow.steps.length, file };
+    this.o.log?.(`"${this.o.identity.id}" teach mode saved flow "${flow.name}" (${flow.steps.length} steps)`);
+    await this.endTeach();
+  }
+
+  private async teachCancel(): Promise<void> {
+    if (this.teaching) await this.endTeach();
+  }
+
+  /** Teach mode ends: the agent gets the browser back, unless a pause of someone else holds it. */
+  private async endTeach(): Promise<void> {
+    const t = this.teaching;
+    if (!t) return;
+    await t.session.stop();
+    this.teaching = undefined;
+    if (t.held) this.resume();
+    this.pushTeach();
   }
 
   /**
@@ -892,6 +1021,8 @@ export class LiveServer implements BrowserWatch {
         this.resume();
         return json(200, this.status());
       }
+      if (/^\/panel\/teach(\/|$)/.test(url.pathname))
+        return json(200, await this.teachRoute(`${method} ${url.pathname.slice(12) || "/"}`, req, "the side panel"));
       if (route === "POST /panel/live") {
         await readJson(req);
         const t = uiStrings(this.locale()).live.panel;
@@ -923,6 +1054,7 @@ export class LiveServer implements BrowserWatch {
     res.write(`event: boot\ndata: ${JSON.stringify(boot)}\n\n`);
     res.write(`event: steps\ndata: ${JSON.stringify(this.timeline.list())}\n\n`);
     for (const e of this.stage.running()) res.write(`event: fx\ndata: ${JSON.stringify(e)}\n\n`);
+    res.write(`event: teach\ndata: ${JSON.stringify(this.teachState())}\n\n`);
     this.panels.add(res);
     req.on("close", () => this.panels.delete(res));
     this.pushState();
@@ -1031,4 +1163,24 @@ export class LiveServer implements BrowserWatch {
     await act();
     this.gate.noteInput();
   }
+}
+
+/** Teach mode's state: idle, showing, the review, or the flow it saved last. */
+export type TeachState =
+  | { phase: "idle" }
+  | { phase: "teaching" | "review"; name: string; steps: TaughtView[] }
+  | { phase: "saved"; name: string; steps: number; file: string };
+
+type TeachWords = ReturnType<typeof uiStrings>["live"]["teach"];
+
+/** One step's edit from the review, as the panel or the CLI sends it. */
+function isEdit(v: unknown): v is TaughtEdit {
+  if (typeof v !== "object" || v === null) return false;
+  const e = v as Record<string, unknown>;
+  return (
+    typeof e.id === "number" &&
+    (e.remove === undefined || typeof e.remove === "boolean") &&
+    (e.name === undefined || (typeof e.name === "string" && e.name.length <= 200)) &&
+    (e.value === undefined || e.value === "param" || e.value === "fixed" || e.value === "sensitive")
+  );
 }

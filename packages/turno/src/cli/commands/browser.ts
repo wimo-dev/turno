@@ -20,7 +20,7 @@ export type { BrowserApi };
  * The API version this turno was built against. Typed by the package's own constant, so a
  * change of its API_VERSION in the workspace fails the typecheck until this line follows.
  */
-export const BROWSER_API: typeof API_VERSION = { major: 1, minor: 14 };
+export const BROWSER_API: typeof API_VERSION = { major: 1, minor: 15 };
 
 /** What the package exports that the loader looks at. */
 interface BrowserPackage {

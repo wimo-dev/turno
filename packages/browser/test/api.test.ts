@@ -70,6 +70,8 @@ const MEMBERS = [
   "detectBrowsers",
   "installBrowser",
   "profileLastVersion",
+  // 1.15: teach mode of a running server.
+  "liveTeach",
 ];
 
 describe("the public API object", () => {
@@ -85,8 +87,9 @@ describe("the public API object", () => {
   // 1.12: cli, the identity commands that turno-cli runs with its own host.
   // 1.13: readLoginRecord, and the sites loginIdentity returns.
   // 1.14: the browser key, browser detection and install-browser.
-  it("is version 1.14, frozen, with integer parts", () => {
-    expect(API_VERSION).toEqual({ major: 1, minor: 14 });
+  // 1.15: liveTeach, teach mode of a running server.
+  it("is version 1.15, frozen, with integer parts", () => {
+    expect(API_VERSION).toEqual({ major: 1, minor: 15 });
     expect(Object.isFrozen(API_VERSION)).toBe(true);
     expect(Number.isInteger(API_VERSION.major) && Number.isInteger(API_VERSION.minor)).toBe(true);
   });
