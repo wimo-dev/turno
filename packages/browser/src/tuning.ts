@@ -67,6 +67,8 @@ export interface Tuning {
   userAgent?: "coherent";
   /** The locale Chrome launches with when identity.json sets one; else Chrome reads the system's. */
   locale?: string;
+  /** The side panel opens in the agent's window (`side-panel.ts`): Chrome gets the switch it needs. */
+  sidePanel?: true;
 }
 
 /** The defaults, documented on the browser identities page. */
@@ -134,7 +136,8 @@ export function backgroundIdleMs(
 export type TuningDefaults = Pick<
   EffectiveSettings,
   "resources" | "backgroundThrottling" | "humanize" | "sharing" | "userAgent" | "locale"
->;
+> &
+  Partial<Pick<EffectiveSettings, "sidePanel">>;
 
 /**
  * The tuning of a session: flags, then identity.json, then the preset, then the defaults. The
@@ -188,6 +191,7 @@ export function resolveTuning(
     ...(typeof defaults?.locale.value === "string" && defaults.locale.origin.from === "file"
       ? { locale: defaults.locale.value }
       : {}),
+    ...(defaults?.sidePanel?.value === true ? { sidePanel: true as const } : {}),
   };
 }
 

@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { readFileSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
@@ -64,6 +65,8 @@ import {
   viewRefusal,
 } from "./live.js";
 import { LiveServer } from "./live-server.js";
+import { SidePanel } from "./side-panel.js";
+import { appWindowCommand } from "./cli/app-window.js";
 import { type LastClick, classifyClick, clickTargetOf, lastClickRefusal } from "./last-click.js";
 import { Notifier, RunWatch, notifyOffByEnv } from "./notify.js";
 import { MemoryWatch } from "./memory.js";
@@ -677,6 +680,17 @@ class SessionBackend extends EventEmitter implements ServerBackend {
         throw new Error(clash);
       }
       skipInjectRoute(launched.context);
+      // The side panel in the agent's window (on by default with one, `side-panel.ts`): it opens
+      // while the rest of the launch goes on, and before the agent's first call runs.
+      const liveServer = this.host.live;
+      const panelOpening =
+        tuning.sidePanel && liveServer && launched.engine === "chrome" && !launched.userBrowser
+          ? SidePanel.open(launched.context, {
+              offer: (origin) => liveServer.panelOffer(origin),
+              log: (line) => process.stderr.write(`turno-browser-mcp: ${line}\n`),
+              ...(identity ? { env: identity.env } : {}),
+            })
+          : undefined;
       // Human-like input (`auto` by default): the input tools of this browser run on humanized tabs.
       const input =
         tuning.humanize.level === "off"
@@ -872,6 +886,8 @@ class SessionBackend extends EventEmitter implements ServerBackend {
         });
       }
       const watched = this.watchPasskeys(launched, governor, locale);
+      const sidePanel = await panelOpening;
+      if (sidePanel) launched.context.browser()?.once("disconnected", () => void sidePanel.close());
       backend.on("dynamictoolschange", () => this.emit("dynamictoolschange"));
       backend.once("disconnected", () => {
         recording?.abandon();
@@ -2383,9 +2399,27 @@ function liveServerFor(
     },
     log,
     uiLocale: () => uiLocale(settings()),
+    openWindow: (url) => openLiveWindow(url, identity.env),
   });
   server.start().catch((error) => log(`the live view did not start: ${(error as Error).message}`));
   return server;
+}
+
+/**
+ * The live view in an app window of the person's own Chromium browser (`cli/app-window.ts`), as
+ * `turno-browser live` opens it; for the side panel's button. False when none was found.
+ */
+async function openLiveWindow(url: string, env: NodeJS.ProcessEnv): Promise<boolean> {
+  const app = appWindowCommand(url);
+  if (!app) return false;
+  return await new Promise<boolean>((resolve) => {
+    const child = spawn(app.command, app.args, { stdio: "ignore", env, detached: true, windowsHide: true });
+    child.on("error", () => resolve(false));
+    child.on("spawn", () => {
+      child.unref();
+      resolve(true);
+    });
+  });
 }
 
 /** The workspace roots the client offers, as upstream reads them (first root, or cwd). */

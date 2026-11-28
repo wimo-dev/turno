@@ -81,6 +81,9 @@ import { parseDuration, parseSize } from "./units.js";
  * - `notify`, `lastClick` (format 14): the system's notifications when the agent waits on the
  *   person or is done (`notify.ts`), and leaving a click that buys, sends, publishes or deletes to
  *   the person (`last-click.ts`). Both on by default; `false` turns one off.
+ * - `sidePanel` (format 14): the side panel in the agent's Chrome window that shows what the
+ *   agent does (`side-panel.ts`). On by default for a headed Chrome turno launches; `false` turns
+ *   it off (the live view stays: `turno-browser live <id>`).
  *
  * A key that is not in the file takes the default the code resolves at launch (`defaults.ts`),
  * from the context: headless or windowed, the live view, memory pressure, the engine, the policy.
@@ -156,7 +159,7 @@ const FORMAT_12_KEYS = ["cursor"] as const;
 const FORMAT_13_KEYS = ["resources", "policy", "browser"] as const;
 
 /** The keys format 14 added, besides its values (`usesFormat14`). */
-const FORMAT_14_KEYS = ["notify", "lastClick"] as const;
+const FORMAT_14_KEYS = ["notify", "lastClick", "sidePanel"] as const;
 
 /**
  * The values of `resources`: the defaults, the low-resource preset (`tuning.ts`), or `"auto"`
@@ -297,6 +300,8 @@ export interface IdentitySettings {
   notify?: boolean;
   /** A click that buys, sends, publishes or deletes is the person's (`last-click.ts`); default on. */
   lastClick?: boolean;
+  /** The side panel in the agent's Chrome window (`side-panel.ts`); default on with a window. */
+  sidePanel?: boolean;
   /** ISO dates. */
   created: string;
   updated: string;

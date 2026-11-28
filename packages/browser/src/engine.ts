@@ -26,6 +26,7 @@ import { type Tuning, launchTuning } from "./tuning.js";
 import { IdleTimer, idleMs } from "./idle-timer.js";
 import { type ClientInfo, type IdleTimerLike, type McpConfig, playwright, upstream } from "./upstream.js";
 import { names } from "./names.js";
+import { SIDE_PANEL_SWITCH } from "./side-panel.js";
 
 /**
  * Where the browser context behind an MCP session comes from. The host asks an
@@ -301,7 +302,15 @@ const chromeEngine: Engine = {
         ...tuned.contextOptions,
         ...config.browser.contextOptions,
         ...look.viewport,
-        args: [...(partitioning?.args ?? []), ...userArgs, ...look.args, ...applied.args, ...(network?.args ?? [])],
+        args: [
+          ...(partitioning?.args ?? []),
+          ...userArgs,
+          ...look.args,
+          ...applied.args,
+          ...(network?.args ?? []),
+          // The side panel's extension loads over the protocol (`side-panel.ts`).
+          ...(tuning?.sidePanel ? [SIDE_PANEL_SWITCH] : []),
+        ],
         ...(applied.timezoneId ? { timezoneId: applied.timezoneId } : {}),
         ...(network?.proxy ? { proxy: network.proxy } : {}),
         handleSIGINT: false,

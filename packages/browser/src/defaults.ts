@@ -121,6 +121,7 @@ export interface EffectiveSettings {
   proxy: Effective<boolean>;
   notify: Effective<boolean>;
   lastClick: Effective<boolean>;
+  sidePanel: Effective<boolean>;
 }
 
 const file = <T>(value: T): Effective<T> => ({ value, origin: { from: "file" } });
@@ -345,6 +346,25 @@ function lastClick(s: IdentitySettings | undefined, ctx: DefaultsContext): Effec
   return byDefault(true);
 }
 
+/**
+ * The side panel in the agent's Chrome window (`side-panel.ts`): on where a person sees a Chrome
+ * turno launched, and the live server it reads runs.
+ */
+function sidePanel(
+  s: IdentitySettings | undefined,
+  ctx: DefaultsContext,
+  liveOn: boolean | undefined,
+): Effective<boolean> {
+  if (s?.sidePanel === false) return file(false);
+  if (ctx.engine === "attach") return auto(false, "attach mode drives your own Chrome");
+  if (ctx.engine !== "chrome") return auto(false, `the ${ctx.engine} engine has no Chrome side panel`);
+  if (ctx.headless === true) return auto(false, "headless: no window to show it in");
+  if (liveOn === false) return auto(false, "the live view is off, and the panel reads it");
+  if (s?.sidePanel === true) return file(true);
+  if (ctx.headless === undefined) return atLaunch("on when Chrome opens a window");
+  return byDefault(true);
+}
+
 /** Every effective value of an identity in this context. */
 export function resolveDefaults(
   settings: IdentitySettings | undefined,
@@ -372,6 +392,7 @@ export function resolveDefaults(
     proxy: proxy(settings, ctx),
     notify: notify(settings, ctx),
     lastClick: lastClick(settings, ctx),
+    sidePanel: sidePanel(settings, ctx, liveOn.value),
   };
 }
 
@@ -432,6 +453,7 @@ export function effectiveEntries(e: EffectiveSettings): [string, Effective<unkno
     ["proxy", e.proxy],
     ["notify", e.notify],
     ["lastClick", e.lastClick],
+    ["sidePanel", e.sidePanel],
   ];
 }
 

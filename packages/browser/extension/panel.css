@@ -1,0 +1,88 @@
+/* The side panel: the live view's colors and words, laid out for a column of 320 to 400 px.
+   Calm motion only: the state dot fades (opacity, which the compositor draws), and colors
+   change without a transition. The card changes a few times a second while the agent works,
+   and a color transition there repaints every frame: it cost the panel's process 13 points of CPU.
+   No loop, no canvas. */
+:root {
+  color-scheme: light dark;
+  --bg: #f3f4f7; --panel: #ffffff; --sunk: #e9ebf0; --line: #d8dce5; --fg: #161a22; --muted: #5d6576;
+  --agent: #3b5bdb; --read: #0b8ea3; --type: #6a4fd8; --human: #c86a12; --bad: #d23c3c; --ok: #188a55;
+  --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0b0d12; --panel: #12151c; --sunk: #0f1218; --line: #232835; --fg: #e7eaf1; --muted: #8b93a5;
+    --agent: #7d9bff; --read: #4fd6e8; --type: #a793ff; --human: #ffb057; --bad: #ff6b6b; --ok: #58dc9c;
+  }
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0; padding: 10px 10px 0; background: var(--bg); color: var(--fg); font: 13px/1.45 var(--sans);
+  display: flex; flex-direction: column; gap: 8px; min-width: 0;
+}
+button { font: inherit; color: inherit; }
+button:focus-visible { outline: 2px solid var(--agent); outline-offset: 2px; }
+[hidden] { display: none !important; }
+
+.bar { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.brand { font-weight: 600; letter-spacing: -.01em; }
+.chip { font: 11px/1 var(--mono); padding: 4px 6px; border: 1px solid var(--line); border-radius: 6px; color: var(--muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chip:empty { display: none; }
+.spacer { flex: 1; }
+.icon-btn { display: inline-flex; align-items: center; gap: 5px; padding: 4px 8px; border: 1px solid var(--line); border-radius: 7px; background: var(--panel); color: var(--muted); font-size: 12px; cursor: pointer; white-space: nowrap; }
+.icon-btn:hover { color: var(--fg); background: var(--sunk); }
+
+.pill { --c: var(--muted); align-self: flex-start; display: inline-flex; align-items: center; gap: 7px; max-width: 100%; padding: 4px 10px 4px 8px; border-radius: 999px; background: color-mix(in srgb, var(--c) 14%, transparent); color: var(--c); font-weight: 500; }
+.pill .dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: currentColor; opacity: .45; transition: opacity .3s; }
+.pill.run .dot { opacity: 1; }
+#status { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.now { --c: var(--muted); position: relative; padding: 11px 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; display: grid; gap: 8px; }
+.now .k { font: 10px/1 var(--mono); color: var(--muted); letter-spacing: .06em; text-transform: uppercase; }
+.now .main { display: grid; grid-template-columns: 30px minmax(0, 1fr) auto; gap: 9px; align-items: start; }
+.now .ic { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; color: var(--c); background: color-mix(in srgb, var(--c) 14%, transparent); }
+#now-v { font-weight: 600; font-size: 14px; overflow-wrap: anywhere; }
+#now-t { color: var(--muted); overflow-wrap: anywhere; }
+.elapsed { font: 11px/1.9 var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+#now-d { color: var(--muted); overflow-wrap: anywhere; }
+#now-d:empty { display: none; }
+.now.ask { border-color: color-mix(in srgb, var(--human) 60%, var(--line)); background: color-mix(in srgb, var(--human) 9%, var(--panel)); box-shadow: inset 3px 0 0 var(--human); }
+.now.ask #now-t { color: var(--fg); }
+.now.bad { border-color: color-mix(in srgb, var(--bad) 55%, var(--line)); box-shadow: inset 3px 0 0 var(--bad); }
+.acts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.acts .go { background: var(--human); color: #1b1206; border-color: var(--human); font-weight: 500; }
+.acts .hint { color: var(--muted); font-size: 12px; }
+
+.take { display: flex; align-items: center; gap: 8px; padding: 5px 5px 5px 11px; border-radius: 999px; background: var(--panel); border: 1px solid color-mix(in srgb, var(--human) 55%, var(--line)); color: var(--human); font-weight: 500; }
+.take span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.controls { display: flex; gap: 6px; }
+.btn { padding: 5px 11px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); cursor: pointer; transition: background-color .2s, opacity .2s; }
+.btn:hover:not(:disabled) { background: var(--sunk); }
+.btn:disabled { opacity: .45; cursor: default; }
+.btn.primary { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+.btn.primary:disabled { background: var(--panel); color: var(--muted); border-color: var(--line); }
+.controls .btn { flex: 1; }
+#notice { color: var(--human); font-size: 12px; overflow-wrap: anywhere; }
+#notice:empty { display: none; }
+
+.steps { flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--line); border-bottom: 0; border-radius: 12px 12px 0 0; overflow: hidden; }
+.steps h2 { margin: 0; padding: 7px 12px; font-size: 11px; font-weight: 500; color: var(--muted); border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; }
+#steps { list-style: none; margin: 0; padding: 0; overflow-y: auto; flex: 1; }
+#steps li { --c: var(--agent); display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; gap: 1px 9px; padding: 7px 12px; border-bottom: 1px solid var(--line); }
+#steps .ic { color: var(--c); padding-top: 2px; }
+#steps .what { min-width: 0; overflow-wrap: anywhere; }
+#steps .target { font-weight: 500; }
+#steps .d { color: var(--muted); font: 11px/1.7 var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+#steps .meta { grid-column: 2 / 4; color: var(--muted); font-size: 11px; overflow-wrap: anywhere; }
+#steps li.error, #steps li.stuck { box-shadow: inset 3px 0 0 var(--bad); }
+#steps li.error .meta, #steps li.stuck .meta { color: var(--bad); }
+#steps li.not-run .meta { color: var(--human); }
+#steps li.handed, #steps li.pause, #steps li.resume { background: color-mix(in srgb, var(--human) 8%, transparent); }
+#steps li.think { color: var(--muted); font-size: 11px; padding-block: 4px; }
+#steps li.sep { display: block; padding: 4px 12px; font: 10.5px/1.4 var(--mono); color: var(--muted); background: var(--sunk); overflow-wrap: anywhere; }
+#steps li.empty { display: block; color: var(--muted); }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }

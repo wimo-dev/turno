@@ -9,6 +9,7 @@
     "includes": [
       "packages/*/src/**/*.ts",
       "packages/*/test/**/*.ts",
+      "packages/browser/extension/*.js",
       "scripts/**/*.mjs",
       "plugins/**/*.mjs",
       "bench/**/*.mjs"

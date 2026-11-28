@@ -25,6 +25,8 @@ import type { CursorMark } from "./agent-cursor.js";
 import type { Redactor, VaultGuard } from "./redact.js";
 import { names } from "./names.js";
 import { type UiLocale, fill, uiStrings } from "./ui-strings.js";
+import { TOOL_KINDS } from "./live-effects.js";
+import type { PanelOffer } from "./side-panel.js";
 import { type BrowserWatch, titleOf } from "./watch.js";
 
 /**
@@ -55,6 +57,11 @@ import { type BrowserWatch, titleOf } from "./watch.js";
  *   the box and click point the agent cursor measured, and the person's turns, sent as `fx`
  *   events with no typed or vault value. Each frame says the page's scroll and size, so the view
  *   can place a box on the picture as the page scrolls (`live-map.ts`).
+ * - The side panel in the agent's own Chrome window (`side-panel.ts`) reads the same state,
+ *   steps and effects, never a frame, under `/panel/`. It is let in only from the extension's
+ *   origin, with a bearer token it got for a code that works once; the host puts the code into the
+ *   extension over the DevTools protocol, never through a page. Its answers carry CORS headers
+ *   for that origin alone.
  */
 
 /** The running browser, as the host gives it to the live server. */
@@ -118,12 +125,16 @@ export interface LiveServerOptions {
   uiLocale?(): UiLocale;
   /** How long the person's input must stop before an automatic pause ends (default 5 s). */
   idleMs?: number;
+  /** Opens the live view at `url` in a window of the person's browser (the panel's button); false: none found. */
+  openWindow?(url: string): Promise<boolean>;
 }
 
 /** How long input from the view waits for a call that runs to end, after it paused the agent. */
 const DRAIN_MS = 10_000;
 /** How long a link's code works. */
 const CODE_MS = 2 * 60_000;
+/** Side panel tokens kept at once (one per panel page that opened). */
+const MAX_PANEL_TOKENS = 8;
 /** Largest request body accepted. */
 const MAX_BODY = 16 * 1024;
 /** Keys the view may press besides plain characters. */
@@ -208,6 +219,13 @@ export class LiveServer implements BrowserWatch {
   private readonly ids = new WeakMap<Page, number>();
   private nextId = 1;
   private readonly viewers = new Set<ServerResponse>();
+  /** Side panels connected now: they get the state, the steps and the effects, never a frame. */
+  private readonly panels = new Set<ServerResponse>();
+  /** The tokens panels traded their codes for; they last as long as this server. */
+  private readonly panelTokens: string[] = [];
+  private readonly panelCodes = new Map<string, number>();
+  /** `chrome-extension://<id>`: the one origin a panel's request may come from. */
+  private panelOrigin: string | undefined;
   private cast: { page: Page; cdp: CDPSession; download: (d: { suggestedFilename(): string }) => void } | undefined;
   private casting: Promise<void> = Promise.resolve();
   private hidden = false;
@@ -234,13 +252,13 @@ export class LiveServer implements BrowserWatch {
     });
     this.timeline.onEntry((entry) => this.onStep(entry));
     this.stage.onEvent((event) => {
-      if (this.viewers.size) this.broadcast("fx", JSON.stringify(event));
+      if (this.watched) this.broadcast("fx", JSON.stringify(event));
     });
   }
 
   private onStep(entry: TimelineEntry): void {
     if (entry.kind === "call") this.stage.end(entry);
-    if (!this.viewers.size) return;
+    if (!this.watched) return;
     this.broadcast("step", JSON.stringify(entry));
     // A call can make a session stuck or clear it, which the state says.
     if (entry.kind === "call") this.pushState();
@@ -261,6 +279,16 @@ export class LiveServer implements BrowserWatch {
   /** Views open now. */
   get viewerCount(): number {
     return this.viewers.size;
+  }
+
+  /** Side panels connected now. */
+  get panelCount(): number {
+    return this.panels.size;
+  }
+
+  /** A view or a side panel reads the events. */
+  private get watched(): boolean {
+    return this.viewers.size > 0 || this.panels.size > 0;
   }
 
   /** The control socket path (tests). */
@@ -305,7 +333,7 @@ export class LiveServer implements BrowserWatch {
     replaceFileSync(tmp, file);
     process.once("exit", this.onExit);
     this.heartbeat = setInterval(() => {
-      for (const v of this.viewers) v.write(": ping\n\n");
+      for (const v of [...this.viewers, ...this.panels]) v.write(": ping\n\n");
     }, 15_000);
     this.heartbeat.unref();
     this.o.log?.(
@@ -329,8 +357,9 @@ export class LiveServer implements BrowserWatch {
     this.closed = true;
     this.gate.resume();
     clearInterval(this.heartbeat);
-    for (const v of this.viewers) v.end();
+    for (const v of [...this.viewers, ...this.panels]) v.end();
     this.viewers.clear();
+    this.panels.clear();
     await this.retarget();
     await Promise.all(
       [this.tcp, this.unix].map(
@@ -571,18 +600,22 @@ export class LiveServer implements BrowserWatch {
   }
 
   private pushState(): void {
-    if (this.queued || !this.viewers.size) return;
+    if (this.queued || !this.watched) return;
     this.queued = true;
     queueMicrotask(() => {
       this.queued = false;
-      void this.fullStatus()
+      // The panel lists no tabs: without a view open, no page is asked for its title.
+      void (this.viewers.size ? this.fullStatus() : Promise.resolve(this.status()))
         .then((s) => this.broadcast("state", JSON.stringify(s)))
         .catch(() => {});
     });
   }
 
+  /** An event to every view, and to every side panel unless it is a frame of the page. */
   private broadcast(event: string, data: string): void {
-    for (const v of this.viewers) v.write(`event: ${event}\ndata: ${data}\n\n`);
+    const line = `event: ${event}\ndata: ${data}\n\n`;
+    for (const v of this.viewers) v.write(line);
+    if (event !== "frame") for (const p of this.panels) p.write(line);
   }
 
   /** Starts or moves the screencast to the tab the view should show, or stops it. */
@@ -716,6 +749,8 @@ export class LiveServer implements BrowserWatch {
   private async handle(req: IncomingMessage, res: ServerResponse, trusted: boolean): Promise<void> {
     try {
       if (!trusted && !this.hostOk(req)) return this.send(res, 403, "text/plain", "forbidden");
+      if (!trusted && this.panelOrigin && req.headers.origin === this.panelOrigin)
+        return await this.handlePanel(req, res, this.panelOrigin);
       const url = new URL(req.url ?? "/", "http://127.0.0.1");
       const method = req.method ?? "GET";
       if (!trusted && method === "GET" && url.pathname === "/" && url.searchParams.has("code")) {
@@ -784,6 +819,113 @@ export class LiveServer implements BrowserWatch {
       if (!res.headersSent) this.json(res, status, { error: this.o.redactor.text(String((error as Error).message)) });
       else res.end();
     }
+  }
+
+  /**
+   * A code for the side panel whose page just opened in the extension at `origin`; the host puts
+   * it into the extension over the DevTools protocol (`side-panel.ts`). It works once, for two
+   * minutes, and only from that origin.
+   */
+  async panelOffer(origin: string): Promise<PanelOffer | undefined> {
+    if (this.closed || !/^chrome-extension:\/\/[a-p]{32}$/.test(origin)) return undefined;
+    await this.start();
+    this.panelOrigin = origin;
+    const now = Date.now();
+    for (const [c, until] of this.panelCodes) if (until < now) this.panelCodes.delete(c);
+    const code = randomBytes(24).toString("base64url");
+    this.panelCodes.set(code, now + CODE_MS);
+    return { server: `http://127.0.0.1:${this.port}`, code };
+  }
+
+  private panelTokenOk(req: IncomingMessage): boolean {
+    const m = /^Bearer ([A-Za-z0-9_-]{20,200})$/.exec(req.headers.authorization ?? "");
+    return m !== null && this.panelTokens.some((t) => sameSecret(t, m[1]!));
+  }
+
+  /**
+   * A request of the side panel (`side-panel.ts`): its origin is the extension's, which no page
+   * can take, and every route but the code trade needs its bearer token. The answers carry CORS
+   * headers for that origin only; the panel gets no frame and sends no input to the page.
+   */
+  private async handlePanel(req: IncomingMessage, res: ServerResponse, origin: string): Promise<void> {
+    const cors = {
+      "Access-Control-Allow-Origin": origin,
+      "Access-Control-Allow-Headers": "authorization, content-type",
+      "Access-Control-Allow-Methods": "GET, POST",
+      "Access-Control-Max-Age": "600",
+      Vary: "Origin",
+    };
+    const json = (status: number, value: unknown) =>
+      this.send(res, status, "application/json; charset=utf-8", JSON.stringify(value), cors);
+    try {
+      const url = new URL(req.url ?? "/", "http://127.0.0.1");
+      const method = req.method ?? "GET";
+      if (method === "OPTIONS") return this.send(res, 204, "text/plain", "", cors);
+      const route = `${method} ${url.pathname}`;
+      if (route === "POST /panel/session") {
+        const body = await readJson(req);
+        let found = false;
+        for (const [c, until] of this.panelCodes) {
+          if (typeof body.code === "string" && sameSecret(c, body.code)) {
+            this.panelCodes.delete(c);
+            found = until >= Date.now();
+          }
+        }
+        if (!found) return json(401, { error: "this code is not valid; close the panel and open it again" });
+        const token = randomBytes(32).toString("base64url");
+        this.panelTokens.push(token);
+        // A panel page that opens again trades a new code: the oldest tokens go.
+        if (this.panelTokens.length > MAX_PANEL_TOKENS) this.panelTokens.shift();
+        return json(200, { token });
+      }
+      if (!this.panelTokenOk(req)) return json(401, { error: "not signed in to this server" });
+      if (route === "GET /panel/events") return this.panelEvents(req, res, cors);
+      if (route === "GET /state") return json(200, this.status());
+      if (route === "POST /pause") {
+        await readJson(req);
+        if (this.gate.keep()) this.pushState();
+        else await this.pause("the side panel");
+        return json(200, this.status());
+      }
+      if (route === "POST /resume") {
+        await readJson(req);
+        this.resume();
+        return json(200, this.status());
+      }
+      if (route === "POST /panel/live") {
+        await readJson(req);
+        const t = uiStrings(this.locale()).live.panel;
+        const reason = this.refusal();
+        if (reason) throw new HttpError(409, reason);
+        const link = `http://127.0.0.1:${this.port}/?code=${this.issueCode()}`;
+        if (!(await this.o.openWindow?.(link))) throw new HttpError(409, t.noLiveWindow);
+        return json(200, { ok: true });
+      }
+      return json(404, { error: "not found" });
+    } catch (error) {
+      const status = error instanceof HttpError ? error.status : 500;
+      if (!res.headersSent) json(status, { error: this.o.redactor.text(String((error as Error).message)) });
+      else res.end();
+    }
+  }
+
+  /** The panel's event stream: its words first, then what a view gets, without the frames. */
+  private panelEvents(req: IncomingMessage, res: ServerResponse, cors: Record<string, string>): void {
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-store",
+      Connection: "keep-alive",
+      "X-Content-Type-Options": "nosniff",
+      ...cors,
+    });
+    const locale = this.locale();
+    const boot = { locale, strings: uiStrings(locale).live, kinds: TOOL_KINDS };
+    res.write(`event: boot\ndata: ${JSON.stringify(boot)}\n\n`);
+    res.write(`event: steps\ndata: ${JSON.stringify(this.timeline.list())}\n\n`);
+    for (const e of this.stage.running()) res.write(`event: fx\ndata: ${JSON.stringify(e)}\n\n`);
+    this.panels.add(res);
+    req.on("close", () => this.panels.delete(res));
+    this.pushState();
   }
 
   private events(req: IncomingMessage, res: ServerResponse): void {

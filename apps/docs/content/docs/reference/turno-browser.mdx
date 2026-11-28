@@ -171,21 +171,21 @@ Usage:
       [--block-types image,media,font] [--block-patterns <host|glob>,...]
       [--no-block] [--cache] [--cache-max-size <size>] [--no-cache] [--humanize
       auto|off|light|full|adaptive] [--cursor auto|on|off] [--notify true|false]
-      [--last-click true|false] [--sharing session|tabs] [--tab-lock-wait
-      <duration>] [--tab-lock-release <duration>] [--engine chrome|lightpanda]
-      [--attach auto|<dir>|<url>] [--record-flows true|false] [--record-traces
-      true|false] [--record-screenshots true|false] [--record-max-size <size>]
-      [--no-record] [--act] [--act-sampling true|false] [--act-provider
-      chat-completions] [--act-endpoint <url>] [--act-model <name>] [--act-key
-      keychain:<item>] [--act-max-steps <n>] [--act-max-tokens <n>]
-      [--act-timeout <duration>] [--no-act] [--captcha-provider task-api]
-      [--captcha-endpoint <url>] [--captcha-key keychain:<item>]
-      [--captcha-timeout <duration>] [--no-captcha] [--live true|false|auto]
-      [--live-wait <duration>] [--no-live] [--user-agent coherent|auto|off]
-      [--proxy-server <url>|off] [--proxy-username <name|keychain:item>]
-      [--proxy-password keychain:<item>] [--no-proxy] [--policy-file <file>]
-      [--allowed-domains <host,...>] [--disable <feature,...>] [--auto-submit
-      true|false] [--no-policy] [--browser
+      [--last-click true|false] [--side-panel true|false] [--sharing
+      session|tabs] [--tab-lock-wait <duration>] [--tab-lock-release <duration>]
+      [--engine chrome|lightpanda] [--attach auto|<dir>|<url>] [--record-flows
+      true|false] [--record-traces true|false] [--record-screenshots true|false]
+      [--record-max-size <size>] [--no-record] [--act] [--act-sampling
+      true|false] [--act-provider chat-completions] [--act-endpoint <url>]
+      [--act-model <name>] [--act-key keychain:<item>] [--act-max-steps <n>]
+      [--act-max-tokens <n>] [--act-timeout <duration>] [--no-act]
+      [--captcha-provider task-api] [--captcha-endpoint <url>] [--captcha-key
+      keychain:<item>] [--captcha-timeout <duration>] [--no-captcha] [--live
+      true|false|auto] [--live-wait <duration>] [--no-live] [--user-agent
+      coherent|auto|off] [--proxy-server <url>|off] [--proxy-username
+      <name|keychain:item>] [--proxy-password keychain:<item>] [--no-proxy]
+      [--policy-file <file>] [--allowed-domains <host,...>] [--disable
+      <feature,...>] [--auto-submit true|false] [--no-policy] [--browser
       chrome|edge|brave|chromium|chrome-for-testing|<path>] [--force]
       [--dry-run] [--json]
     change an identity's identity.json (an empty value removes a setting)
@@ -245,6 +245,11 @@ Input:
   --last-click true|false         true (default): a click that buys, sends, publishes or deletes
                                   is yours: the agent fills in the rest and asks you with
                                   browser_request_human. false lets the agent click it
+  --side-panel true|false         true (default with a window): Chrome's side panel of the
+                                  agent's window shows what it does (the step it runs, the steps
+                                  so far, Pause, your turn). It reads the live view's server and
+                                  adds nothing to the page. false: no panel; turno-browser live <id>
+                                  still opens the live view
 
 Which engine runs this identity (all off by default):
   --engine lightpanda             read mode: Lightpanda instead of Chrome, for reading pages;

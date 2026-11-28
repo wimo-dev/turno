@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "turno-browser",
+  "description": "Shows what the agent does in this window, next to the page.",
+  "version": "1.0.0",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAwaFBDwcBlqLEx9c5QhUYD24Bw2h/YhG1xumJIyLEnIRf+oxwqY4bQxvMG48hKyPXTC3l9iPJTHhV5qHXzM38VpFNiMfKY3u244ygKUio6icSysYY1ZV6iYHJdcPbDOGojRyZueIHaUs6RNMDuvjqqdRW9vTEnuPgwilBmyzSbeHz71N72HkgRPb3PiADJcb7x/nnr+RqhM3K0li6u2hWIFac5u9+zuPz+b7apUPqNXaTi3dldXUNQ5EuiWFKeOyoc2dO2FQ4pH/tOeFh7AcKEkeC2058TIZ1VUvEIWfUSqwN3ihZSPIvdlHIh7d+blq+9NcW7bQYOa0f8MMRptogyQIDAQAB",
+  "minimum_chrome_version": "116",
+  "permissions": ["sidePanel"],
+  "background": { "service_worker": "sw.js" },
+  "side_panel": { "default_path": "panel.html" },
+  "action": { "default_title": "turno-browser" },
+  "icons": { "16": "icon-16.png", "32": "icon-32.png", "48": "icon-48.png", "128": "icon-128.png" },
+  "content_security_policy": {
+    "extension_pages": "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src http://127.0.0.1:*; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+  }
+}

@@ -188,7 +188,7 @@ async function post(path, body) {
     else if (data.identity) render(data);
   } catch (error) { note(String(error)); }
 }
-function byName(by) { return ({ "the live view": T.byView, browser_request_human: T.byStep, "the person's input in the browser window": T.byWindow })[by] || by; }
+function byName(by) { return ({ "the live view": T.byView, "the side panel": T.byPanel, browser_request_human: T.byStep, "the person's input in the browser window": T.byWindow })[by] || by; }
 function actionOf(tool) {
   const name = tool.replace(/^browser_/, "").replace(/_/g, " ");
   return T.actions[tool] || name.charAt(0).toUpperCase() + name.slice(1);
@@ -598,7 +598,7 @@ function stepLines(s) {
   lastEnd = 0;
   const li = line(s.kind, s.kind === "pause" ? "human" : "navigate", "human");
   const what = span("what", "");
-  if (s.kind === "pause") what.textContent = s.step ? T.stepEntry : fill(s.by === "the live view" || s.by === "the person's input in the browser window" ? T.tookOverEntry : T.pausedEntry, { by: byName(s.by) });
+  if (s.kind === "pause") what.textContent = s.step ? T.stepEntry : fill(s.by === "the live view" || s.by === "the side panel" || s.by === "the person's input in the browser window" ? T.tookOverEntry : T.pausedEntry, { by: byName(s.by) });
   else what.textContent = fill(T.resumedEntry, { t: duration(s.ms) });
   li.append(what, span("d", clock(s.at)));
   if (s.kind === "resume") li.append(span("meta", s.lines.length ? s.lines.join(" · ") : T.nothingChanged));
