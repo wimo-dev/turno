@@ -62,6 +62,8 @@ export interface UiStrings {
     byWindow: string;
     /** Who paused: the side panel in the agent's window. */
     byPanel: string;
+    /** Who paused: teach mode, while the person shows a flow. */
+    byTeach: string;
     /** An automatic pause: `{by}`; `{s}`: seconds of no input before the agent goes on. */
     tookOver: string;
     /** The step timeline next to the picture. */
@@ -146,6 +148,56 @@ export interface UiStrings {
       disconnected: string;
       /** The server's answer when no browser can show the live view. */
       noLiveWindow: string;
+    };
+    /** Teach mode (`teach.ts`): the person shows a flow once in the side panel's window. */
+    teach: {
+      button: string;
+      buttonHint: string;
+      namePrompt: string;
+      /** What a flow name may hold. */
+      nameHint: string;
+      start: string;
+      cancel: string;
+      teaching: string;
+      teachingHint: string;
+      stop: string;
+      review: string;
+      reviewHint: string;
+      save: string;
+      discard: string;
+      remove: string;
+      rename: string;
+      /** How a typed value is kept: a parameter with what was typed as its default. */
+      param: string;
+      fixed: string;
+      sensitive: string;
+      /** A value that is never kept (a password, a code, a file). */
+      locked: string;
+      /** "typed {n} characters" */
+      chars: string;
+      noSteps: string;
+      /** {name} {n} */
+      saved: string;
+      savedHint: string;
+      close: string;
+      /** The server's answers. {name} */
+      already: string;
+      exists: string;
+      /** {prefix} */
+      autoName: string;
+      /** {url} */
+      badUrl: string;
+      noBrowser: string;
+      noEngine: string;
+      none: string;
+      /** Step words that the timeline has none for. */
+      login: string;
+      newTab: string;
+      toTab: string;
+      check: string;
+      uncheck: string;
+      upload: string;
+      key: string;
     };
   };
   /** The person step's banner (`human-step.ts`). */
@@ -232,6 +284,7 @@ export const UI_STRINGS: Record<UiLocale, UiStrings> = {
       denied: "This live view needs a fresh link. Run {command}: it opens one that works once.",
       byWindow: "you, in the browser window",
       byPanel: "the side panel",
+      byTeach: "teach mode",
       tookOver:
         "You have the controls ({by}). The agent goes on {s} s after your last input, or when you press Hand back.",
       steps: "Steps",
@@ -370,6 +423,48 @@ export const UI_STRINGS: Record<UiLocale, UiStrings> = {
         disconnected: "Disconnected from turno-browser. It connects again when the agent's server runs.",
         noLiveWindow: "No Chromium browser was found to show the live view; run turno-browser live <id> instead.",
       },
+      teach: {
+        button: "Teach a flow",
+        buttonHint: "Show the agent a task once, in this window; it is saved as a flow the agent can run again",
+        namePrompt: "Name of the flow",
+        nameHint: "Lowercase letters, digits, - and _, for example submit-timesheet",
+        start: "Start",
+        cancel: "Cancel",
+        teaching: "Teaching {name}",
+        teachingHint:
+          "Do the task in this window as usual. Each click, field and key shows below. The agent waits until you save.",
+        stop: "Stop",
+        review: "Review {name}",
+        reviewHint:
+          "Rename a step, choose how each value is kept, drop the steps you do not want, then save. Values you typed are never shown here.",
+        save: "Save flow",
+        discard: "Discard",
+        remove: "Remove step",
+        rename: "Name of the step",
+        param: "Ask each run, typed value as default",
+        fixed: "Always this value",
+        sensitive: "Ask each run, keep no value",
+        locked: "Never kept: asked at each run",
+        chars: "typed {n} characters",
+        noSteps: "No steps yet. Click, type or open a page in this window.",
+        saved: "Saved {name} with {n} steps",
+        savedHint: "The agent can run it with browser_replay, and you with turno-browser replay.",
+        close: "Close",
+        already: "Teach mode already shows flow {name}.",
+        exists: "A flow named {name} exists; pick another name.",
+        autoName: "Names that start with {prefix} are kept for the identity's own recordings.",
+        badUrl: "{url} is not an http or https address.",
+        noBrowser: "The browser is not running; turno-browser teach <id> starts it.",
+        noEngine: "Teach mode needs turno's own Chrome: not attach mode, Lightpanda or Camoufox.",
+        none: "Teach mode is not on.",
+        login: "Sign in to",
+        newTab: "Open a new tab",
+        toTab: "Go to tab",
+        check: "Check",
+        uncheck: "Uncheck",
+        upload: "Upload a file, given at each run",
+        key: "Press",
+      },
     },
     step: {
       title: "Your turn",
@@ -448,6 +543,7 @@ export const UI_STRINGS: Record<UiLocale, UiStrings> = {
       denied: "Este enlace ya no sirve. Pide uno nuevo con {command}: cada enlace funciona una sola vez.",
       byWindow: "tú, en la ventana del navegador",
       byPanel: "el panel lateral",
+      byTeach: "el modo enseñar",
       tookOver:
         "Tú tienes el control ({by}). El agente sigue {s} s después de lo último que hagas, o cuando presiones Devolver el control.",
       steps: "Pasos",
@@ -587,6 +683,49 @@ export const UI_STRINGS: Record<UiLocale, UiStrings> = {
           "Sin conexión con turno-browser. Vuelve a conectarse cuando el servidor del agente esté en marcha.",
         noLiveWindow:
           "No se encontró un navegador Chromium para mostrar la vista en vivo; usa turno-browser live <id> en su lugar.",
+      },
+      teach: {
+        button: "Enseñar un flujo",
+        buttonHint:
+          "Muéstrale al agente una tarea una vez, en esta ventana; se guarda como un flujo que el agente puede repetir",
+        namePrompt: "Nombre del flujo",
+        nameHint: "Minúsculas, dígitos, - y _, por ejemplo enviar-horas",
+        start: "Empezar",
+        cancel: "Cancelar",
+        teaching: "Enseñando {name}",
+        teachingHint:
+          "Haz la tarea en esta ventana como siempre. Cada clic, campo y tecla aparece abajo. El agente espera hasta que guardes.",
+        stop: "Terminar",
+        review: "Revisa {name}",
+        reviewHint:
+          "Cambia el nombre de un paso, elige cómo se guarda cada valor, quita los pasos que sobran y guarda. Lo que escribiste nunca se muestra aquí.",
+        save: "Guardar flujo",
+        discard: "Descartar",
+        remove: "Quitar paso",
+        rename: "Nombre del paso",
+        param: "Preguntar cada vez, con lo escrito como valor inicial",
+        fixed: "Siempre este valor",
+        sensitive: "Preguntar cada vez, sin guardar el valor",
+        locked: "Nunca se guarda: se pide en cada ejecución",
+        chars: "{n} caracteres escritos",
+        noSteps: "Aún no hay pasos. Haz clic, escribe o abre una página en esta ventana.",
+        saved: "Se guardó {name} con {n} pasos",
+        savedHint: "El agente lo repite con browser_replay, y tú con turno-browser replay.",
+        close: "Cerrar",
+        already: "El modo enseñar ya muestra el flujo {name}.",
+        exists: "Ya existe un flujo llamado {name}; elige otro nombre.",
+        autoName: "Los nombres que empiezan con {prefix} son para las grabaciones de la identidad.",
+        badUrl: "{url} no es una dirección http o https.",
+        noBrowser: "El navegador no está abierto; turno-browser teach <id> lo abre.",
+        noEngine: "El modo enseñar necesita el Chrome de turno: no el modo attach, Lightpanda ni Camoufox.",
+        none: "El modo enseñar no está activo.",
+        login: "Iniciar sesión en",
+        newTab: "Abrir una pestaña nueva",
+        toTab: "Ir a la pestaña",
+        check: "Marcar",
+        uncheck: "Desmarcar",
+        upload: "Subir un archivo, que se pide en cada ejecución",
+        key: "Presionar",
       },
     },
     step: {

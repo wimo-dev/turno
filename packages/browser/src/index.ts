@@ -102,7 +102,7 @@ export {
   profileHasCookies,
   readLoginRecord,
 } from "./login.js";
-export { LiveError, liveLink, livePause, liveResume, liveStatus } from "./live-client.js";
+export { LiveError, liveLink, livePause, liveResume, liveStatus, liveTeach } from "./live-client.js";
 export {
   BackgroundError,
   type BackgroundSession,

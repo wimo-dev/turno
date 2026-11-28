@@ -72,6 +72,10 @@ Usage:
       [--headless] [--json]
                                         run a saved flow on the identity's
                                         Chrome, without an agent
+  turno browser teach <id> [--name <flow> [--url <start>] [--overwrite]]
+      [--stop | --save | --cancel] [--json]
+                                        show the agent a task once in the
+                                        identity's Chrome; it is saved as a flow
   turno browser traces <id> [<recording>] [--open] [--segment <n>] [--json]
                                         an identity's recordings (traces,
                                         screenshots); --open shows a trace in
@@ -133,6 +137,8 @@ Examples:
   $ turno browser reputation school --json
   $ turno browser vault add school mail --url https://mail.example.com --username alice
   $ turno browser record school --flows --traces
+  $ turno browser teach school --name submit-timesheet --url https://portal.example.edu/timesheet
+  $ turno browser teach school --save
   $ turno browser flows school
   $ turno browser replay school submit-timesheet --param password=keychain:school-password
   $ turno browser traces school --open
@@ -524,6 +530,30 @@ the report says which locators it tried; --from continues at a later step.
 
 Examples:
   $ turno browser replay school submit-timesheet --param password=keychain:school-password
+```
+
+### turno browser teach
+
+```text
+Usage:
+  turno browser teach <id> [--name <flow> [--url <start>] [--overwrite]]
+      [--stop | --save | --cancel] [--json]
+    show the agent a task once in the identity's Chrome; it is saved as a flow
+
+Teach mode: you do the task once in the window of the identity's Chrome and turno-browser
+writes each step down as a flow, the same kind browser_record saves: clicks, typing, choices,
+checkboxes, Enter, Escape and Tab, uploads, new tabs, popups and the addresses you type. What you
+type becomes a parameter with that value as its default, a password or one-time field keeps no
+value, and a sign-in on a vault site becomes one browser_login step. The agent waits meanwhile.
+With --name it starts (the browser first, when nothing serves the identity); --url opens a page as
+the first step. At a terminal, Enter saves every step as shown and Ctrl-C drops them; the side
+panel's Teach a flow does the same with a review of each step; --stop ends the listening and
+leaves that review to the panel, --save and --cancel end a teach mode started elsewhere. Then the agent runs it with
+browser_replay, and you with turno browser replay <id> <flow>. Needs turno's own Chrome, with the live view on.
+
+Examples:
+  $ turno browser teach school --name submit-timesheet --url https://portal.example.edu/timesheet
+  $ turno browser teach school --save
 ```
 
 ### turno browser traces

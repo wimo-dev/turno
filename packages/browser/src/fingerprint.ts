@@ -46,98 +46,98 @@ export function urlPattern(url: string): string {
 }
 
 /**
+ * What the page shows about an element: its role, accessible name, label and landmark. Runs in
+ * the page (a locator's evaluate, or teach mode's isolated world): it must stay self-contained.
+ */
+export function seenInPage(el: Element): { role: string; name: string; label: string; landmark: string } {
+  const clean = (t: string | null | undefined) => (t ?? "").replace(/\s+/g, " ").trim().slice(0, 120);
+  const tag = el.localName;
+  const input = el as HTMLInputElement;
+  const implicit = (): string => {
+    if (tag === "a" && el.hasAttribute("href")) return "link";
+    if (tag === "button" || tag === "summary") return "button";
+    if (tag === "select") return (el as HTMLSelectElement).multiple ? "listbox" : "combobox";
+    if (tag === "textarea") return "textbox";
+    if (tag === "img") return "img";
+    if (tag === "option") return "option";
+    if (/^h[1-6]$/.test(tag)) return "heading";
+    if (tag === "input") {
+      const type = (input.type || "text").toLowerCase();
+      if (["button", "submit", "reset", "image"].includes(type)) return "button";
+      if (type === "checkbox") return "checkbox";
+      if (type === "radio") return "radio";
+      if (type === "range") return "slider";
+      if (type === "number") return "spinbutton";
+      if (type === "search") return el.hasAttribute("list") ? "combobox" : "searchbox";
+      return el.hasAttribute("list") ? "combobox" : "textbox";
+    }
+    return "generic";
+  };
+  const role = el.getAttribute("role")?.split(" ")[0] || implicit();
+  const byIds = (ids: string | null) =>
+    clean(
+      (ids ?? "")
+        .split(/\s+/)
+        .map((id) => (id ? el.ownerDocument.getElementById(id)?.textContent : ""))
+        .join(" "),
+    );
+  const labels = (el as HTMLInputElement).labels;
+  const label = labels && labels.length ? clean([...labels].map((l) => l.textContent).join(" ")) : "";
+  // A field's text is what was typed into it: never part of its name here.
+  const field =
+    ["input", "select", "textarea"].includes(tag) ||
+    (el as HTMLElement).isContentEditable ||
+    ["textbox", "searchbox", "combobox", "spinbutton"].includes(role);
+  const name =
+    clean(el.getAttribute("aria-label")) ||
+    byIds(el.getAttribute("aria-labelledby")) ||
+    label ||
+    clean(el.getAttribute("alt")) ||
+    (field ? "" : clean(el.textContent)) ||
+    clean(el.getAttribute("title")) ||
+    clean(el.getAttribute("placeholder")) ||
+    (tag === "input" && ["submit", "button", "reset"].includes(input.type) ? clean(input.value) : "");
+  const LANDMARK: Record<string, string> = {
+    nav: "navigation",
+    main: "main",
+    aside: "complementary",
+    dialog: "dialog",
+    search: "search",
+  };
+  const ROLES = new Set([
+    "navigation",
+    "main",
+    "banner",
+    "contentinfo",
+    "complementary",
+    "search",
+    "region",
+    "form",
+    "dialog",
+    "alertdialog",
+  ]);
+  let landmark = "";
+  for (let n = el.parentElement; n; n = n.parentElement) {
+    let r = n.getAttribute("role") ?? LANDMARK[n.localName];
+    const named = clean(n.getAttribute("aria-label")) || byIds(n.getAttribute("aria-labelledby"));
+    if (!r && n.localName === "header" && !n.closest("article, aside, main, nav, section")) r = "banner";
+    if (!r && n.localName === "footer" && !n.closest("article, aside, main, nav, section")) r = "contentinfo";
+    if (!r && (n.localName === "form" || n.localName === "section") && named)
+      r = n.localName === "form" ? "form" : "region";
+    if (r && ROLES.has(r)) {
+      landmark = named ? `${r} "${named}"` : r;
+      break;
+    }
+  }
+  return { role, name, label: label && label !== name ? label : "", landmark };
+}
+
+/**
  * The element's role, name, label and landmark, read in the page. The locator must match one
  * element (a ref, or a selector replay checked). Undefined when it is gone.
  */
 export async function fingerprintOf(locator: Locator, url: string): Promise<Fingerprint | undefined> {
-  const seen = await locator
-    .evaluate(
-      (el: Element) => {
-        const clean = (t: string | null | undefined) => (t ?? "").replace(/\s+/g, " ").trim().slice(0, 120);
-        const tag = el.localName;
-        const input = el as HTMLInputElement;
-        const implicit = (): string => {
-          if (tag === "a" && el.hasAttribute("href")) return "link";
-          if (tag === "button" || tag === "summary") return "button";
-          if (tag === "select") return (el as HTMLSelectElement).multiple ? "listbox" : "combobox";
-          if (tag === "textarea") return "textbox";
-          if (tag === "img") return "img";
-          if (tag === "option") return "option";
-          if (/^h[1-6]$/.test(tag)) return "heading";
-          if (tag === "input") {
-            const type = (input.type || "text").toLowerCase();
-            if (["button", "submit", "reset", "image"].includes(type)) return "button";
-            if (type === "checkbox") return "checkbox";
-            if (type === "radio") return "radio";
-            if (type === "range") return "slider";
-            if (type === "number") return "spinbutton";
-            if (type === "search") return el.hasAttribute("list") ? "combobox" : "searchbox";
-            return el.hasAttribute("list") ? "combobox" : "textbox";
-          }
-          return "generic";
-        };
-        const role = el.getAttribute("role")?.split(" ")[0] || implicit();
-        const byIds = (ids: string | null) =>
-          clean(
-            (ids ?? "")
-              .split(/\s+/)
-              .map((id) => (id ? el.ownerDocument.getElementById(id)?.textContent : ""))
-              .join(" "),
-          );
-        const labels = (el as HTMLInputElement).labels;
-        const label = labels && labels.length ? clean([...labels].map((l) => l.textContent).join(" ")) : "";
-        // A field's text is what was typed into it: never part of its name here.
-        const field =
-          ["input", "select", "textarea"].includes(tag) ||
-          (el as HTMLElement).isContentEditable ||
-          ["textbox", "searchbox", "combobox", "spinbutton"].includes(role);
-        const name =
-          clean(el.getAttribute("aria-label")) ||
-          byIds(el.getAttribute("aria-labelledby")) ||
-          label ||
-          clean(el.getAttribute("alt")) ||
-          (field ? "" : clean(el.textContent)) ||
-          clean(el.getAttribute("title")) ||
-          clean(el.getAttribute("placeholder")) ||
-          (tag === "input" && ["submit", "button", "reset"].includes(input.type) ? clean(input.value) : "");
-        const LANDMARK: Record<string, string> = {
-          nav: "navigation",
-          main: "main",
-          aside: "complementary",
-          dialog: "dialog",
-          search: "search",
-        };
-        const ROLES = new Set([
-          "navigation",
-          "main",
-          "banner",
-          "contentinfo",
-          "complementary",
-          "search",
-          "region",
-          "form",
-          "dialog",
-          "alertdialog",
-        ]);
-        let landmark = "";
-        for (let n = el.parentElement; n; n = n.parentElement) {
-          let r = n.getAttribute("role") ?? LANDMARK[n.localName];
-          const named = clean(n.getAttribute("aria-label")) || byIds(n.getAttribute("aria-labelledby"));
-          if (!r && n.localName === "header" && !n.closest("article, aside, main, nav, section")) r = "banner";
-          if (!r && n.localName === "footer" && !n.closest("article, aside, main, nav, section")) r = "contentinfo";
-          if (!r && (n.localName === "form" || n.localName === "section") && named)
-            r = n.localName === "form" ? "form" : "region";
-          if (r && ROLES.has(r)) {
-            landmark = named ? `${r} "${named}"` : r;
-            break;
-          }
-        }
-        return { role, name, label: label && label !== name ? label : "", landmark };
-      },
-      undefined,
-      { timeout: 2_000 },
-    )
-    .catch(() => undefined);
+  const seen = await locator.evaluate(seenInPage, undefined, { timeout: 2_000 }).catch(() => undefined);
   if (typeof seen?.role !== "string" || typeof seen.name !== "string") return undefined;
   return {
     role: seen.role,

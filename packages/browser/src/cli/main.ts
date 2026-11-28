@@ -38,7 +38,7 @@ const SECTIONS: readonly { title: string; commands: readonly string[] }[] = [
   { title: "Identities", commands: ["list", "add", "show", "set", "login", "remove"] },
   { title: "Connect an agent", commands: ["setup"] },
   { title: "Sign-ins and sessions", commands: ["vault", "secret", "export", "import"] },
-  { title: "Flows and recordings", commands: ["record", "flows", "replay", "traces"] },
+  { title: "Flows and recordings", commands: ["record", "teach", "flows", "replay", "traces"] },
   { title: "Watch and take over", commands: ["live", "pause", "resume"] },
   { title: "From the shell", commands: ["do", "background"] },
   { title: "Checks", commands: ["status", "doctor", "reputation", "bench"] },

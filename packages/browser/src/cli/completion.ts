@@ -18,6 +18,7 @@ const IDENTITY_FIRST = new Set([
   "remove",
   "export",
   "record",
+  "teach",
   "flows",
   "replay",
   "traces",

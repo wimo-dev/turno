@@ -6,6 +6,7 @@ import {
   FlowError,
   type FlowParam,
   type FlowStep,
+  type FlowLocator,
   type FlowTarget,
   FLOW_FORMAT_VERSION,
   MAX_FLOW_STEPS,
@@ -74,7 +75,7 @@ function recordsTool(name: string, args: Record<string, unknown>): boolean {
 }
 
 /** What the page says about an element, for its locators and to tell a secret field. */
-interface ElementInfo {
+export interface ElementInfo {
   tag: string;
   type: string;
   autocomplete: string;
@@ -108,6 +109,52 @@ export function roleFromSelector(selector: string): { role: string; name?: strin
 const ROLE_SKIP = new Set(["generic", "text", "none", "presentation", "paragraph"]);
 
 const REF = /^(f\d+)?e\d+$/;
+
+/**
+ * What the page says about an element, for its locators and to tell a secret field. Runs in the
+ * page (a locator's evaluate, or teach mode's isolated world): it must stay self-contained.
+ */
+export function elementInfoInPage(el: Element): ElementInfo {
+  const input = el as HTMLInputElement;
+  const esc = (v: string) => CSS.escape(v);
+  const unique = (sel: string) => {
+    try {
+      return el.ownerDocument.querySelectorAll(sel).length === 1;
+    } catch {
+      return false;
+    }
+  };
+  let css = "";
+  const name = el.getAttribute("name");
+  if (el.id && unique(`#${esc(el.id)}`)) css = `#${esc(el.id)}`;
+  else if (name && unique(`${el.localName}[name="${esc(name)}"]`)) css = `${el.localName}[name="${esc(name)}"]`;
+  else {
+    const parts: string[] = [];
+    let node: Element | null = el;
+    while (node && node.localName !== "html") {
+      if (node.id && unique(`#${esc(node.id)}`)) {
+        parts.unshift(`#${esc(node.id)}`);
+        break;
+      }
+      const tag: string = node.localName;
+      const parent: Element | null = node.parentElement;
+      const same = parent ? Array.from(parent.children).filter((c) => c.localName === tag) : [];
+      parts.unshift(same.length > 1 ? `${tag}:nth-of-type(${same.indexOf(node) + 1})` : tag);
+      node = parent;
+    }
+    css = parts.join(" > ");
+  }
+  const text = (el.textContent ?? "").trim().replace(/\s+/g, " ");
+  return {
+    tag: el.localName,
+    type: (input.type || "").toLowerCase(),
+    autocomplete: el.getAttribute("autocomplete") ?? "",
+    name: name ?? "",
+    id: el.id,
+    text: text.length <= 80 ? text : "",
+    css,
+  };
+}
 
 /**
  * The element a target names, found again four ways: Playwright's own locator for it, its role
@@ -153,60 +200,8 @@ async function captureTarget(
   const aria = generated ? roleFromSelector(generated) : undefined;
   if (aria?.name && !ROLE_SKIP.has(aria.role))
     out.locators.push({ kind: "role", selector: `${frame}internal:role=${aria.role}[name=${quoteExact(aria.name)}]` });
-  const info = await locator
-    .evaluate(
-      (el: Element) => {
-        const input = el as HTMLInputElement;
-        const esc = (v: string) => CSS.escape(v);
-        const unique = (sel: string) => {
-          try {
-            return el.ownerDocument.querySelectorAll(sel).length === 1;
-          } catch {
-            return false;
-          }
-        };
-        let css = "";
-        const name = el.getAttribute("name");
-        if (el.id && unique(`#${esc(el.id)}`)) css = `#${esc(el.id)}`;
-        else if (name && unique(`${el.localName}[name="${esc(name)}"]`)) css = `${el.localName}[name="${esc(name)}"]`;
-        else {
-          const parts: string[] = [];
-          let node: Element | null = el;
-          while (node && node.localName !== "html") {
-            if (node.id && unique(`#${esc(node.id)}`)) {
-              parts.unshift(`#${esc(node.id)}`);
-              break;
-            }
-            const tag: string = node.localName;
-            const parent: Element | null = node.parentElement;
-            const same = parent ? Array.from(parent.children).filter((c) => c.localName === tag) : [];
-            parts.unshift(same.length > 1 ? `${tag}:nth-of-type(${same.indexOf(node) + 1})` : tag);
-            node = parent;
-          }
-          css = parts.join(" > ");
-        }
-        const text = (el.textContent ?? "").trim().replace(/\s+/g, " ");
-        return {
-          tag: el.localName,
-          type: (input.type || "").toLowerCase(),
-          autocomplete: el.getAttribute("autocomplete") ?? "",
-          name: name ?? "",
-          id: el.id,
-          text: text.length <= 80 ? text : "",
-          css,
-        };
-      },
-      undefined,
-      { timeout: 2_000 },
-    )
-    .catch(() => undefined);
-  if (info) {
-    const field = ["input", "textarea", "select"].includes(info.tag);
-    // The tag keeps the text from matching another element (a heading that reads like the button).
-    if (info.text && !field)
-      out.locators.push({ kind: "text", selector: `${frame}css=${info.tag}:text-is(${quoteCss(info.text)})` });
-    if (info.css) out.locators.push({ kind: "css", selector: `${frame}css=${info.css}` });
-  }
+  const info = await locator.evaluate(elementInfoInPage, undefined, { timeout: 2_000 }).catch(() => undefined);
+  if (info) out.locators.push(...pageLocators(info, frame));
   out.locators = out.locators.filter((l, i) => out.locators.findIndex((m) => m.selector === l.selector) === i);
   const fingerprint = await fingerprintOf(locator, page.url());
   if (fingerprint) out.fingerprint = fingerprint;
@@ -214,11 +209,37 @@ async function captureTarget(
   return { target: out, ...(info ? { info } : {}), ...(label ? { label } : {}) };
 }
 
+/** The text and CSS path locators of an element, after a frame hop when it is in a frame. */
+function pageLocators(info: ElementInfo, frame = ""): FlowLocator[] {
+  const out: FlowLocator[] = [];
+  const field = ["input", "textarea", "select"].includes(info.tag);
+  // The tag keeps the text from matching another element (a heading that reads like the button).
+  if (info.text && !field)
+    out.push({ kind: "text", selector: `${frame}css=${info.tag}:text-is(${quoteCss(info.text)})` });
+  if (info.css) out.push({ kind: "css", selector: `${frame}css=${info.css}` });
+  return out;
+}
+
+/**
+ * The locators of an element read in the page (teach mode, with no snapshot ref): its role and
+ * accessible name, its text and its CSS path, in replay's order.
+ */
+export function locatorsOf(role: string, name: string, info: ElementInfo): FlowLocator[] {
+  return [
+    ...(name && !ROLE_SKIP.has(role)
+      ? [{ kind: "role" as const, selector: `internal:role=${role}[name=${quoteExact(name)}]` }]
+      : []),
+    ...pageLocators(info),
+  ];
+}
+
 /** A typed value of a step, before each draft gives it a parameter name. */
 export interface Slot {
   path: string;
   value: string;
   sensitive: boolean;
+  /** No default either (a file to upload, given at replay). */
+  noDefault?: boolean;
   label?: string;
   description?: string;
 }
@@ -243,8 +264,8 @@ function paramBase(label: string | undefined): string {
   return slug || "text";
 }
 
-/** One flow being recorded. */
-class Draft {
+/** One flow being recorded (or taught, `teach.ts`). */
+export class Draft {
   readonly params: FlowParam[] = [];
   readonly steps: FlowStep[] = [];
   readonly created = new Date().toISOString();
@@ -261,7 +282,7 @@ class Draft {
     this.params.push({
       name,
       sensitive: slot.sensitive,
-      ...(slot.sensitive ? {} : { default: slot.value }),
+      ...(slot.sensitive || slot.noDefault ? {} : { default: slot.value }),
       ...(slot.description ? { description: slot.description } : {}),
     });
     return name;
@@ -294,7 +315,7 @@ class Draft {
 }
 
 /** The URL of a page without its query and fragment (they can carry tokens). */
-function plainUrl(url: string): string | undefined {
+export function plainUrl(url: string): string | undefined {
   try {
     const u = new URL(url);
     if (u.protocol === "about:") return undefined;

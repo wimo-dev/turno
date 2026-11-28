@@ -11,6 +11,7 @@
   <span class="brand">turno</span>
   <span class="chip" id="id"></span>
   <span class="spacer"></span>
+  <button class="icon-btn" id="teach-btn" type="button" hidden></button>
   <button class="icon-btn" id="live" type="button" hidden></button>
 </header>
 <div class="pill" id="pill"><i class="dot" aria-hidden="true"></i><span id="status"></span></div>
@@ -30,8 +31,32 @@
     <span class="hint" id="now-hint"></span>
   </div>
 </section>
+<section class="teach" id="teach" aria-labelledby="teach-title" hidden>
+  <form id="teach-form" hidden>
+    <label class="k" for="teach-name" id="teach-name-l"></label>
+    <div class="row">
+      <input id="teach-name" autocomplete="off" spellcheck="false" maxlength="64" required>
+      <button class="btn primary" id="teach-start" type="submit"></button>
+      <button class="btn" id="teach-cancel" type="button"></button>
+    </div>
+    <div class="hint" id="teach-name-h"></div>
+  </form>
+  <div id="teach-run" hidden>
+    <div class="bar"><span class="k" id="teach-title"></span><span class="spacer"></span><button class="btn" id="teach-stop" type="button"></button></div>
+    <div class="hint" id="teach-hint"></div>
+    <ol id="teach-steps"></ol>
+    <div class="acts" id="teach-acts" hidden>
+      <button class="btn primary" id="teach-save" type="button"></button>
+      <button class="btn" id="teach-discard" type="button"></button>
+    </div>
+  </div>
+  <div id="teach-done" hidden>
+    <div class="bar"><span id="teach-done-t"></span><span class="spacer"></span><button class="btn" id="teach-close" type="button"></button></div>
+    <div class="hint" id="teach-done-h"></div>
+  </div>
+</section>
 <div class="take" id="take" hidden><span id="take-t"></span><button class="btn" id="takeback" type="button"></button></div>
-<div class="controls">
+<div class="controls" id="controls">
   <button class="btn" id="pause" type="button" disabled></button>
   <button class="btn primary" id="resume" type="button" disabled></button>
 </div>

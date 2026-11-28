@@ -84,5 +84,23 @@ button:focus-visible { outline: 2px solid var(--agent); outline-offset: 2px; }
 #steps li.think { color: var(--muted); font-size: 11px; padding-block: 4px; }
 #steps li.sep { display: block; padding: 4px 12px; font: 10.5px/1.4 var(--mono); color: var(--muted); background: var(--sunk); overflow-wrap: anywhere; }
 #steps li.empty { display: block; color: var(--muted); }
+.teach { padding: 11px 12px; background: var(--panel); border: 1px solid color-mix(in srgb, var(--type) 45%, var(--line)); border-radius: 12px; display: grid; gap: 8px; box-shadow: inset 3px 0 0 var(--type); }
+.teach .k { font: 10px/1.4 var(--mono); color: var(--muted); letter-spacing: .06em; text-transform: uppercase; }
+.teach .row { display: flex; gap: 6px; }
+.teach .hint { color: var(--muted); font-size: 12px; }
+.teach input, .teach select { font: inherit; color: inherit; background: var(--sunk); border: 1px solid var(--line); border-radius: 7px; padding: 4px 7px; min-width: 0; }
+.teach input:focus-visible, .teach select:focus-visible { outline: 2px solid var(--type); outline-offset: 1px; }
+.teach .row input { flex: 1; font-family: var(--mono); font-size: 12px; }
+#teach-steps { list-style: none; margin: 0; padding: 0; max-height: 46vh; overflow-y: auto; border-top: 1px solid var(--line); }
+#teach-steps li { --c: var(--agent); display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; gap: 4px 8px; padding: 7px 0; border-bottom: 1px solid var(--line); align-items: start; }
+#teach-steps li.empty { display: block; color: var(--muted); font-size: 12px; }
+#teach-steps .ic { color: var(--c); padding-top: 2px; }
+#teach-steps .what { min-width: 0; overflow-wrap: anywhere; display: grid; gap: 4px; }
+#teach-steps .meta { color: var(--muted); font-size: 11px; }
+#teach-steps .x { border: 0; background: none; color: var(--muted); cursor: pointer; padding: 0 2px; font-size: 15px; line-height: 1; }
+#teach-steps .x:hover { color: var(--bad); }
+#teach-steps li.gone .what { text-decoration: line-through; opacity: .5; }
+#teach-steps li.gone .what input, #teach-steps li.gone .what select { pointer-events: none; }
+#teach-done-t { font-weight: 600; color: var(--ok); }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
