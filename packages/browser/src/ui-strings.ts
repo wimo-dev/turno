@@ -1,4 +1,5 @@
 import type { ActionKind, HumanCueKind, ScrollDirection } from "./live-effects.js";
+import type { StageMode } from "./live-stage.js";
 import type { IdentitySettings } from "./settings.js";
 
 /**
@@ -122,9 +123,11 @@ export interface UiStrings {
       handedPlain: string;
       /** The header's effects control, remembered per viewer. */
       effects: string;
-      effectsLevel: Record<"full" | "lite" | "off", string>;
-      /** The cursor's name tag when the agent sent none. */
-      agent: string;
+      effectsLevel: Record<StageMode, string>;
+      /** What each mode draws, as the button's tooltip. */
+      effectsHint: Record<StageMode, string>;
+      /** The header chip with the agent's name. */
+      agentTitle: string;
       /** A step's tab is not the one shown. */
       otherTab: string;
     };
@@ -329,8 +332,13 @@ export const UI_STRINGS: Record<UiLocale, UiStrings> = {
         handedLine: "{what}: the last click is yours",
         handedPlain: "The last click is yours",
         effects: "Effects",
-        effectsLevel: { full: "Full", lite: "Lite", off: "Off" },
-        agent: "agent",
+        effectsLevel: { full: "Full", balanced: "Balanced", calm: "Calm" },
+        effectsHint: {
+          full: "Every effect, and a field of pixels around the window",
+          balanced: "Pixels only where the agent acts, and nothing drawn between actions",
+          calm: "Plain boxes and ripples in the colors of each action, no pixels",
+        },
+        agentTitle: "The agent",
         otherTab: "in another tab",
       },
     },
@@ -527,8 +535,13 @@ export const UI_STRINGS: Record<UiLocale, UiStrings> = {
         handedLine: "{what}: el último clic es tuyo",
         handedPlain: "El último clic es tuyo",
         effects: "Efectos",
-        effectsLevel: { full: "Completos", lite: "Ligeros", off: "Apagados" },
-        agent: "agente",
+        effectsLevel: { full: "Completos", balanced: "Equilibrados", calm: "Tranquilos" },
+        effectsHint: {
+          full: "Todos los efectos, y un campo de píxeles alrededor de la ventana",
+          balanced: "Píxeles solo donde actúa el agente, y nada entre acciones",
+          calm: "Recuadros y ondas simples en el color de cada acción, sin píxeles",
+        },
+        agentTitle: "El agente",
         otherTab: "en otra pestaña",
       },
     },

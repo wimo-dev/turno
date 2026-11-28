@@ -1,5 +1,5 @@
 import { TOOL_KINDS } from "./live-effects.js";
-import { stageScript } from "./live-stage.js";
+import { STAGE_MODES, stageScript } from "./live-stage.js";
 import { names } from "./names.js";
 import { type UiLocale, fill, uiStrings } from "./ui-strings.js";
 
@@ -79,10 +79,10 @@ main { min-width: 0; display: grid; gap: 8px; }
 #notice:empty { display: none; }
 
 .stage { position: relative; padding: clamp(12px, 2.4vw, 30px); border-radius: 16px; background: var(--sunk); border: 1px solid var(--line); overflow: hidden; isolation: isolate; }
-.stage.nogl[data-edge="human"] { box-shadow: inset 0 0 0 3px var(--human); }
-.stage.nogl[data-edge="bad"] { box-shadow: inset 0 0 0 3px var(--bad); }
+.stage.plain[data-edge="human"] { box-shadow: inset 0 0 0 3px var(--human); }
+.stage.plain[data-edge="bad"] { box-shadow: inset 0 0 0 3px var(--bad); }
 #fx { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 3; }
-.nogl #fx, .fxoff #fx { display: none; }
+.plain #fx { display: none; }
 .browser { position: relative; z-index: 1; width: fit-content; max-width: 100%; min-width: min(100%, 420px); margin: 0 auto; border-radius: 10px; overflow: hidden; background: var(--panel); box-shadow: 0 1px 0 var(--line), 0 20px 50px -24px var(--shadow); }
 .browser.shake { animation: shake .4s; }
 @keyframes shake { 20%, 60% { transform: translateX(-4px) } 40%, 80% { transform: translateX(4px) } }
@@ -107,11 +107,10 @@ main { min-width: 0; display: grid; gap: 8px; }
 #cursor.dim { opacity: .35; }
 #cursor svg { display: block; filter: drop-shadow(0 2px 3px rgba(0, 0, 0, .35)); }
 #cursor path { fill: var(--c, var(--agent)); stroke: #fff; stroke-width: 1.4; stroke-linejoin: round; }
-#cursor .who { position: absolute; left: 16px; top: 18px; font: 11px/1 var(--mono); padding: 4px 6px; border-radius: 5px; color: #fff; background: var(--c, var(--agent)); white-space: nowrap; transition: background .3s; }
 #tag { z-index: 4; font: 11px/1 var(--mono); padding: 5px 7px; border-radius: 6px; color: #fff; background: var(--c, var(--agent)); white-space: nowrap; max-width: 46ch; overflow: hidden; text-overflow: ellipsis; opacity: 0; transform: translateY(4px); transition: opacity .2s, transform .2s; }
 #tag.on { opacity: 1; transform: none; }
 #ring { z-index: 4; border: 2px solid var(--c, var(--agent)); border-radius: 8px; box-shadow: 0 0 0 4px color-mix(in srgb, var(--c, var(--agent)) 20%, transparent); display: none; transition: left .3s, top .3s, width .3s, height .3s; }
-.nogl #ring.on, .fxoff #ring.on { display: block; }
+.plain #ring.on { display: block; }
 #uline { z-index: 4; height: 2px; width: 0; background: var(--type); opacity: 0; }
 #uline.on { opacity: 1; animation: uline var(--d, 1s) linear forwards; }
 @keyframes uline { from { width: 0 } to { width: var(--w, 0) } }
@@ -264,7 +263,6 @@ const cursorEl = $("cursor"), tagEl = $("tag"), ringEl = $("ring"), ulineEl = $(
 const cur = { at: null, scroll: null };
 function setTone(el, name) { el.style.setProperty("--c", "var(--" + name + ")"); }
 const css = {
-  fallback(on) { stageEl.classList.toggle("nogl", on); },
   place(box) {
     if (cur.at) {
       const p = pageToStage(cur.at, cur.scroll, geom, view());
@@ -290,10 +288,15 @@ const css = {
     setTimeout(() => d.remove(), 700);
   },
   edge(name) { stageEl.dataset.edge = name || ""; },
-  level(name) {
-    stageEl.classList.toggle("fxoff", name === "off");
-    // Lite and Off also snap what glides (the cursor, the label, the pill): each glide is frames to draw.
-    document.documentElement.classList.toggle("calm", name !== "full");
+  mode(name) {
+    // Calm draws no pixels: the CSS ring, ripples and band, and nothing that glides (each glide is frames to draw).
+    stageEl.classList.toggle("plain", name === "calm");
+    document.documentElement.classList.toggle("calm", name === "calm");
+    const forced = reduce || !FX.gl();
+    for (const b of $("fxlevel").querySelectorAll("button")) {
+      b.setAttribute("aria-pressed", String(b.dataset.level === name));
+      b.disabled = forced && b.dataset.level !== "calm";
+    }
   },
 };
 ${stageScript()}
@@ -351,7 +354,7 @@ function startStep(e) {
   if (run.mode !== "working" && run.mode !== "thinking") { run.began = e.at; run.steps = 0; }
   run.open = e;
   run.mode = "working";
-  if (e.agent) cursorEl.querySelector(".who").textContent = e.agent + (state ? " · " + state.identity : "");
+  if (e.agent) $("agent").textContent = e.agent;
   const t = toneOf(e.kind);
   setMood(t, 0.38, "live");
   let detail = S.running;
@@ -361,7 +364,7 @@ function startStep(e) {
   now(e.kind, stepText(e.tool, e.target), detail, t, true);
   if (!paused()) pill(S.kinds[e.kind] || S.kinds.other, t, true);
   if (e.kind === "navigate") { navigating(true); FX.dissolve(); unfocus(); }
-  else if (e.kind === "read" || e.kind === "locate") FX.scan(e.kind === "read" ? 1.1 : 0.7);
+  else if (e.kind === "read" || e.kind === "locate") FX.scan(e.kind);
   else if (e.kind === "wait") setMood("agent", 0.5, "breathe");
   else if (e.kind === "dialog") $("dim").classList.add("on");
   else if (e.kind === "scroll") {
@@ -413,12 +416,11 @@ function markStep(e) {
 }
 function endStep(e) {
   const mine = run.open && e.step !== 0 && run.open.step === e.step ? run.open : null;
-  if (mine) run.open = null;
+  if (mine) { run.open = null; FX.settle(); }
   run.steps++;
   run.lastEnd = e.at;
   if (e.kind === "dialog") $("dim").classList.remove("on");
   if (e.kind === "navigate") navigating(false);
-  const title = mine ? stepText(mine.tool, mine.target) : $("now-v").textContent;
   if (e.outcome === "handed") {
     // The last-click rule left the click to the person: amber, never red, no error code.
     if (run.marked === e.step && FX.focused()) FX.focusTone("human");
@@ -438,11 +440,14 @@ function endStep(e) {
       setTimeout(() => { if (!run.human && !(state && state.stuck)) FX.edge(0); }, 900);
     }
     if (!reduce) { const b = $("browser"); b.classList.remove("shake"); void b.offsetWidth; b.classList.add("shake"); }
-    now("error", title, e.code ? fill(S.failedCode, { code: e.code }) : S.failedPlain, "bad", false);
+    // The failed step is the timeline's first row: the card says what happened, not the step again.
+    now("error", e.code ? fill(S.failedCode, { code: e.code }) : S.failedPlain, e.stuck ? S.looksStuck : S.thinkingHint, "bad", false);
     if (!paused()) pill(e.stuck ? S.looksStuck : e.code ? fill(S.failedCode, { code: e.code }) : S.failedPlain, "bad", false);
     setTimeout(() => { if (!run.open && !run.human) unfocus(); }, 900);
   } else {
-    now(mine ? mine.kind : kindOf(""), title, duration(e.ms), toneOf(mine ? mine.kind : "other"), false);
+    // The step is in the timeline now: the card moves on instead of repeating it.
+    now("think", S.thinking, S.thinkingHint, "agent", true);
+    if (!paused() && !(state && state.stuck)) pill(S.thinking, "agent", true);
     setTimeout(() => { if (!run.open && !run.human) unfocus(); }, 260);
   }
   if (!run.open) idleSoon();
@@ -704,18 +709,22 @@ $("resume").onclick = () => post("/resume");
 $("takeback").onclick = () => post("/resume");
 $("now-done").onclick = () => post("/resume");
 // The viewer's choice of effects, kept in this browser only (storage may be refused: then Full).
-const LEVEL_KEY = "turno-live-effects";
-function setLevel(level, keep) {
-  FX.level(level);
-  for (const b of $("fxlevel").querySelectorAll("button")) b.setAttribute("aria-pressed", String(b.dataset.level === level));
-  if (keep) try { localStorage.setItem(LEVEL_KEY, level); } catch { /* not kept */ }
+const MODE_KEY = "turno-live-effects";
+function setMode(mode, keep) {
+  const got = FX.mode(mode);
+  if (keep) try { localStorage.setItem(MODE_KEY, got); } catch { /* not kept */ }
 }
 let kept = null;
-try { kept = localStorage.getItem(LEVEL_KEY); } catch { /* none */ }
-for (const b of $("fxlevel").querySelectorAll("button")) b.onclick = () => setLevel(b.dataset.level, true);
-if (kept === "full" || kept === "lite" || kept === "off") setLevel(kept, false);
-else if (document.hidden) setLevel("lite", false);
-else if (navigator.getBattery) navigator.getBattery().then((b) => { if (!b.charging) setLevel("lite", false); }).catch(() => {});
+try { kept = localStorage.getItem(MODE_KEY); } catch { /* none */ }
+// The names of an earlier version: Lite is now Balanced, Off is Calm.
+kept = ({ lite: "balanced", off: "calm" })[kept] || kept;
+for (const b of $("fxlevel").querySelectorAll("button")) b.onclick = () => setMode(b.dataset.level, true);
+if (kept === "full" || kept === "balanced" || kept === "calm") setMode(kept, false);
+else if (document.hidden) setMode("balanced", false);
+else {
+  setMode("full", false);
+  if (navigator.getBattery) navigator.getBattery().then((b) => { if (!b.charging) setMode("balanced", false); }).catch(() => {});
+}
 function point(e) {
   const r = frame.getBoundingClientRect();
   return { x: Math.round(((e.clientX - r.left) * geom.w) / r.width), y: Math.round(((e.clientY - r.top) * geom.h) / r.height) };
@@ -782,9 +791,10 @@ export function livePage(nonce: string, locale: UiLocale = "en"): string {
 <header class="bar">
 <div class="brand">${e(t.heading)}</div>
 <span class="chip" id="id"></span>
+<span class="chip" id="agent" title="${e(t.stage.agentTitle)}"></span>
 <span class="pill" id="pill"><span class="pix" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span><span id="status">${e(t.connecting)}</span></span>
 <span class="spacer"></span>
-<div class="seg" id="fxlevel" role="group" aria-label="${e(t.stage.effects)}"><span class="k" aria-hidden="true">${e(t.stage.effects)}</span><button type="button" data-level="full" aria-pressed="true">${e(t.stage.effectsLevel.full)}</button><button type="button" data-level="lite" aria-pressed="false">${e(t.stage.effectsLevel.lite)}</button><button type="button" data-level="off" aria-pressed="false">${e(t.stage.effectsLevel.off)}</button></div>
+<div class="seg" id="fxlevel" role="group" aria-label="${e(t.stage.effects)}"><span class="k" aria-hidden="true">${e(t.stage.effects)}</span>${STAGE_MODES.map((m) => `<button type="button" data-level="${m}" aria-pressed="${m === "full"}" title="${e(t.stage.effectsHint[m])}">${e(t.stage.effectsLevel[m])}</button>`).join("")}</div>
 <button class="btn" id="pause" type="button">${e(t.pause)}</button>
 <button class="btn primary" id="resume" type="button" disabled>${e(t.resume)}</button>
 </header>
@@ -801,7 +811,7 @@ export function livePage(nonce: string, locale: UiLocale = "en"): string {
 <div class="over" id="ring" aria-hidden="true"></div>
 <div class="over" id="uline" aria-hidden="true"></div>
 <div class="over" id="tag" aria-hidden="true"></div>
-<div class="over" id="cursor" aria-hidden="true"><svg width="18" height="22" viewBox="0 0 18 22"><path d="M1.5 1.5v16.2l4.3-3.9 2.9 6.6 2.9-1.3-2.8-6.4 5.9-.2z"/></svg><span class="who">${e(t.stage.agent)}</span></div>
+<div class="over" id="cursor" aria-hidden="true"><svg width="18" height="22" viewBox="0 0 18 22"><path d="M1.5 1.5v16.2l4.3-3.9 2.9 6.6 2.9-1.3-2.8-6.4 5.9-.2z"/></svg></div>
 <div id="ask" aria-hidden="true" hidden></div>
 <div id="take" hidden><span>${e(t.stage.takeOver)}</span><button class="btn" id="takeback" type="button">${e(t.resume)}</button></div>
 </div>

@@ -28,7 +28,7 @@ latest call) as the default, and Pause and Hand back buttons. Your clicks, keys 
 picture go to that tab. In a headed Chrome you can also use the window itself: `turno-browser
 pause` brings the agent's tab to the front.
 
-![The live view while the agent types into a checkout form: the field it types into, the agent's named cursor, and its steps on the right](/browser-live-view-panel.png)
+![The live view while the agent types into a checkout form: the field it types into, the agent's cursor, and its steps on the right](/browser-live-view-panel.png)
 
 ![A recording of a run in the dark theme: the agent opens the checkout, reads it, fills the form, scrolls, and hands the Pay button to the person](/browser-live-view.gif)
 
@@ -60,11 +60,18 @@ tell at a glance what the agent does without reading the timeline:
 What it is made of: the view's own WebGL2 shader (no library), drawn only while something moves and
 only while the view is visible, at most 30 frames a second, 5 while only the field around the
 window drifts. The Effects control in the header sets how much it draws, for this browser only:
-Full (the default), Lite (the boxes stay still and only a click's ripple moves, with no field
-around the window and nothing drawn between actions) or Off (plain rings, no layer of pixels). A
-view that opens in a background window, or on a laptop that runs on battery, starts in Lite until
-you choose. When your system asks for reduced motion, the boxes and colors stay and nothing
-moves; without WebGL2 the view draws plain rings with CSS. It follows your system's light or dark
+
+- **Full** (the default): everything above, with a field of pixels around the window (never over
+  the page) whose density drifts slowly and is brighter near the element the agent works on.
+- **Balanced**: pixels only where the agent acts (the box, the ripple, a short scan, the dissolve,
+  the amber band), still once they are in place, and nothing drawn between actions.
+- **Calm**: no pixels at all: plain boxes and ripples in the color of each action, close to what
+  the view drew before the stage.
+
+A view that opens in a background window, or on a laptop that runs on battery, starts in Balanced
+until you choose. When your system asks for reduced motion, or the browser has no WebGL2, the view
+is Calm and nothing moves. An effect over the page ends with its step: a scan or a dissolve never
+stays on the text. It follows your system's light or dark
 theme. The effects come from what turno already measures for [the agent cursor](/docs/browser/agent-cursor) (the
 element's box, the click point, the page's scroll): no extra script runs in the agent's page for
 them, and they say nothing about the values typed. A page that holds a vault value is not shown,
