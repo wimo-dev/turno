@@ -1,3 +1,5 @@
+import type { ActionKind, HumanCueKind, ScrollDirection } from "./live-effects.js";
+import type { StageMode } from "./live-stage.js";
 import type { IdentitySettings } from "./settings.js";
 
 /**
@@ -74,8 +76,61 @@ export interface UiStrings {
     tookOverEntry: string;
     resumedEntry: string;
     nothingChanged: string;
-    /** What the timeline calls each tool; a tool missing here shows its own name. */
+    /** What the timeline and the "Now" card call each tool; a tool missing here shows its own name. */
     actions: Record<string, string>;
+    /** The stage over the picture, the state pill and the "Now" card. */
+    stage: {
+      now: string;
+      /** The chip with the identity's name. `{id}`. */
+      identity: string;
+      /** Before the first step. */
+      waiting: string;
+      waitingHint: string;
+      running: string;
+      thinking: string;
+      thinkingHint: string;
+      /** A gap between two calls in the timeline. `{t}`: how long. */
+      thought: string;
+      idle: string;
+      idleHint: string;
+      done: string;
+      /** `{n}`: steps; `{t}`: how long the run took. */
+      doneHint: string;
+      /** A typing step: `{n}` characters, never which. */
+      typed: string;
+      fromVault: string;
+      scroll: Record<ScrollDirection, string>;
+      /** `{name}`: the file. */
+      download: string;
+      /** The state pill while a step of this kind runs. */
+      kinds: Record<ActionKind, string>;
+      /** The card when the agent waits for the person, by what for. */
+      human: Record<HumanCueKind, string>;
+      humanHint: string;
+      /** The card's button: ends the step and hands the browser back. */
+      humanDone: string;
+      takeOver: string;
+      /** `{t}`: how long the person had the browser. */
+      backAfter: string;
+      looksStuck: string;
+      /** `{code}`: a failure's stable code. */
+      failedCode: string;
+      failedPlain: string;
+      /** A click the last-click rule left to the person: not a failure. */
+      handed: string;
+      /** `{what}`: the button or what the click does ("Pay $110.50"). */
+      handedLine: string;
+      handedPlain: string;
+      /** The header's effects control, remembered per viewer. */
+      effects: string;
+      effectsLevel: Record<StageMode, string>;
+      /** What each mode draws, as the button's tooltip. */
+      effectsHint: Record<StageMode, string>;
+      /** The header chip with the agent's name. */
+      agentTitle: string;
+      /** A step's tab is not the one shown. */
+      otherTab: string;
+    };
   };
   /** The person step's banner (`human-step.ts`). */
   step: {
@@ -200,6 +255,91 @@ export const UI_STRINGS: Record<UiLocale, UiStrings> = {
         browser_extract: "Read",
         browser_observe: "Look for",
         browser_solve_captcha: "Solve a captcha",
+        browser_navigate_forward: "Go forward",
+        browser_reload: "Reload",
+        browser_read: "Read",
+        browser_find: "Locate an element",
+        browser_generate_locator: "Locate an element",
+        browser_verify_element_visible: "Check an element",
+        browser_verify_list_visible: "Check a list",
+        browser_verify_text_visible: "Check a text",
+        browser_verify_value: "Check a value",
+        browser_mouse_click_xy: "Click at a point",
+        browser_mouse_down: "Press the mouse button",
+        browser_mouse_up: "Release the mouse button",
+        browser_mouse_move_xy: "Move the pointer",
+        browser_mouse_wheel: "Scroll",
+        browser_mouse_drag_xy: "Drag",
+        browser_press_sequentially: "Type into",
+        browser_keydown: "Hold a key",
+        browser_keyup: "Release a key",
+        browser_check: "Check",
+        browser_uncheck: "Uncheck",
+        browser_drop: "Drop a file",
+        browser_run_code_unsafe: "Run code",
+      },
+      stage: {
+        now: "Now",
+        identity: "identity: {id}",
+        waiting: "Waiting for the agent",
+        waitingHint: "Each action shows on the picture, in its own color, and in the steps below.",
+        running: "Running",
+        thinking: "Thinking",
+        thinkingHint: "The model is deciding the next step.",
+        thought: "Thought for {t}",
+        idle: "Idle",
+        idleHint: "The agent is not using the browser now.",
+        done: "Done",
+        doneHint: "{n} steps in {t}.",
+        typed: "typed {n} characters",
+        fromVault: "a value from the vault, never shown",
+        scroll: { up: "up", down: "down", left: "left", right: "right" },
+        download: "Downloaded {name}",
+        kinds: {
+          navigate: "Navigating",
+          read: "Reading the page",
+          locate: "Looking for an element",
+          click: "Clicking",
+          hover: "Pointing",
+          type: "Typing",
+          select: "Choosing",
+          scroll: "Scrolling",
+          drag: "Dragging",
+          upload: "Uploading a file",
+          download: "Downloading",
+          dialog: "Answering a dialog",
+          wait: "Waiting for the page",
+          script: "Running a script",
+          tabs: "Working with tabs",
+          run: "Running steps",
+          human: "Your turn",
+          other: "Working",
+        },
+        human: {
+          step: "Your turn",
+          "last-click": "The last click is yours",
+          passkey: "Use your passkey",
+          captcha: "A captcha for you",
+        },
+        humanHint: "The agent stopped and waits. Act on the picture or in the browser window.",
+        humanDone: "I am done",
+        takeOver: "You have the controls",
+        backAfter: "Back to the agent after {t}",
+        looksStuck: "Looks stuck",
+        failedCode: "Failed: {code}",
+        failedPlain: "Failed",
+        handed: "Handed to you",
+        handedLine: "{what}: the last click is yours",
+        handedPlain: "The last click is yours",
+        effects: "Effects",
+        effectsLevel: { full: "Full", balanced: "Balanced", calm: "Calm" },
+        effectsHint: {
+          full: "Every effect, and a field of pixels around the window",
+          balanced: "Pixels only where the agent acts, and nothing drawn between actions",
+          calm: "Plain boxes and ripples in the colors of each action, no pixels",
+        },
+        agentTitle: "The agent",
+        otherTab: "in another tab",
       },
     },
     step: {
@@ -318,6 +458,91 @@ export const UI_STRINGS: Record<UiLocale, UiStrings> = {
         browser_extract: "Leer",
         browser_observe: "Buscar",
         browser_solve_captcha: "Resolver un captcha",
+        browser_navigate_forward: "Avanzar",
+        browser_reload: "Recargar",
+        browser_read: "Leer",
+        browser_find: "Localizar un elemento",
+        browser_generate_locator: "Localizar un elemento",
+        browser_verify_element_visible: "Comprobar un elemento",
+        browser_verify_list_visible: "Comprobar una lista",
+        browser_verify_text_visible: "Comprobar un texto",
+        browser_verify_value: "Comprobar un valor",
+        browser_mouse_click_xy: "Clic en un punto",
+        browser_mouse_down: "Presionar el botón del mouse",
+        browser_mouse_up: "Soltar el botón del mouse",
+        browser_mouse_move_xy: "Mover el puntero",
+        browser_mouse_wheel: "Desplazar",
+        browser_mouse_drag_xy: "Arrastrar",
+        browser_press_sequentially: "Escribir en",
+        browser_keydown: "Mantener una tecla",
+        browser_keyup: "Soltar una tecla",
+        browser_check: "Marcar",
+        browser_uncheck: "Desmarcar",
+        browser_drop: "Soltar un archivo",
+        browser_run_code_unsafe: "Ejecutar código",
+      },
+      stage: {
+        now: "Ahora",
+        identity: "identidad: {id}",
+        waiting: "Esperando al agente",
+        waitingHint: "Cada acción aparece sobre la imagen, con su color, y en los pasos de abajo.",
+        running: "En curso",
+        thinking: "Pensando",
+        thinkingHint: "El modelo decide el siguiente paso.",
+        thought: "Pensó {t}",
+        idle: "En espera",
+        idleHint: "El agente no está usando el navegador.",
+        done: "Listo",
+        doneHint: "{n} pasos en {t}.",
+        typed: "escribió {n} caracteres",
+        fromVault: "un valor de la bóveda, nunca visible",
+        scroll: { up: "hacia arriba", down: "hacia abajo", left: "a la izquierda", right: "a la derecha" },
+        download: "Descargó {name}",
+        kinds: {
+          navigate: "Navegando",
+          read: "Leyendo la página",
+          locate: "Buscando un elemento",
+          click: "Haciendo clic",
+          hover: "Señalando",
+          type: "Escribiendo",
+          select: "Eligiendo",
+          scroll: "Desplazando",
+          drag: "Arrastrando",
+          upload: "Subiendo un archivo",
+          download: "Descargando",
+          dialog: "Respondiendo un diálogo",
+          wait: "Esperando a la página",
+          script: "Ejecutando un script",
+          tabs: "Usando las pestañas",
+          run: "Ejecutando pasos",
+          human: "Tu turno",
+          other: "Trabajando",
+        },
+        human: {
+          step: "Tu turno",
+          "last-click": "El último clic es tuyo",
+          passkey: "Usa tu passkey",
+          captcha: "Un captcha para ti",
+        },
+        humanHint: "El agente se detuvo y te espera. Actúa sobre la imagen o en la ventana del navegador.",
+        humanDone: "Ya terminé",
+        takeOver: "Tú tienes el control",
+        backAfter: "De vuelta al agente tras {t}",
+        looksStuck: "Parece atorado",
+        failedCode: "Falló: {code}",
+        failedPlain: "Falló",
+        handed: "En tus manos",
+        handedLine: "{what}: el último clic es tuyo",
+        handedPlain: "El último clic es tuyo",
+        effects: "Efectos",
+        effectsLevel: { full: "Completos", balanced: "Equilibrados", calm: "Tranquilos" },
+        effectsHint: {
+          full: "Todos los efectos, y un campo de píxeles alrededor de la ventana",
+          balanced: "Píxeles solo donde actúa el agente, y nada entre acciones",
+          calm: "Recuadros y ondas simples en el color de cada acción, sin píxeles",
+        },
+        agentTitle: "El agente",
+        otherTab: "en otra pestaña",
       },
     },
     step: {

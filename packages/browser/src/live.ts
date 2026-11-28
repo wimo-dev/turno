@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import { identityStateDir } from "./ids.js";
+import type { HumanCue } from "./live-effects.js";
 import type { LiveSettings } from "./settings.js";
 import { parseDuration } from "./units.js";
 import { names } from "./names.js";
@@ -130,6 +131,8 @@ export interface PauseHold {
    * input has stopped this long (`handBackWhenIdle`).
    */
   idleMs?: number;
+  /** A person step's cue: what it is for and its target, for the live view and Chrome's highlight. */
+  cue?: HumanCue;
 }
 
 /** How long a held call waits past the end of a person step, for the step to clean up. */

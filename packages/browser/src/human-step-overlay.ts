@@ -56,7 +56,7 @@ export interface StepReport {
 /** Applies one command in this frame and reports. Runs in the page. */
 export function humanStepOverlay(arg: { cmd: StepCommand; el?: Element }): StepReport {
   const GLOBAL = "__turnoHumanStep";
-  const COLOR = "#2b59ff";
+  const COLOR = "#b25a0c";
   type Banner = {
     doc: Document;
     step: string;
@@ -164,15 +164,15 @@ export function humanStepOverlay(arg: { cmd: StepCommand; el?: Element }): StepR
     .hint{margin:6px 0 0;font-size:12px;line-height:16px;color:#5c5f66}
     button{flex:none;padding:8px 18px;border:0;border-radius:8px;background:${COLOR};color:#fff;font:600 14px/20px system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;cursor:pointer}
     button:hover{filter:brightness(1.08)}
-    button:focus-visible{outline:3px solid rgba(43,89,255,.45);outline-offset:2px}
+    button:focus-visible{outline:3px solid rgba(178,90,12,.45);outline-offset:2px}
     @media (prefers-color-scheme: dark){
       .card{background:#1f2126;color:#f1f2f4;border-color:rgba(255,255,255,.12);border-left-color:${COLOR}}
       .hint{color:#a4a8b0}
-      .title{color:#7d9bff}
+      .title{color:#ffb057}
     }`;
   const TARGET_CSS = `
-    .ring{position:fixed;border:3px solid ${COLOR};border-radius:8px;box-shadow:0 0 0 6px rgba(43,89,255,.22);pointer-events:none;animation:pulse 1.6s ease-in-out infinite}
-    @keyframes pulse{50%{box-shadow:0 0 0 11px rgba(43,89,255,.06)}}
+    .ring{position:fixed;border:3px solid ${COLOR};border-radius:8px;box-shadow:0 0 0 6px rgba(178,90,12,.22);pointer-events:none;animation:pulse 1.6s ease-in-out infinite}
+    @keyframes pulse{50%{box-shadow:0 0 0 11px rgba(178,90,12,.06)}}
     @media (prefers-reduced-motion: reduce){.ring{animation:none}}`;
 
   const buildBanner = (view: StepView): Banner => {

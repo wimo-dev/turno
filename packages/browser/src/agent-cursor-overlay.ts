@@ -33,10 +33,12 @@ export type OverlayCommand =
   | { op: "text"; text: OverlayText }
   | { op: "actor"; key: string; label: string; name: string; color: string }
   | { op: "move"; key: string; x: number; y: number; ms: number }
-  | { op: "ring"; key: string; box: OverlayBox | null }
+  /** `kind`: the action the element is the target of; the Chrome-drawn cursor colors its box by it. */
+  | { op: "ring"; key: string; box: OverlayBox | null; kind?: "click" | "hover" | "type" | "drag" }
   | { op: "ripple"; key: string; x: number; y: number }
   | { op: "typing"; key: string; box: OverlayBox | null }
-  | { op: "busy"; key: string; on: boolean }
+  /** `failed`: the call that ended failed (the Chrome-drawn cursor shows its box in red a moment). */
+  | { op: "busy"; key: string; on: boolean; failed?: boolean }
   /** How many other sessions have a call in flight on this browser, on any page: the badge's "+N". */
   | { op: "others"; n: number }
   | { op: "paused"; on: boolean }
@@ -48,6 +50,8 @@ export interface OverlayReport {
   reducedMotion: boolean;
   width: number;
   height: number;
+  /** The page's scroll, in CSS pixels: the live view places the marks by it. */
+  scroll?: { x: number; y: number };
   /** What the overlay shows now; tests read it, since its DOM is behind a closed shadow root. */
   state: {
     connected: boolean;
@@ -424,6 +428,7 @@ export function cursorOverlay(commands: OverlayCommand[]): OverlayReport {
     reducedMotion: parts.reduced,
     width: window.innerWidth,
     height: window.innerHeight,
+    scroll: { x: window.scrollX, y: window.scrollY },
     state: {
       connected: current !== undefined && parts.host.isConnected,
       visible: parts.visible,

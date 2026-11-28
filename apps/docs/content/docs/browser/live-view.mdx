@@ -21,13 +21,61 @@ turno-browser resume school
 changes how long a paused call waits (identity.json `"live": { "enabled": false, "wait": "2m" }`;
 from `"5s"` to `"30m"`, 2 minutes by default). `"enabled": "auto"` says the same as leaving it out.
 
-The view is a panel: the agent's tab as a picture (a screencast over CDP, sent only while a view
-is open) next to a timeline of the agent's steps, a list of tabs with "Follow the agent" (the tab of
-the latest call) as the default, and Pause and Hand back buttons. Your clicks, keys and scrolls on
-the picture go to that tab. In a headed Chrome you can also use the window itself: `turno-browser
+The view is a panel: a header that says what the agent does now, the agent's tab as a picture (a
+screencast over CDP, sent only while a view is open) on a stage that shows each action, a "Now"
+card and a timeline of the agent's steps, a list of tabs with "Follow the agent" (the tab of the
+latest call) as the default, and Pause and Hand back buttons. Your clicks, keys and scrolls on the
+picture go to that tab. In a headed Chrome you can also use the window itself: `turno-browser
 pause` brings the agent's tab to the front.
 
-![The live view: the agent's tab on the left, its steps on the right](/browser-live-view-panel.png)
+![The live view while the agent types into a checkout form: the field it types into, the agent's cursor, and its steps on the right](/browser-live-view-panel.png)
+
+![A recording of a run in the dark theme: the agent opens the checkout, reads it, fills the form, scrolls, and hands the Pay button to the person](/browser-live-view.gif)
+
+## What each action looks like
+
+A layer of pixels over the picture draws each kind of action in its own way and color, so you can
+tell at a glance what the agent does without reading the timeline:
+
+| The agent | On the stage | Color |
+| --- | --- | --- |
+| thinks (no call for a moment) | the field around the window breathes slowly; the timeline shows how long it thought | blue |
+| opens a page | the picture dissolves into pixels and back, and the address bar fills | blue |
+| reads the page or looks for an element (a snapshot, the text, a find) | a band scans down the picture | cyan |
+| clicks, hovers, selects | a box converges on the element, then a ripple where the click landed | blue |
+| types or fills a form | the box on the field, and a line that runs under it; the step says how many characters, never which | violet |
+| scrolls | a trail of pixels along the edge, in the direction of the scroll | blue |
+| drags | a trail from the element to where it drops | blue |
+| uploads or downloads a file | pixels that flow into the picture, or out of it | blue |
+| answers a dialog | the picture dims until it is done | blue |
+| fails | the box turns red with a shake, and the code of the failure (`ELEMENT_COVERED`) when it has one | red |
+| leaves you the last click (it would buy, send, publish or delete) | the box turns amber and the step says "Handed to you" with the button: not a failure | amber |
+| looks stuck | a red band around the window | red |
+| waits for you (a person step, the last click, a passkey, a captcha) | an amber band, a box on the target with a small chip; the "Now" card says what to do and has the "I am done" button, so nothing covers the page's own banner | amber |
+| gives you the controls (you took over, or pressed Pause) | a softer amber band and a chip with Hand back | amber |
+| ends a run (no call for 20 seconds) | a green ripple and how many steps it took | green |
+
+![The live view while the agent waits for the person: an amber band, a box on the Pay button, and the "Now" card that says the last click is yours, with the "I am done" button](/browser-live-view-panel-dark.png)
+
+What it is made of: the view's own WebGL2 shader (no library), drawn only while something moves and
+only while the view is visible, at most 30 frames a second, 5 while only the field around the
+window drifts. The Effects control in the header sets how much it draws, for this browser only:
+
+- **Full** (the default): everything above, with a field of pixels around the window (never over
+  the page) whose density drifts slowly and is brighter near the element the agent works on.
+- **Balanced**: pixels only where the agent acts (the box, the ripple, a short scan, the dissolve,
+  the amber band), still once they are in place, and nothing drawn between actions.
+- **Calm**: no pixels at all: plain boxes and ripples in the color of each action, close to what
+  the view drew before the stage.
+
+A view that opens in a background window, or on a laptop that runs on battery, starts in Balanced
+until you choose. When your system asks for reduced motion, or the browser has no WebGL2, the view
+is Calm and nothing moves. An effect over the page ends with its step: a scan or a dissolve never
+stays on the text. It follows your system's light or dark
+theme. The effects come from what turno already measures for [the agent cursor](/docs/browser/agent-cursor) (the
+element's box, the click point, the page's scroll): no extra script runs in the agent's page for
+them, and they say nothing about the values typed. A page that holds a vault value is not shown,
+and neither is where the agent acts on it.
 
 `turno-browser live` opens it as an app window (Chrome's `--app`: no tabs, no address bar) of the
 Chromium browser you already use: your default browser when it is Chrome, Brave, Edge, Chromium or
@@ -39,10 +87,14 @@ your default browser.
 
 ## The timeline
 
-Each call of the agent is a line: the time, what it did in a few words ("Click", "Type into",
-"Open"), the element or address it worked on, how long it took, and whether it failed (with the
-first line of the error) or was not run after you changed the page. Pauses, your turns and each
-hand-back are lines too, with what changed while you had the browser. It keeps the last 200 steps.
+Each call of the agent is a line with an icon and a color for its kind: the time, what it did in a
+few words ("Click", "Type into", "Open"), the element or address it worked on, how long it took,
+and whether it failed (with the first line of the error) or was not run after you changed the page.
+A click that [the last-click rule](#the-last-click-is-yours) leaves to you is an amber line, "Pay
+$110.50: the last click is yours", with what the page says the click does.
+Pauses, your turns and each hand-back are lines too, with what changed while you had the browser.
+A gap between two calls shows as "Thought for 4 s", and a line with the site's host marks where the
+agent moved to another site. It keeps the last 200 steps.
 
 What a line never shows: the text the agent typed, the values it filled or selected, the code of a
 script, or the query of an address (only its origin and path). Everything else goes through the

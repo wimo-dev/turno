@@ -18,8 +18,10 @@ import {
   handBackWhenIdle,
   liveFilePath,
 } from "./live.js";
+import { type HumanCue, Stage, type StagePoint } from "./live-effects.js";
 import { deniedPage, livePage } from "./live-page.js";
 import { type Stuck, Timeline, type TimelineEntry, plainUrl } from "./live-timeline.js";
+import type { CursorMark } from "./agent-cursor.js";
 import type { Redactor, VaultGuard } from "./redact.js";
 import { names } from "./names.js";
 import { type UiLocale, fill, uiStrings } from "./ui-strings.js";
@@ -49,6 +51,10 @@ import { type BrowserWatch, titleOf } from "./watch.js";
  *   to the agent once the input stops, or with Hand back. Input is not logged anywhere.
  * - Next to the picture, the step timeline (`live-timeline.ts`): each call of the agent, the
  *   pauses and what changed in them, redacted like every result, and a session that looks stuck.
+ * - Over the picture, the effects of each action (`live-effects.ts`): what kind of action runs,
+ *   the box and click point the agent cursor measured, and the person's turns, sent as `fx`
+ *   events with no typed or vault value. Each frame says the page's scroll and size, so the view
+ *   can place a box on the picture as the page scrolls (`live-map.ts`).
  */
 
 /** The running browser, as the host gives it to the live server. */
@@ -61,8 +67,8 @@ export interface LiveBrowser {
   owner?(page: Page): string | undefined;
   /** The URL a page shows, or will load again when the tab governor parked it. */
   urlOf?(page: Page): string;
-  /** The user takes over: hold the idle limit and the tab governor, save the trace. */
-  onPause?(): Promise<void>;
+  /** The user takes over: hold the idle limit and the tab governor, save the trace. `cue`: a person step's. */
+  onPause?(cue?: HumanCue): Promise<void>;
   /** The user gave the browser back. */
   onResume?(): void;
 }
@@ -190,6 +196,8 @@ export class LiveServer implements BrowserWatch {
   readonly gate = new PauseGate();
   /** The steps of the agent, as the view shows them next to the picture. */
   readonly timeline: Timeline;
+  /** The effects of each action, as the view draws them over the picture. */
+  readonly stage: Stage;
   private browser: LiveBrowser | undefined;
   /** The browser `onPause` was called for, so `onResume` goes to the same one. */
   private heldBrowser: LiveBrowser | undefined;
@@ -200,9 +208,11 @@ export class LiveServer implements BrowserWatch {
   private readonly ids = new WeakMap<Page, number>();
   private nextId = 1;
   private readonly viewers = new Set<ServerResponse>();
-  private cast: { page: Page; cdp: CDPSession } | undefined;
+  private cast: { page: Page; cdp: CDPSession; download: (d: { suggestedFilename(): string }) => void } | undefined;
   private casting: Promise<void> = Promise.resolve();
   private hidden = false;
+  /** The scroll of the shown tab in its latest frame: a mark that came without one is placed by it. */
+  private frameScroll: StagePoint | undefined;
   private readonly token = randomBytes(32).toString("base64url");
   private readonly codes = new Map<string, number>();
   private tcp: Server | undefined;
@@ -218,10 +228,18 @@ export class LiveServer implements BrowserWatch {
 
   constructor(private readonly o: LiveServerOptions) {
     this.timeline = new Timeline(o.redactor);
+    this.stage = new Stage({
+      target: (tool, args) => this.timeline.targetOf(tool, args),
+      clean: (text, max) => this.timeline.clean(text, max),
+    });
     this.timeline.onEntry((entry) => this.onStep(entry));
+    this.stage.onEvent((event) => {
+      if (this.viewers.size) this.broadcast("fx", JSON.stringify(event));
+    });
   }
 
   private onStep(entry: TimelineEntry): void {
+    if (entry.kind === "call") this.stage.end(entry);
     if (!this.viewers.size) return;
     this.broadcast("step", JSON.stringify(entry));
     // A call can make a session stuck or clear it, which the state says.
@@ -366,8 +384,12 @@ export class LiveServer implements BrowserWatch {
     return this.lastBySession.get(session);
   }
 
-  /** An agent call starts; returns what to call when it ends. */
-  begin(): () => void {
+  /**
+   * An agent call starts; returns what to call when it ends. `call` says which, for the view's
+   * effects (its end comes from the timeline).
+   */
+  begin(call?: { tool: string; args: Record<string, unknown>; session: string; agent?: string }): () => void {
+    if (call) this.stage.start(call);
     this.busy++;
     this.pushState();
     let done = false;
@@ -377,6 +399,21 @@ export class LiveServer implements BrowserWatch {
       this.busy--;
       this.pushState();
     };
+  }
+
+  /** A mark of the agent cursor on `page` (a box, a click, a field typed into), for the view's effects. */
+  mark(page: Page, session: string, m: CursorMark): void {
+    // A page that holds a vault value is not shown, and neither is where the agent acts on it.
+    if (!this.viewers.size || page.isClosed() || this.o.guard.holds(page)) return;
+    const scroll = m.scroll ?? (page === this.cast?.page ? this.frameScroll : undefined);
+    this.stage.mark({
+      session,
+      tab: this.idOf(page),
+      mark: m.mark,
+      ...(m.box ? { box: m.box } : {}),
+      ...(m.point ? { point: m.point } : {}),
+      ...(scroll ? { scroll } : {}),
+    });
   }
 
   /** A vault or sensitive value is about to go into `page`: the view stops showing it now. */
@@ -424,6 +461,14 @@ export class LiveServer implements BrowserWatch {
   async pause(by: string, front = false, hold: PauseHold = {}): Promise<boolean> {
     if (!this.gate.start(by, this.tabStates(), hold)) return false;
     this.timeline.paused(by, hold.step === true);
+    const cue = hold.cue;
+    this.stage.paused({
+      by,
+      step: hold.step === true,
+      ...(cue ? { cue } : {}),
+      ...(cue?.page ? { tab: this.idOf(cue.page) } : {}),
+      ...(cue?.page && cue.page === this.cast?.page && this.frameScroll ? { scroll: this.frameScroll } : {}),
+    });
     this.o.log?.(
       hold.step
         ? `"${this.o.identity.id}" waits for the person (${by}); every call waits until the step ends`
@@ -434,7 +479,7 @@ export class LiveServer implements BrowserWatch {
     const b = this.browser;
     if (b) {
       this.heldBrowser = b;
-      await b.onPause?.().catch(() => {});
+      await b.onPause?.(cue).catch(() => {});
       const target = this.target();
       if (front && !this.o.headless && !b.userBrowser && target) await target.bringToFront().catch(() => {});
     }
@@ -446,7 +491,10 @@ export class LiveServer implements BrowserWatch {
     const was = this.gate.current();
     if (!this.gate.resume()) return false;
     this.o.log?.(`"${this.o.identity.id}" resumed`);
-    if (was) void this.noteHandBack(was);
+    if (was) {
+      this.stage.resumed(Date.now() - was.since, was.step);
+      void this.noteHandBack(was);
+    }
     const b = this.heldBrowser;
     this.heldBrowser = undefined;
     b?.onResume?.();
@@ -550,13 +598,21 @@ export class LiveServer implements BrowserWatch {
     const old = this.cast;
     this.cast = undefined;
     this.hidden = false;
+    this.frameScroll = undefined;
     if (old) {
+      old.page.off("download", old.download);
       await old.cdp.send("Page.stopScreencast").catch(() => {});
       await old.cdp.detach().catch(() => {});
     }
     if (!want || !b) return;
     const cdp = await b.context.newCDPSession(want);
-    const cast = { page: want, cdp };
+    // A download from the shown tab: its file name, for the view's effect (Playwright's event).
+    const download = (d: { suggestedFilename(): string }) => {
+      if (this.viewers.size)
+        this.stage.mark({ session: "", tab: this.idOf(want), mark: "download", name: d.suggestedFilename() });
+    };
+    want.on("download", download);
+    const cast = { page: want, cdp, download };
     this.cast = cast;
     cdp.on("Page.screencastFrame", (f) => {
       void cdp.send("Page.screencastFrameAck", { sessionId: f.sessionId }).catch(() => {});
@@ -573,12 +629,19 @@ export class LiveServer implements BrowserWatch {
         this.hidden = false;
         this.pushState();
       }
+      const m = f.metadata;
+      this.frameScroll = { x: m.scrollOffsetX ?? 0, y: m.scrollOffsetY ?? 0 };
       this.broadcast(
         "frame",
         JSON.stringify({
           tab: this.idOf(want),
-          w: f.metadata.deviceWidth ?? 0,
-          h: f.metadata.deviceHeight ?? 0,
+          w: m.deviceWidth ?? 0,
+          h: m.deviceHeight ?? 0,
+          // Where the page was, so the view places the effects' boxes on the picture (`live-map.ts`).
+          sx: m.scrollOffsetX ?? 0,
+          sy: m.scrollOffsetY ?? 0,
+          scale: m.pageScaleFactor ?? 1,
+          top: m.offsetTop ?? 0,
           data: f.data,
         }),
       );
@@ -732,6 +795,8 @@ export class LiveServer implements BrowserWatch {
     });
     res.write("retry: 3000\n\n");
     res.write(`event: steps\ndata: ${JSON.stringify(this.timeline.list())}\n\n`);
+    // The steps that run now, so a view that opens mid-call shows them.
+    for (const e of this.stage.running()) res.write(`event: fx\ndata: ${JSON.stringify(e)}\n\n`);
     this.viewers.add(res);
     req.on("close", () => {
       this.viewers.delete(res);

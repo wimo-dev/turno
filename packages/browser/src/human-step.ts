@@ -1,6 +1,7 @@
 import type { ElementHandle, Frame, Page } from "patchright-core";
 import { type StepCommand, type StepReport, type StepView, humanStepOverlay } from "./human-step-overlay.js";
 import { describeChanges, formatPause } from "./live.js";
+import type { HumanCue, HumanCueKind } from "./live-effects.js";
 import { names } from "./names.js";
 import type { VaultGuard } from "./redact.js";
 import type { TurnoTool } from "./tools.js";
@@ -380,6 +381,8 @@ export interface StepDeps {
   locale?: UiLocale;
   /** The banner's title and hint, in place of the step's own (a page's passkey prompt). */
   banner?: { title: string; hint: string };
+  /** What the step is for, as the live view and Chrome's highlight show it (default: a step). */
+  cue?: HumanCueKind;
   pollMs?: number;
   drainMs?: number;
   now?: () => number;
@@ -464,7 +467,16 @@ export async function runStep(params: StepParams, deps: StepDeps): Promise<StepR
   const deadline = began + params.timeoutMs;
   const before = await watch.tabStates();
   const startUrl = page.url();
-  if (!(await watch.pause(deps.by ?? HUMAN_STEP_TOOL, false, { step: true, until: deadline }))) {
+  // Read over the protocol (no script in the page), for the live view and Chrome's highlight.
+  const box = target ? await target.handle.boundingBox().catch(() => null) : null;
+  const cue: HumanCue = {
+    kind: deps.cue ?? "step",
+    text: params.instruction,
+    ...(deps.banner ? { detail: deps.banner.hint } : {}),
+    ...(box ? { box } : {}),
+    page,
+  };
+  if (!(await watch.pause(deps.by ?? HUMAN_STEP_TOOL, false, { step: true, until: deadline, cue }))) {
     await target?.handle.dispose().catch(() => {});
     const by = watch.gate.paused?.by ?? "the user";
     return { error: `the browser is paused (${by}); call again once it is resumed` };

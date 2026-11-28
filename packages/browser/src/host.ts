@@ -526,6 +526,8 @@ class SessionBackend extends EventEmitter implements ServerBackend {
   private readonly fieldsRead = new WeakMap<Page, number>();
   /** Open dialogs (alert, confirm, prompt) per page: a page runs no script while one is open. */
   private readonly dialogs = new WeakMap<Page, number>();
+  /** Where each page last showed a captcha or a check for a person: a person step there is for it. */
+  private readonly challengeUrls = new WeakMap<Page, string>();
   /** The challenge check of each page's last load, until a result reports it. */
   private readonly challenges = new WeakMap<Page, Promise<Omit<ChallengeEvent, "ts"> | undefined>>();
   /** The system's notifications of this session's browser (`notify.ts`), from its launch on. */
@@ -734,6 +736,7 @@ class SessionBackend extends EventEmitter implements ServerBackend {
             locale,
             ...(identity ? { identity: identity.id } : {}),
             blocked: (page) => (this.dialogs.get(page) ?? 0) > 0,
+            ...(this.host.live ? { onMark: this.host.live.mark.bind(this.host.live) } : {}),
           })
         : undefined;
       // With humanize off too, a click lands inside its element rather than on its exact center,
@@ -854,10 +857,10 @@ class SessionBackend extends EventEmitter implements ServerBackend {
           urlOf: (page) => tabs.parkedUrl(page) ?? page.url(),
           // While the user has the browser, the idle limit does not close it, the tab governor
           // parks and closes nothing (a popup the user opens stays), and no trace records it.
-          onPause: async () => {
+          onPause: async (cue) => {
             tabs.beginCall();
             endIdle = idle?.begin();
-            await cursor?.setPaused(launched.context.pages(), true);
+            await cursor?.setPaused(launched.context.pages(), true, cue);
             await recording?.pauseForUser();
           },
           onResume: () => {
@@ -1099,6 +1102,7 @@ class SessionBackend extends EventEmitter implements ServerBackend {
       }),
     ]).finally(() => clearTimeout(timer));
     if (!event) return result;
+    this.challengeUrls.set(page, page.url());
     if (event.kind !== "captcha" || !this.host.solver)
       this.notify(
         "a person may be needed",
@@ -1308,7 +1312,10 @@ class SessionBackend extends EventEmitter implements ServerBackend {
         json,
       );
     if (outcome.kind === "aborted") return errorResult(`${name} was cancelled while the user had the browser`, json);
-    const begun = step ? () => {} : watch.begin();
+    const client = this.clients.get(key) ?? this.clientInfo?.clientName;
+    const begun = step
+      ? () => {}
+      : watch.begin({ tool: name, args, session: key, agent: client ? agentName(client) : "" });
     const end = () => {
       begun();
       if (!step) this.agentDoneAt = Date.now();
@@ -1625,7 +1632,7 @@ class SessionBackend extends EventEmitter implements ServerBackend {
           (launched.engine === "lightpanda" ? undefined : await coveredBeforeCall(page, name, args, json)) ??
           (await this.withCursor(running, name, page, () => backend.callTool(name, args, signal)));
         result = await afterOwnClose(backend, page, name, args, result);
-        void running.cursor?.end(backendContext(backend)?.currentTab()?.page, key);
+        void running.cursor?.end(backendContext(backend)?.currentTab()?.page, key, result.isError === true);
         this.watch.follow(key, backendContext(backend)?.currentTab()?.page);
         if (result.isError)
           result = await explainFailure(backendContext(backend)?.currentTab()?.page, name, args, result, json);
@@ -1878,6 +1885,7 @@ class SessionBackend extends EventEmitter implements ServerBackend {
             watch: this.watch,
             guard: this.host.guard,
             by: "a passkey prompt",
+            cue: "passkey",
             settle,
             locale,
             banner: { title: strings.title, hint: strings.hint },
@@ -1959,6 +1967,7 @@ class SessionBackend extends EventEmitter implements ServerBackend {
       signal: stop.signal,
       currentPage: () => stock.currentPage(),
       locale: running.locale,
+      cue: click ? "last-click" : this.challengeUrls.get(page) === page.url() ? "captcha" : "step",
     });
     const step = this.steps.open(
       { by: HUMAN_STEP_TOOL, instruction: params.instruction, timeoutMs: params.timeoutMs },

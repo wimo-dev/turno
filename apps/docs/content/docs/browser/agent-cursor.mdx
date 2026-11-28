@@ -9,7 +9,8 @@ When someone can see the browser, turno-browser shows where the agent acts. It i
 
 By default Chrome draws it, over the DevTools protocol, with nothing in the page:
 
-- the element the agent acts on gets Chrome's own highlight, a blue box, from the start of the action to the end of the call;
+- the element the agent acts on gets Chrome's own highlight, a box, from the start of the action to the end of the call: blue for a click, violet while the agent types, red for a moment when the call fails;
+- while the agent waits for you (a person step, the last click, a passkey), the step's target gets an amber box, or the page an amber outline when the step has none;
 - each click of the agent leaves Chrome's own ripple where it landed (Chrome 158 and later).
 
 Both are painted by the browser above the page, like the boxes of Chrome's DevTools, so no script of the page can see them: the page's DOM, its mutation observers and its layout stay as they would be without turno. On the [reputation bench](https://github.com/wimo-dev/turno/tree/main/bench/browser)'s probe page, which records the elements no page script made, the cursor drawn in the page shows up as one element (`turno-agent-cursor`) and Chrome's highlight as none. They show in Chrome's window and in the [live view](/docs/browser/live-view), and the highlight is hidden while `browser_take_screenshot` runs.

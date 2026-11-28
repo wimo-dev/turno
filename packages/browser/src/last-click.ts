@@ -266,6 +266,24 @@ const ACT: Record<LastClickKind, string> = {
   delete: "delete something that cannot be brought back",
 };
 
+/** The sentence of a refusal that says the click is the person's (`handedClick` reads it). */
+const HANDED = "and the last click of such an act is the person's: it was not made.";
+
+/**
+ * When a call's error is this rule's refusal, what the click does ("Total: $110.50"; "" when the
+ * page said nothing), else undefined: the live view shows it as handed to the person, not failed.
+ */
+export function handedClick(text: string): string | undefined {
+  const at = text.indexOf(HANDED);
+  if (at < 0) return undefined;
+  const head = text.slice(0, at);
+  for (const act of Object.values(ACT)) {
+    const from = head.indexOf(`would ${act} (`);
+    if (from >= 0 && head.endsWith("), ")) return head.slice(from + act.length + 8, -3);
+  }
+  return "";
+}
+
 /** What the agent reads instead of the click: why, and the person step to ask for. */
 export function lastClickRefusal(o: {
   click: LastClick;
@@ -285,7 +303,7 @@ export function lastClickRefusal(o: {
     ? ` The person can turn this off with turno-browser set ${o.identity} --last-click false.`
     : "";
   return [
-    `This click would ${ACT[o.click.kind]}${what ? ` (${what})` : ""}, and the last click of such an act is the person's: it was not made.`,
+    `This click would ${ACT[o.click.kind]}${what ? ` (${what})` : ""}, ${HANDED}`,
     `Fill in everything else, then call browser_request_human with ${JSON.stringify(call)}. The banner shows the person what the click does, and the result says whether their own click landed on it.${off}`,
   ].join("\n");
 }
