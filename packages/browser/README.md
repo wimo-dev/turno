@@ -43,7 +43,8 @@ The docs are at [turno.wimo.dev/docs/browser](https://turno.wimo.dev/docs/browse
 
 It has no account, no server of its own and no telemetry.
 [What leaves your machine](https://turno.wimo.dev/docs/browser/what-leaves-your-machine) lists
-every way data can go out, and when.
+every way data can go out: some turn on by themselves when something is there to answer them, and
+the rest stay off until you turn them on or run them.
 
 ## Where it sits
 
