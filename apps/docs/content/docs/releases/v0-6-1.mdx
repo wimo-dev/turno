@@ -37,6 +37,12 @@ Each turno-browser release on GitHub now carries one executable per platform (ma
 
 </Highlight>
 
+## Browser
+
+- **One executable, both programs**: the standalone executable runs `turno-browser <command>`, and `turno-browser mcp` for the MCP server. In it, `setup` and `init` give the agent the executable itself, and `status` and `doctor` recognize that entry in an agent's config.
+- **Doctor names the secret store** in use, and on Windows its folder.
+- **Read mode on Windows**: Lightpanda, the engine of [read mode](/docs/browser/engines#read-mode-lightpanda), has no Windows build.
+
 ## Fixes
 
 **turno-browser 0.10.1** (2026-11-23), with no other package changed:

@@ -59,6 +59,16 @@ With a Spanish locale (`es`, `es-MX`, `es-419`), the live view, the banner of a 
 
 </Highlight>
 
+## Browser
+
+- **[Auto submit](/docs/browser/policy#auto-submit)**: a policy with `autoSubmit: false` keeps `browser_login` from submitting the sign-in form, whatever `vault submit` says.
+- **More of the policy**: `allowedDomains` also turns the network routing tools off, the server refuses to start with a `--caps` whose tools the policy turns off, and `show --json` and `status --json` show the policy.
+- **A profile keeps its browser**: switching the browser of a profile another browser already opened is refused unless you pass `--force`, since the new browser rewrites the profile and, with `keychain: "system"`, cannot read the old one's cookies.
+- **Doctor and browsers**: `doctor` lists every browser it finds (Chrome, Edge, Brave, Chromium, Chrome for Testing), says which one each identity uses and whether it is installed, warns when a newer browser last opened a profile, and names `install-browser` when there is none. It also shows the memory pressure.
+- **`init` twice adds nothing**: an agent that already has the identity's server is left as it is. `init` exits 1 when the agent's command fails, and 127 when `--yes` names an agent whose program is not on the PATH.
+- **`destroy`** is another name for `remove`.
+- **Whose turn it is**: the live view shows a person step's pause as "Paused (your turn)" instead of the tool name.
+
 ## Fixes
 
 - **Attach mode** no longer fails with "DevToolsActivePort is not a port and a path" right after Chrome starts.
