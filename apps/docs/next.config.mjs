@@ -1,10 +1,14 @@
 import { createMDX } from "fumadocs-mdx/next";
 
-/** A permanent redirect, for English and for Spanish under /es. */
-const moved = (from, to) => [
-  { source: from, destination: to, permanent: true },
-  { source: `/es${from}`, destination: `/es${to}`, permanent: true },
-];
+/**
+ * A permanent redirect, for English and for Spanish under /es, and for the Markdown of the page
+ * (its address plus .md), which would otherwise fall through to the rewrite below and not be found.
+ */
+const moved = (from, to) =>
+  ["", "/es"].flatMap((lang) => [
+    { source: `${lang}${from}.md`, destination: `${lang}${to}.md`, permanent: true },
+    { source: `${lang}${from}`, destination: `${lang}${to}`, permanent: true },
+  ]);
 
 /** @type {import('next').NextConfig} */
 const config = {

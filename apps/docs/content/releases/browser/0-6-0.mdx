@@ -32,6 +32,10 @@ echo 'eval "$(turno-browser completion bash)"' \
 
 </Highlight>
 
+## Fixes
+
+- **Quiet pipes**: `turno-browser --help | head` sometimes printed an `EPIPE` stack trace when the reader stopped early. It now ends quietly.
+
 ## Links
 
 - Full changelogs: [turno-browser](https://github.com/wimo-dev/turno/blob/main/packages/browser/CHANGELOG.md) and [turno-core](https://github.com/wimo-dev/turno/blob/main/packages/core/CHANGELOG.md).
