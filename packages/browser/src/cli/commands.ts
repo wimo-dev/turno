@@ -590,7 +590,8 @@ agents whose config has it.`,
       synopsis: "<id> [--flows] [--traces] [--screenshots] [--max-size <size>] [--off] [--dry-run] [--json]",
       details: `With no flag, shows what the identity records and where. --flows, --traces and --screenshots
 turn those on (the next Chrome start uses them), --off turns everything off; turn one off with
-${b} set <id> --record-traces false. All are off by default.
+${b} set <id> --record-traces false. Flows and screenshots are on by default; traces are off,
+since while tracing Chrome loads no image or frame of another site.
 
   flows        every session's actions saved as a flow (auto-<time>, newest 20 kept)
   traces       a Playwright trace of each browser session (${b} traces)

@@ -261,7 +261,8 @@ What turno-browser records for this identity (turno-browser record):
   --record-flows <bool>           keep every session's actions as a flow (auto-<time>, newest
                                   20; on by default)
   --record-traces <bool>          a Playwright trace of each browser session (turno-browser traces);
-                                  by default only the traces with a failed step are kept
+                                  off by default: while tracing, Chrome loads no image or
+                                  frame of another site
   --record-screenshots <bool>     a screenshot after each action (on by default, never of a
                                   page that shows a vault value; not with attach or Lightpanda)
   --record-max-size <size>        cap of the traces and screenshots, "10MB" to "10GB" (default 200MB)
@@ -318,7 +319,7 @@ What the identity may do (a policy; only this command writes it, no agent tool c
                                   navigation of every tab is checked, a page's own scripts,
                                   images and data are not
   --disable <list>                features that do not exist for it: act, captcha, login, totp,
-                                  attach, evaluate, run_code, network
+                                  attach, evaluate, run_code, storage, network
   --auto-submit false             browser_login never submits, whatever vault submit says
   --no-policy                     remove the policy
 Any policy turns browser_run_code_unsafe off, and allowedDomains the network tools. The server
@@ -416,8 +417,8 @@ Usage:
   turno-browser vault remove <identity> <site> [--dry-run]
     delete a site's credentials
   turno-browser vault submit <identity> <confirm|auto> [--dry-run]
-    let browser_login submit the form (auto) or leave the click to the agent
-    (confirm, default)
+    let browser_login submit the form (auto, default) or leave the click to the
+    agent (confirm)
 
 The vault keeps a username, a password and optionally a TOTP secret per site for one
 browser identity, only in the secret store (the macOS Keychain or the Linux Secret Service).
@@ -476,8 +477,8 @@ Examples:
 ```text
 Usage:
   turno-browser vault submit <identity> <confirm|auto> [--dry-run]
-    let browser_login submit the form (auto) or leave the click to the agent
-    (confirm, default)
+    let browser_login submit the form (auto, default) or leave the click to the
+    agent (confirm)
 
 Examples:
   $ turno-browser vault submit work auto
@@ -580,7 +581,8 @@ Usage:
 
 With no flag, shows what the identity records and where. --flows, --traces and --screenshots
 turn those on (the next Chrome start uses them), --off turns everything off; turn one off with
-turno-browser set <id> --record-traces false. All are off by default.
+turno-browser set <id> --record-traces false. Flows and screenshots are on by default; traces are off,
+since while tracing Chrome loads no image or frame of another site.
 
   flows        every session's actions saved as a flow (auto-<time>, newest 20 kept)
   traces       a Playwright trace of each browser session (turno-browser traces)
