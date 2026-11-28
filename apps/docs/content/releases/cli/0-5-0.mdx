@@ -1,0 +1,28 @@
+---
+title: turno 0.5.0
+description: turno browser keeps its names, flags and output while turno-browser gets a command of its own, and turno-cli needs turno-browser 0.5.
+product: cli
+version: 0.5.0
+date: 2026-11-19
+with: ["turno-browser@0.5.0", "turno-core@0.2.0"]
+---
+
+turno is becoming a set of tools, and this release gives [turno-browser 0.5.0](/releases/browser/0-5-0) a life of its own. With turno nothing changes: `turno browser ...` keeps its names, flags and output.
+
+## Upgrade
+
+<Upgrade>
+
+**Update `turno-cli` and `turno-browser` together.** This turno-cli needs turno-browser 0.5, and says so in one line if the other one is older.
+
+**Let mcpd restart.** `turno upgrade` restarts it so it runs the new version. If you upgraded with your package manager, run `turno upgrade --finish`.
+
+</Upgrade>
+
+## Packages
+
+- **`turno-core`**: the command line toolkit that turno-cli and turno-browser share (arguments, output, colors, exit codes, hidden prompts) moved here, so both commands look and behave the same.
+
+## Links
+
+- Full changelogs: [turno-cli](https://github.com/wimo-dev/turno/blob/main/packages/turno/CHANGELOG.md) and [turno-core](https://github.com/wimo-dev/turno/blob/main/packages/core/CHANGELOG.md).

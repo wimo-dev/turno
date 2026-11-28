@@ -1,0 +1,26 @@
+---
+title: turno-browser 0.2.0
+description: turno browser bench names its engines by browser and asks before it opens third-party pages, and turno-browser-mcp refuses to serve a signed-in identity over HTTP.
+product: browser
+version: 0.2.0
+date: 2026-11-17
+with: ["turno-cli@0.2.0"]
+---
+
+Released with [turno 0.2.0](/releases/cli/0-2-0), which gives the CLI a new look and makes the gateway do more with less.
+
+## Browser
+
+- **Engine ids**: `turno browser bench` names its engines `chrome-headed`, `chrome-headless`, `chrome-baseline` and `firefox`. `--engine` still accepts the old ids.
+- **Asks first**: `turno browser bench` asks before it opens Chrome on third-party test pages. `--only-urls` replaces `--no-detectors`, which still works.
+- **`turno-browser-mcp`**: refuses `--port` or `--host` together with `--identity`, which would serve a signed-in browser over HTTP. `--allow-http-identity` accepts it, and then it listens on 127.0.0.1 only.
+
+## Changed behavior
+
+What can break a script or a habit when you upgrade from 0.1:
+
+- **`turno browser bench`**: reports the new engine ids in its table and `--json`, and without a terminal it needs `--yes` (`--json` alone no longer runs it).
+
+## Links
+
+- Full changelog: [turno-browser 0.2.0](https://github.com/wimo-dev/turno/blob/main/packages/browser/CHANGELOG.md#020).

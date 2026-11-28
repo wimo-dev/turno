@@ -1,17 +1,17 @@
 ---
-title: turno 0.6.1
+title: turno-browser 0.10.0
 description: turno-browser runs on Windows, keeps its secrets there with DPAPI, and comes as a standalone executable for machines without Node.
+product: browser
+version: 0.10.0
+date: 2026-11-22
+with: ["turno-cli@0.6.1", "turno-core@0.5.0"]
 ---
-
-<ReleaseHeader date="2026-11-22" packages={["turno-cli@0.6.1", "turno-browser@0.10.1", "turno-core@0.5.0"]} />
 
 **[turno-browser](/browser)** now installs on Windows, and on any machine without Node as one executable.
 
 ## Upgrade
 
 <Upgrade>
-
-**Update `turno-cli` and `turno-browser` together**, as with every release.
 
 **Nothing to migrate** on macOS and Linux. On Windows, install with `npm i -g turno-browser`, or download the executable.
 
@@ -37,19 +37,13 @@ Each turno-browser release on GitHub now carries one executable per platform (ma
 
 </Highlight>
 
-## Browser
+## More
 
 - **One executable, both programs**: the standalone executable runs `turno-browser <command>`, and `turno-browser mcp` for the MCP server. In it, `setup` and `init` give the agent the executable itself, and `status` and `doctor` recognize that entry in an agent's config.
 - **Doctor names the secret store** in use, and on Windows its folder.
 - **Read mode on Windows**: Lightpanda, the engine of [read mode](/docs/browser/engines#read-mode-lightpanda), has no Windows build.
 
-## Fixes
-
-**turno-browser 0.10.1** (2026-11-23), with no other package changed:
-
-- **A policy** that sends a page back to its allowed sites no longer leaves the agent's call waiting until the client gives up (60 seconds in most clients). A blocked link now returns in about a second instead of about 15.
-
 ## Links
 
-- Full changelogs: [turno-cli](https://github.com/wimo-dev/turno/blob/main/packages/turno/CHANGELOG.md), [turno-browser](https://github.com/wimo-dev/turno/blob/main/packages/browser/CHANGELOG.md) and [turno-core](https://github.com/wimo-dev/turno/blob/main/packages/core/CHANGELOG.md).
+- Full changelogs: [turno-browser](https://github.com/wimo-dev/turno/blob/main/packages/browser/CHANGELOG.md) and [turno-core](https://github.com/wimo-dev/turno/blob/main/packages/core/CHANGELOG.md).
 - [Install on Windows](/docs/browser/get-started#on-windows), [install without Node](/docs/browser/get-started#install-without-node) and [secrets on Windows](/docs/browser/vault#on-windows).

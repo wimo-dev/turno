@@ -1,0 +1,82 @@
+---
+title: turno-browser 0.3.0
+description: A browser your agents can sign in with and carry between machines.
+product: browser
+version: 0.3.0
+date: 2026-11-18
+with: ["turno-cli@0.3.0", "turno-core@0.1.0", "turno-fonts@0.1.2"]
+---
+
+`turno-browser` is now its own MCP server: it **[signs in to a site without showing the password to the model](/docs/browser/vault)**, **[moves a signed-in session to another machine](/docs/browser/moving-a-session)**, **[keeps tabs under control](/docs/browser/tabs#tabs)**, and **[tells the agent what blocks a click](/docs/browser/actions#actions)**. It came out with [turno 0.3.0](/releases/cli/0-3-0).
+
+## Highlights
+
+<Highlight area="Browser" title="Sign in without showing the password" href="/docs/browser/vault" more="Credential vault">
+
+Each browser identity can keep its credentials in the OS secret store, and the new `browser_login` tool fills the site's sign-in form with them. The model never sees the values: they are bound to the site's own origins, redacted from every later result, and script tools are locked on a page that holds them. Submitting stays the agent's click unless the identity opts in.
+
+```sh
+turno browser vault add school campus \
+  --url https://campus.example.edu/login \
+  --username me --totp
+turno browser vault list school
+```
+
+</Highlight>
+
+<Highlight area="Browser" title="Take a signed-in browser to another machine" href="/docs/browser/moving-a-session" more="Moving a session">
+
+The file holds the identity's cookies, localStorage and IndexedDB, encrypted with a passphrase (scrypt and AES-256-GCM). It expires after 7 days by default and never holds vault credentials. With `"keychain": "system"` in `identity.json`, Chrome also encrypts the cookies on disk with the OS keychain, so a copy of the folder does not carry the sessions.
+
+```sh
+turno browser export school \
+  --out school.turno-session
+turno browser import school.turno-session \
+  --as school
+```
+
+</Highlight>
+
+<Highlight area="Browser" title="Tabs that clean up after themselves" href="/docs/browser/tabs#tabs" more="Tabs">
+
+An agent that browses for an hour used to leave dozens of tabs behind. Now each session keeps at most 8 pages; past that the least recently used one closes, never the agent's current tab. Pop-unders that open while no tool call runs are closed. A tab unused for 5 minutes is parked on a blank page and stops using CPU; the next call that needs it loads it again, and after 15 minutes it closes. Every result says what was closed or parked.
+
+```sh
+turno browser set school \
+  --tabs-max 12 --tabs-park 10m
+```
+
+</Highlight>
+
+<Highlight area="Browser" title="Fewer round trips, and errors that say what is in the way" href="/docs/browser/actions#actions" more="Actions">
+
+`browser_batch` runs up to 20 browser actions in one call: it checks every action first, stops at the first failure, and returns one line per action. A click that times out now says which element covers the target, or that the target is hidden, disabled, read-only or gone, and what to try next. `settle` in `identity.json` sets the wait after each action: in a local benchmark of 8 calls, `"100ms"` cut a form fill from about 1.8 s to 0.6 s.
+
+</Highlight>
+
+<Highlight area="Browser" title="Lighter pages" href="/docs/browser/network#blocking-and-the-resource-cache" more="Blocking and the resource cache">
+
+Two opt-in settings per identity, both off by default: `block` drops trackers, images, media or fonts you name, and `cache` keeps images, fonts, stylesheets and scripts on disk for that identity only, following `Cache-Control` and never storing anything tied to a cookie or an `Authorization` header.
+
+```sh
+turno browser set research \
+  --block-trackers true \
+  --block-types image,media --cache
+```
+
+</Highlight>
+
+## Browser
+
+- **`identity.json`**: pins each identity's time zone, languages, locale and region, so a site sees the same browser every session.
+- **A health check**: a URL and a text or selector mark a signed-out identity, and tool calls then ask for `turno browser login <id>` instead of failing on a login page.
+- **`turno browser reputation`**: shows the captchas and "verify it's you" pages each identity met, per site.
+- **`turno browser doctor`**: checks Chrome, a smoke launch, the desktop session and every identity, with a fix for each problem.
+- **Lifecycle**: Chrome closes after 15 minutes without a tool call and opens again on the next one, and a Chrome left behind by a killed session is closed on the next start.
+- **Settings by flag**: all of these settings can be changed with flags on `turno identity set` or `turno browser set`. [Browser identities](/docs/browser/identities).
+- **Its own MCP server**: `turno-browser` now hosts its MCP server itself instead of wrapping Playwright's program. The 25 tool names, their inputs and every flag are unchanged.
+
+## Links
+
+- Full changelog: [turno-browser](https://github.com/wimo-dev/turno/blob/main/packages/browser/CHANGELOG.md).
+- [Browser identities](/docs/browser/identities) and [What turno stores and where](/docs/security#what-turno-stores).

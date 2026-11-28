@@ -895,6 +895,13 @@ div[data-state]:has(+ [role="dialog"] [aria-controls="fd-search-list"]),
   padding-right: 0;
   border-left: 1px solid var(--d-line);
 }
+/* The packages published with it: a row of its own under the other two. */
+.d-rel-fact.d-rel-fact-wide {
+  grid-column: 1 / -1;
+  padding-left: 0;
+  border-left: 0;
+  border-top: 1px solid var(--d-line);
+}
 .d-rel-fact dt,
 .d-rel-step-dir {
   font-family: var(--d-mono);
@@ -1001,9 +1008,9 @@ a.d-rel-step:focus-visible {
 }
 
 /*
- * The change lists. A page that carries a ReleaseHeader reads as release notes: each item opens
- * with the thing that changed, in ink, and the rest steps back, so a column of names can be
- * scanned down the left edge. Items sit on hairlines instead of bullets.
+ * The change lists. A page with release facts (ReleaseFacts) reads as release notes: each item opens with the thing that changed, in
+ * ink, and the rest steps back, so a column of names can be scanned down the left edge. Items
+ * sit on hairlines instead of bullets.
  */
 #nd-page:has(.d-rel) .prose > ul {
   padding-left: 0;

@@ -1,0 +1,10 @@
+{
+  "title": "Releases",
+  "description": "What is new in each version of turno and turno-browser",
+  "root": true,
+  "pages": [
+    "index",
+    "cli",
+    "browser"
+  ]
+}

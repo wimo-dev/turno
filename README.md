@@ -17,7 +17,7 @@
 </p>
 
 <p align="center">
-  <a href="https://turno.wimo.dev"><b>turno.wimo.dev</b></a> · <a href="https://turno.wimo.dev/docs">Docs</a> · <a href="https://turno.wimo.dev/docs/releases">Releases</a> · English · <a href="README.es.md">Español</a>
+  <a href="https://turno.wimo.dev"><b>turno.wimo.dev</b></a> · <a href="https://turno.wimo.dev/docs">Docs</a> · <a href="https://turno.wimo.dev/releases">Releases</a> · English · <a href="README.es.md">Español</a>
 </p>
 
 **Switching accounts? Keep talking.** The same session continues on your other account, with

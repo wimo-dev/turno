@@ -1,17 +1,17 @@
 ---
-title: turno 0.5.2
+title: turno-browser 0.7.0
 description: An agent cursor that shows where the agent acts, turno-browser init for the first setup, and first steps that say what happened.
+product: browser
+version: 0.7.0
+date: 2026-11-20
+with: ["turno-cli@0.5.2"]
 ---
-
-<ReleaseHeader date="2026-11-20" packages={["turno-cli@0.5.2", "turno-browser@0.7.0"]} />
 
 You can now see the agent at work in **[turno-browser](/browser)**, and set it up in one guided command. The first commands also say more of what they did and what to do next.
 
 ## Upgrade
 
 <Upgrade>
-
-**Update `turno-cli` and `turno-browser` together**, as with every release: this turno-cli needs turno-browser 0.7.0.
 
 **The agent cursor is on when Chrome has a window.** If your identities run with a window (the background server of `turno-browser do` does, by default), you will see the cursor on the next agent session. `turno-browser set <id> --cursor off` keeps that identity's pages exactly as they were.
 
@@ -60,5 +60,5 @@ turno-browser init
 
 ## Links
 
-- Full changelogs: [turno-cli](https://github.com/wimo-dev/turno/blob/main/packages/turno/CHANGELOG.md) and [turno-browser](https://github.com/wimo-dev/turno/blob/main/packages/browser/CHANGELOG.md).
-- [The agent cursor](/docs/browser/agent-cursor), [Get started with turno-browser](/docs/browser/get-started#set-it-up) and [the turno-browser command reference](/docs/reference/turno-browser).
+- Full changelog: [turno-browser](https://github.com/wimo-dev/turno/blob/main/packages/browser/CHANGELOG.md).
+- [The agent cursor](/docs/browser/agent-cursor), [Get started with turno-browser](/docs/browser/get-started#set-it-up) and [the turno-browser command reference](/docs/browser/reference/cli).

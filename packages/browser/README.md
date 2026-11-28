@@ -121,7 +121,7 @@ like the `mcp.toml` block. See the guide
 [Let an agent use my signed-in browser](https://turno.wimo.dev/docs/guides/signed-in-browser).
 
 `turno-browser --help` lists every command by section, and the
-[reference](https://turno.wimo.dev/docs/reference/turno-browser) has the help of each one.
+[reference](https://turno.wimo.dev/docs/browser/reference/cli) has the help of each one.
 
 ## Identities
 

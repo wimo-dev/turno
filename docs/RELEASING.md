@@ -60,31 +60,45 @@ to `main`, in four jobs:
    link to the release page of turno's version on the site (or to the list of releases when
    that version has no page).
 
-### The release page
+### The release pages
 
-A minor release of turno (0.3, 0.4, ...) gets a page on the site that tells what is new and how
-to use it: `apps/docs/content/docs/releases/v<major>-<minor>-<patch>.mdx`, listed right after `index` in
-that folder's `meta.json`. Write it from the pending changesets while the "version packages" pull
-request is open, and copy the shape of the newest page (`v0-2-0.mdx`), in this order:
+Every version of turno-cli and of turno-browser gets a page on the site that tells what is new
+and how to use it: `apps/docs/content/releases/<product>/<x-y-z>.mdx`, where `<product>` is
+`cli` or `browser` and the file is named after the version with dashes
+(`browser/0-11-0.mdx`). That one file is the whole change: the lists of releases, the feeds, the
+sidebar (newest first by semver) and the older and newer links all read its frontmatter, and the
+build fails when a field is wrong or the file name does not match the version:
 
-1. `description`: one sentence that names the features. Under it,
-   `<ReleaseHeader date="YYYY-MM-DD" packages={["turno-cli@0.3.0", "turno-browser@0.3.0"]} />`,
-   each package as its git tag; it links the GitHub releases, the changelogs and the older and
-   newer versions by itself.
-2. A paragraph with the headline features in bold, each linked to the docs page that explains it.
-3. `## Upgrade` with `<Upgrade>`; its children are what to run after upgrading, when there is
+```yaml
+---
+title: turno-browser 0.11.0
+description: One plain sentence that names the main change.
+product: browser            # "browser" | "cli"
+version: 0.11.0             # x.y.z
+date: 2026-11-28            # YYYY-MM-DD
+with: ["turno-cli@0.6.2"]   # optional: other packages published in the same release, as git tags
+---
+```
+
+The page shows the date, the package with its GitHub release and changelog, the packages in
+`with` (linking their own page when they have one) and the older and newer versions by itself.
+Write it from the pending changesets while the "version packages" pull request is open, and copy
+the shape of the newest page of that product, in this order:
+
+1. A paragraph with the headline features in bold, each linked to the docs page that explains it.
+   When the version only follows the other product, say so in one sentence and link its page.
+2. `## Upgrade` with `<Upgrade>`; its children are what to run after upgrading, when there is
    something (`<Upgrade />` when there is not).
-4. `## Highlights`: one `<Highlight area="Gateway" title="..." href="/docs/..." more="...">` per
+3. `## Highlights`: one `<Highlight area="Gateway" title="..." href="/docs/..." more="...">` per
    headline feature, with two or three lines and a short code block (comments under about 30
    characters, so it fits beside the text). `area` is CLI, Gateway, Browser, Accounts or Docs.
-5. One `##` per area (CLI, Gateway, Accounts, Security, Browser), then `## Fixes`,
+4. One `##` per area (CLI, Gateway, Accounts, Security, Browser), then `## Fixes`,
    `## Changed behavior` for anything that can break a script, and `## Links`. These are plain
    Markdown lists, one item per change: `- **The thing**: what changed.`
 
-Then put the version on the list of releases (`index.mdx`): a `<Release latest ...>` entry at
-the top of `<ReleaseLine>`, with a summary that names and links the features, and remove `latest`
-from the entry below it. Merge the page just before merging the version pull request, so the
-site and the GitHub releases go live together. A patch release needs no page.
+Browser highlights and changes go on the turno-browser page, the rest on the turno-cli page.
+Merge the pages just before merging the version pull request, so the site and the GitHub
+releases go live together.
 
 The gate is the `npm` environment: the publish job waits until a required reviewer approves
 the deployment on GitHub. The trusted publishers allow `npm publish`, so an approved run

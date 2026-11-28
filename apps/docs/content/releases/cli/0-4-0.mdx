@@ -1,0 +1,29 @@
+---
+title: turno 0.4.0
+description: turno-cli 0.4.0 needs turno-browser 0.4, restarts mcpd when it upgrades, shows its status faster and adds a short form of turno browser do.
+product: cli
+version: 0.4.0
+date: 2026-11-19
+with: ["turno-browser@0.4.0"]
+---
+
+turno 0.4.0 is about the browser again, in [turno-browser 0.4.0](/releases/browser/0-4-0): one browser identity can serve several agents at once, what an agent does can be saved as a flow and replayed, coding agents can drive the browser from the shell, and you can watch the agent's tab and take over.
+
+## Upgrade
+
+<Upgrade>
+
+**Update `turno-cli` and `turno-browser` together.** This turno-cli needs turno-browser 0.4, and says so in one line if the other one is older.
+
+**Let mcpd restart.** `turno upgrade` restarts it so it runs the new version. If you upgraded with your package manager, run `turno upgrade --finish`.
+
+</Upgrade>
+
+## CLI
+
+- **Faster status**: `turno doctor`, `turno status` and `turno mcp daemon status` no longer wait for `lsof` to tell who holds mcpd's port, which took seconds on a busy Mac.
+- **`turno browser <id> <action>`**: the short form of `turno browser do`, when the id is not a subcommand.
+
+## Links
+
+- Full changelog: [turno-cli](https://github.com/wimo-dev/turno/blob/main/packages/turno/CHANGELOG.md).
